@@ -18537,3 +18537,633 @@ at F:\zhoubingquan\VpnProxyServer\AppScope\resources\base\media\foreground.png
 [2026-01-14T15:28:43.546] [DEBUG] debug-file - session manager: send message to worker process.
 [2026-01-14T15:28:43.545] [DEBUG] debug-file - watch worker: worker id should be larger than 0. Nothing will be sent to any worker thread.
 [2026-01-14T15:28:43.546] [DEBUG] debug-file - watch worker: worker id should be larger than 0. Nothing will be sent to any worker thread.
+[2026-01-14T15:40:35.010] [DEBUG] debug-file - env: nodejsVersion=v18.20.1
+[2026-01-14T15:40:35.753] [DEBUG] debug-file - Hvigor init with startParameters:{
+  hvigorfileTypeCheck: false,
+  parallelExecution: true,
+  incrementalExecution: true,
+  printStackTrace: false,
+  daemon: false,
+  analyze: 0,
+  logLevel: Level { level: 20000, levelStr: 'INFO', colour: 'green' },
+  optimizationStrategy: 'memory',
+  hotCompile: undefined,
+  hotReloadBuild: undefined
+}
+[2026-01-14T15:40:39.836] [DEBUG] debug-file - hvigorfile, require result:  { default: { system: [Function: appTasks], plugins: [] } }
+[2026-01-14T15:40:40.143] [DEBUG] debug-file - Start initialize project's product build option map with build mode debug.
+[2026-01-14T15:40:40.152] [DEBUG] debug-file - Obtain build option for product 'default'in this build.
+[2026-01-14T15:40:40.180] [DEBUG] debug-file - Start recording SDK configuration permission data.
+[2026-01-14T15:40:40.246] [DEBUG] debug-file - Project task initialization takes 11 ms 
+[2026-01-14T15:40:35.012] [DEBUG] debug-file - env: hvigor-config.json5 content = {
+  modelVersion: '6.0.1',
+  dependencies: {},
+  execution: {},
+  logging: {},
+  debugging: {},
+  nodeOptions: {}
+}
+[2026-01-14T15:40:40.287] [DEBUG] debug-file - Start initialize module-target build option map, moduleName=entry, buildMode=debug
+[2026-01-14T15:40:40.337] [DEBUG] debug-file - Start to initialize dependency information.
+[2026-01-14T15:40:40.303] [DEBUG] debug-file - project has submodules:entry
+[2026-01-14T15:40:40.377] [DEBUG] debug-file - Create  resident worker with id: 0.
+[2026-01-14T15:40:35.762] [DEBUG] debug-file - Cache service initialization finished in 9 ms 
+[2026-01-14T15:40:39.836] [DEBUG] debug-file - hvigorfile, binding system plugins [Function: appTasks]
+[2026-01-14T15:40:40.143] [DEBUG] debug-file - Picking option from product 'default' with build mode 'debug'.
+[2026-01-14T15:40:40.164] [DEBUG] debug-file - F:\zhoubingquan\VpnProxyServer\build\cache\default\remote_hsp\remoteHspCache.json not exists.
+[2026-01-14T15:40:40.234] [DEBUG] debug-file - Sdk init in 69 ms 
+[2026-01-14T15:40:40.246] [DEBUG] debug-file - hvigorfile, binding custom plugins []
+[2026-01-14T15:40:35.015] [DEBUG] debug-file - env: daemon=false
+[2026-01-14T15:40:40.287] [DEBUG] debug-file - Target 'default' config initialized
+[2026-01-14T15:40:40.343] [DEBUG] debug-file - Module entry Collected Dependency: 
+[2026-01-14T15:40:40.306] [DEBUG] debug-file - start to load updatedOhPackageInfo to the disk
+[2026-01-14T15:40:40.380] [DEBUG] debug-file - Create  resident worker with id: 1.
+[2026-01-14T15:40:35.764] [DEBUG] debug-file - hvigorfile, resolving F:\zhoubingquan\VpnProxyServer\hvigorfile.ts
+[2026-01-14T15:40:40.144] [DEBUG] debug-file - Product 'default' build option initialized
+[2026-01-14T15:40:40.167] [DEBUG] debug-file - Local scan or download HarmonyOS sdk components toolchains,ets,js,native,previewer
+[2026-01-14T15:40:40.246] [DEBUG] debug-file - hvigorfile, no custom plugins were found in F:\zhoubingquan\VpnProxyServer\hvigorfile.ts
+[2026-01-14T15:40:35.015] [DEBUG] debug-file - no-daemon, use the parent process.execArgv --max-old-space-size=8192,--max-semi-space-size=16,--expose-gc
+[2026-01-14T15:40:40.288] [DEBUG] debug-file - Target 'ohosTest' config initialized
+[2026-01-14T15:40:40.316] [DEBUG] debug-file - load to the disk finished
+[2026-01-14T15:40:40.382] [DEBUG] debug-file - Current worker pool is stopped or closed.
+[2026-01-14T15:40:40.343] [DEBUG] debug-file - Module entry's total dependency: 0
+[2026-01-14T15:40:40.144] [DEBUG] debug-file - End initialize project's product build option map with build mode 'debug'.
+[2026-01-14T15:40:40.172] [DEBUG] debug-file - Local scan or download hmscore sdk components toolchains,ets,native
+[2026-01-14T15:40:40.246] [DEBUG] debug-file - hvigorfile, resolve finished F:\zhoubingquan\VpnProxyServer\hvigorfile.ts
+[2026-01-14T15:40:40.288] [DEBUG] debug-file - Module 'entry' target 'default' build option initialized
+[2026-01-14T15:40:40.318] [DEBUG] debug-file - Start to initialize dependency information.
+[2026-01-14T15:40:40.382] [DEBUG] debug-file - Clear worker 0.
+[2026-01-14T15:40:40.348] [DEBUG] debug-file - Configuration phase cost:4 s 586 ms 
+[2026-01-14T15:40:40.288] [DEBUG] debug-file - Module 'entry' target 'ohosTest' build option initialized
+[2026-01-14T15:40:40.248] [DEBUG] debug-file - hvigorfile, resolving F:\zhoubingquan\VpnProxyServer\entry\hvigorfile.ts
+[2026-01-14T15:40:40.333] [DEBUG] debug-file - Module VpnProxyServer Collected Dependency: 
+[2026-01-14T15:40:40.382] [DEBUG] debug-file - Worker 0 has been cleared.
+[2026-01-14T15:40:40.351] [DEBUG] debug-file - Configuration task cost before running: 4 s 609 ms 
+[2026-01-14T15:40:40.288] [DEBUG] debug-file - End initialize module-target build option map, moduleName=entry
+[2026-01-14T15:40:40.258] [DEBUG] debug-file - hvigorfile, require result:  { default: { system: [Function: hapTasks], plugins: [] } }
+[2026-01-14T15:40:40.334] [DEBUG] debug-file - Module VpnProxyServer's total dependency: 0
+[2026-01-14T15:40:40.382] [DEBUG] debug-file - Current idle worker size: 1.
+[2026-01-14T15:40:40.351] [DEBUG] debug-file - Executing task :entry:init
+[2026-01-14T15:40:40.288] [DEBUG] debug-file - Start initialize module-target build option map, moduleName=entry, buildMode=release
+[2026-01-14T15:40:40.259] [DEBUG] debug-file - hvigorfile, binding system plugins [Function: hapTasks]
+[2026-01-14T15:40:40.382] [DEBUG] debug-file - Current busy worker size: 0.
+[2026-01-14T15:40:40.352] [DEBUG] debug-file - entry : init cost memory 0.0141448974609375
+[2026-01-14T15:40:40.288] [DEBUG] debug-file - Target 'default' config initialized
+[2026-01-14T15:40:40.262] [DEBUG] debug-file - failed to load cangjie to dynamically generate schemas: Error: Cannot find module '@ohos/cangjie-build-support/index'
+Require stack:
+- F:\Huawei\DevEco Studio\tools\hvigor\hvigor-ohos-plugin\src\plugin\factory\plugin-factory.js
+- F:\Huawei\DevEco Studio\tools\hvigor\hvigor-ohos-plugin\index.js
+- F:\zhoubingquan\VpnProxyServer\hvigorfile.ts
+- F:\Huawei\DevEco Studio\tools\hvigor\hvigor\src\base\internal\lifecycle\configuration.js
+- F:\Huawei\DevEco Studio\tools\hvigor\hvigor\src\base\boot\index.js
+- F:\Huawei\DevEco Studio\tools\hvigor\hvigor\src\cli\main\cli.js
+- F:\Huawei\DevEco Studio\tools\hvigor\hvigor\bin\hvigor.js
+[2026-01-14T15:40:40.382] [DEBUG] debug-file - Clear worker 1.
+[2026-01-14T15:40:40.352] [DEBUG] debug-file - runTaskFromQueue task cost before running: 4 s 610 ms 
+[2026-01-14T15:40:40.289] [DEBUG] debug-file - Target 'ohosTest' config initialized
+[2026-01-14T15:40:40.353] [INFO] debug-file - Finished :entry:init... after 1 ms 
+[2026-01-14T15:40:40.289] [DEBUG] debug-file - Module 'entry' target 'default' build option initialized
+[2026-01-14T15:40:40.382] [DEBUG] debug-file - Worker 1 has been cleared.
+[2026-01-14T15:40:40.353] [DEBUG] debug-file - Executing task ::init
+[2026-01-14T15:40:40.289] [DEBUG] debug-file - Module 'entry' target 'ohosTest' build option initialized
+[2026-01-14T15:40:40.354] [DEBUG] debug-file - VpnProxyServer : init cost memory 0.0114288330078125
+[2026-01-14T15:40:40.383] [DEBUG] debug-file - Current idle worker size: 0.
+[2026-01-14T15:40:40.289] [DEBUG] debug-file - End initialize module-target build option map, moduleName=entry
+[2026-01-14T15:40:40.354] [DEBUG] debug-file - runTaskFromQueue task cost before running: 4 s 612 ms 
+[2026-01-14T15:40:40.383] [DEBUG] debug-file - Current busy worker size: 0.
+[2026-01-14T15:40:40.290] [DEBUG] debug-file - Start initialize module-target build option map, moduleName=entry, buildMode=debug
+[2026-01-14T15:40:40.354] [INFO] debug-file - Finished ::init... after 1 ms 
+[2026-01-14T15:40:40.384] [DEBUG] debug-file - hvigor build process will be closed.
+[2026-01-14T15:40:40.290] [DEBUG] debug-file - Target 'default' config initialized
+[2026-01-14T15:40:40.363] [DEBUG] debug-file - Obtain build option for module 'entry' target 'default'in this build.
+[2026-01-14T15:40:40.391] [DEBUG] debug-file - worker[0] exits with exit code 0.
+[2026-01-14T15:40:40.290] [DEBUG] debug-file - Target 'ohosTest' config initialized
+[2026-01-14T15:40:40.364] [DEBUG] debug-file - Obtain build option for module 'entry' target 'ohosTest'in this build.
+[2026-01-14T15:40:40.392] [DEBUG] debug-file - worker[1] exits with exit code 0.
+[2026-01-14T15:40:40.290] [DEBUG] debug-file - Module 'entry' target 'default' build option initialized
+[2026-01-14T15:40:40.373] [DEBUG] debug-file - Since there is no instance or instance is terminated, create a new worker pool.
+[2026-01-14T15:40:40.392] [DEBUG] debug-file - Current worker pool is terminated.
+[2026-01-14T15:40:40.290] [DEBUG] debug-file - Module 'entry' target 'ohosTest' build option initialized
+[2026-01-14T15:40:40.374] [DEBUG] debug-file - Worker pool is initialized with config:  {
+  minPoolNum: 2,
+  maxPoolNum: undefined,
+  maxCoreSize: undefined,
+  cacheCapacity: undefined,
+  cacheTtl: undefined
+}
+[2026-01-14T15:40:40.290] [DEBUG] debug-file - End initialize module-target build option map, moduleName=entry
+[2026-01-14T15:40:40.291] [DEBUG] debug-file - Obtain build option for module 'entry' target 'default'in this build.
+[2026-01-14T15:40:40.301] [DEBUG] debug-file - Module entry task initialization takes 9 ms 
+[2026-01-14T15:40:40.301] [DEBUG] debug-file - hvigorfile, binding custom plugins []
+[2026-01-14T15:40:40.302] [DEBUG] debug-file - hvigorfile, no custom plugins were found in F:\zhoubingquan\VpnProxyServer\entry\hvigorfile.ts
+[2026-01-14T15:40:40.302] [DEBUG] debug-file - hvigorfile, resolve finished F:\zhoubingquan\VpnProxyServer\entry\hvigorfile.ts
+[2026-01-14T15:40:42.172] [DEBUG] debug-file - env: nodejsVersion=v18.20.1
+[2026-01-14T15:40:42.308] [DEBUG] debug-file - env: daemon=true
+[2026-01-14T15:40:42.174] [DEBUG] debug-file - env: hvigor-config.json5 content = {
+  modelVersion: '6.0.1',
+  dependencies: {},
+  execution: {},
+  logging: {},
+  debugging: {},
+  nodeOptions: {}
+}
+[2026-01-14T15:40:44.209] [DEBUG] debug-file - java daemon tryConnect failed Error: connect ECONNREFUSED 127.0.0.1:45050
+[2026-01-14T15:40:44.267] [DEBUG] debug-file - java daemon started at port 45050 pid 16236
+[2026-01-14T15:40:44.322] [DEBUG] debug-file - session manager: set active socket. socketId=PYHF27JiFLdio4JoAAAB
+[2026-01-14T15:40:45.933] [DEBUG] debug-file - watch worker: worker id should be larger than 0. Nothing will be sent to any worker thread.
+[2026-01-14T15:40:45.951] [DEBUG] debug-file - Hvigor init with startParameters:{
+  hvigorfileTypeCheck: false,
+  parallelExecution: true,
+  incrementalExecution: true,
+  printStackTrace: false,
+  daemon: true,
+  analyze: 0,
+  logLevel: Level { level: 20000, levelStr: 'INFO', colour: 'green' },
+  optimizationStrategy: 'memory',
+  hotCompile: undefined,
+  hotReloadBuild: undefined
+}
+[2026-01-14T15:40:45.961] [DEBUG] debug-file - Cache service initialization finished in 9 ms 
+[2026-01-14T15:40:45.964] [DEBUG] debug-file - hvigorfile, resolving F:\zhoubingquan\VpnProxyServer\hvigorfile.ts
+[2026-01-14T15:40:50.872] [DEBUG] debug-file - hvigorfile, require result:  { default: { plugins: [] } }
+[2026-01-14T15:40:50.873] [DEBUG] debug-file - hvigorfile, binding system plugins null
+[2026-01-14T15:40:51.107] [DEBUG] debug-file - Start initialize project's product build option map with build mode debug.
+[2026-01-14T15:40:51.107] [DEBUG] debug-file - Picking option from product 'default' with build mode 'debug'.
+[2026-01-14T15:40:51.107] [DEBUG] debug-file - Product 'default' build option initialized
+[2026-01-14T15:40:51.108] [DEBUG] debug-file - End initialize project's product build option map with build mode 'debug'.
+[2026-01-14T15:40:51.110] [DEBUG] debug-file - Obtain build option for product 'default'in this build.
+[2026-01-14T15:40:51.120] [DEBUG] debug-file - F:\zhoubingquan\VpnProxyServer\build\cache\default\remote_hsp\remoteHspCache.json not exists.
+[2026-01-14T15:40:51.123] [DEBUG] debug-file - Local scan or download HarmonyOS sdk components toolchains,ets,js,native,previewer
+[2026-01-14T15:40:51.128] [DEBUG] debug-file - Local scan or download hmscore sdk components toolchains,ets,native
+[2026-01-14T15:40:51.132] [DEBUG] debug-file - Start recording SDK configuration permission data.
+[2026-01-14T15:40:51.172] [DEBUG] debug-file - Sdk init in 51 ms 
+[2026-01-14T15:40:51.180] [DEBUG] debug-file - Project task initialization takes 7 ms 
+[2026-01-14T15:40:51.180] [DEBUG] debug-file - hvigorfile, binding custom plugins []
+[2026-01-14T15:40:51.180] [DEBUG] debug-file - hvigorfile, no custom plugins were found in F:\zhoubingquan\VpnProxyServer\hvigorfile.ts
+[2026-01-14T15:40:51.180] [DEBUG] debug-file - hvigorfile, resolve finished F:\zhoubingquan\VpnProxyServer\hvigorfile.ts
+[2026-01-14T15:40:51.181] [DEBUG] debug-file - hvigorfile, resolving F:\zhoubingquan\VpnProxyServer\entry\hvigorfile.ts
+[2026-01-14T15:40:51.189] [DEBUG] debug-file - hvigorfile, require result:  { default: { plugins: [] } }
+[2026-01-14T15:40:51.189] [DEBUG] debug-file - hvigorfile, binding system plugins null
+[2026-01-14T15:40:51.193] [DEBUG] debug-file - failed to load cangjie to dynamically generate schemas: Error: Cannot find module '@ohos/cangjie-build-support/index'
+Require stack:
+- F:\Huawei\DevEco Studio\tools\hvigor\hvigor-ohos-plugin\src\plugin\factory\plugin-factory.js
+- F:\Huawei\DevEco Studio\tools\hvigor\hvigor-ohos-plugin\index.js
+- F:\zhoubingquan\VpnProxyServer\hvigorfile.ts
+- F:\Huawei\DevEco Studio\tools\hvigor\hvigor\src\base\internal\lifecycle\configuration.js
+- F:\Huawei\DevEco Studio\tools\hvigor\hvigor\src\base\boot\index.js
+- F:\Huawei\DevEco Studio\tools\hvigor\hvigor\src\base\daemon\cluster\worker-process-lifecycle.js
+- F:\Huawei\DevEco Studio\tools\hvigor\hvigor\src\base\daemon\process\daemon-process-boot-script.js
+[2026-01-14T15:40:51.213] [DEBUG] debug-file - Start initialize module-target build option map, moduleName=entry, buildMode=debug
+[2026-01-14T15:40:51.213] [DEBUG] debug-file - Target 'default' config initialized
+[2026-01-14T15:40:51.214] [DEBUG] debug-file - Target 'ohosTest' config initialized
+[2026-01-14T15:40:51.214] [DEBUG] debug-file - Module 'entry' target 'default' build option initialized
+[2026-01-14T15:40:51.214] [DEBUG] debug-file - Module 'entry' target 'ohosTest' build option initialized
+[2026-01-14T15:40:51.214] [DEBUG] debug-file - End initialize module-target build option map, moduleName=entry
+[2026-01-14T15:40:51.214] [DEBUG] debug-file - Start initialize module-target build option map, moduleName=entry, buildMode=release
+[2026-01-14T15:40:51.214] [DEBUG] debug-file - Target 'default' config initialized
+[2026-01-14T15:40:51.215] [DEBUG] debug-file - Target 'ohosTest' config initialized
+[2026-01-14T15:40:51.216] [DEBUG] debug-file - Module 'entry' target 'default' build option initialized
+[2026-01-14T15:40:51.216] [DEBUG] debug-file - Module 'entry' target 'ohosTest' build option initialized
+[2026-01-14T15:40:51.216] [DEBUG] debug-file - End initialize module-target build option map, moduleName=entry
+[2026-01-14T15:40:51.216] [DEBUG] debug-file - Start initialize module-target build option map, moduleName=entry, buildMode=debug
+[2026-01-14T15:40:51.216] [DEBUG] debug-file - Target 'default' config initialized
+[2026-01-14T15:40:51.216] [DEBUG] debug-file - Target 'ohosTest' config initialized
+[2026-01-14T15:40:51.217] [DEBUG] debug-file - Module 'entry' target 'default' build option initialized
+[2026-01-14T15:40:51.217] [DEBUG] debug-file - Module 'entry' target 'ohosTest' build option initialized
+[2026-01-14T15:40:51.217] [DEBUG] debug-file - End initialize module-target build option map, moduleName=entry
+[2026-01-14T15:40:51.218] [DEBUG] debug-file - Obtain build option for module 'entry' target 'default'in this build.
+[2026-01-14T15:40:51.225] [DEBUG] debug-file - Module entry task initialization takes 6 ms 
+[2026-01-14T15:40:51.225] [DEBUG] debug-file - hvigorfile, binding custom plugins []
+[2026-01-14T15:40:51.225] [DEBUG] debug-file - hvigorfile, no custom plugins were found in F:\zhoubingquan\VpnProxyServer\entry\hvigorfile.ts
+[2026-01-14T15:40:51.225] [DEBUG] debug-file - hvigorfile, resolve finished F:\zhoubingquan\VpnProxyServer\entry\hvigorfile.ts
+[2026-01-14T15:40:51.261] [DEBUG] debug-file - hvigorfile, resolve hvigorfile dependencies in 35 ms 
+[2026-01-14T15:40:51.261] [DEBUG] debug-file - project has submodules:entry
+[2026-01-14T15:40:51.263] [DEBUG] debug-file - start to load updatedOhPackageInfo to the disk
+[2026-01-14T15:40:51.280] [DEBUG] debug-file - load to the disk finished
+[2026-01-14T15:40:51.282] [DEBUG] debug-file - Start to initialize dependency information.
+[2026-01-14T15:40:51.300] [DEBUG] debug-file - Module VpnProxyServer Collected Dependency: 
+[2026-01-14T15:40:51.300] [DEBUG] debug-file - Module VpnProxyServer's total dependency: 0
+[2026-01-14T15:40:51.301] [DEBUG] debug-file - Start to initialize dependency information.
+[2026-01-14T15:40:51.308] [DEBUG] debug-file - Module entry Collected Dependency: 
+[2026-01-14T15:40:51.308] [DEBUG] debug-file - Module entry's total dependency: 0
+[2026-01-14T15:40:51.316] [DEBUG] debug-file - Configuration phase cost:5 s 355 ms 
+[2026-01-14T15:40:51.319] [DEBUG] debug-file - Configuration task cost before running: 5 s 379 ms 
+[2026-01-14T15:40:51.329] [DEBUG] debug-file - Executing task :entry:default@PreBuild
+[2026-01-14T15:40:51.331] [DEBUG] debug-file - Task 'entry:default@PreBuild' cost while wrapping incremental declarations: 1 ms 
+[2026-01-14T15:40:51.346] [DEBUG] debug-file - entry:default@PreBuild is not up-to-date, since the input file 'F:\zhoubingquan\VpnProxyServer\build-profile.json5' has been changed.
+[2026-01-14T15:40:51.346] [DEBUG] debug-file - Incremental task entry:default@PreBuild pre-execution cost: 10 ms .
+[2026-01-14T15:40:51.506] [DEBUG] debug-file - current product is not Atomic service.
+[2026-01-14T15:40:51.507] [DEBUG] debug-file - Use tool [win32: JAVA_HOME, CLASSPATH]
+ [
+  { JAVA_HOME: 'F:\\Huawei\\DevEco Studio\\jbr' },
+  { CLASSPATH: undefined }
+]
+[2026-01-14T15:40:51.507] [DEBUG] debug-file - Use tool [win32: NODE_HOME]
+ [ { NODE_HOME: 'F:\\Huawei\\DevEco Studio\\tools\\node' } ]
+[2026-01-14T15:40:51.508] [DEBUG] debug-file - entry : default@PreBuild cost memory 17.7723388671875
+[2026-01-14T15:40:51.508] [DEBUG] debug-file - runTaskFromQueue task cost before running: 5 s 568 ms 
+[2026-01-14T15:40:51.513] [INFO] debug-file - Finished :entry:default@PreBuild... after 180 ms 
+[2026-01-14T15:40:51.515] [DEBUG] debug-file - Executing task :entry:default@ConfigureCmake
+[2026-01-14T15:40:51.522] [DEBUG] debug-file - entry : default@ConfigureCmake cost memory -10.694709777832031
+[2026-01-14T15:40:51.522] [DEBUG] debug-file - runTaskFromQueue task cost before running: 5 s 583 ms 
+[2026-01-14T15:40:51.522] [INFO] debug-file - Finished :entry:default@ConfigureCmake... after 8 ms 
+[2026-01-14T15:40:51.525] [DEBUG] debug-file - Executing task :entry:default@BuildNativeWithCmake
+[2026-01-14T15:40:51.529] [DEBUG] debug-file - Use tool [Cmake]
+ [
+  'F:\\Huawei\\DevEco Studio\\sdk\\default\\openharmony\\native\\build-tools\\cmake\\bin\\cmake.exe',
+  '-HF:\\zhoubingquan\\VpnProxyServer\\entry\\src\\main\\cpp',
+  '-BF:\\zhoubingquan\\VpnProxyServer\\entry\\.cxx\\default\\default\\debug\\arm64-v8a',
+  '-DOHOS_ARCH=arm64-v8a',
+  '-DCMAKE_LIBRARY_OUTPUT_DIRECTORY=F:\\zhoubingquan\\VpnProxyServer\\entry\\build\\default\\intermediates\\cmake\\default\\obj\\arm64-v8a',
+  '-DCMAKE_BUILD_TYPE=Debug',
+  '-DOHOS_SDK_NATIVE=F:\\Huawei\\DevEco Studio\\sdk\\default\\openharmony\\native',
+  '-DCMAKE_SYSTEM_NAME=OHOS',
+  '-DCMAKE_OHOS_ARCH_ABI=arm64-v8a',
+  '-DCMAKE_EXPORT_COMPILE_COMMANDS=ON',
+  '-DCMAKE_TOOLCHAIN_FILE=F:\\Huawei\\DevEco Studio\\sdk\\default\\hms\\native\\build\\cmake\\hmos.toolchain.cmake',
+  '-GNinja',
+  '-DCMAKE_MAKE_PROGRAM=F:\\Huawei\\DevEco Studio\\sdk\\default\\openharmony\\native\\build-tools\\cmake\\bin\\ninja.exe',
+  '-DCMAKE_FIND_ROOT_PATH=F:\\zhoubingquan\\VpnProxyServer\\entry\\.cxx\\default\\default\\debug\\hvigor\\arm64-v8a',
+  '-DPACKAGE_FIND_FILE=F:\\zhoubingquan\\VpnProxyServer\\entry\\.cxx\\default\\default\\debug\\hvigor\\arm64-v8a\\summary.cmake',
+  '--no-warn-unused-cli',
+  '-DHMOS_SDK_NATIVE=F:\\Huawei\\DevEco Studio\\sdk\\default\\hms\\native'
+]
+[2026-01-14T15:40:51.556] [DEBUG] debug-file - CMake configuration was up-to-date
+[2026-01-14T15:40:51.566] [DEBUG] debug-file - entry : default@BuildNativeWithCmake cost memory 0.540496826171875
+[2026-01-14T15:40:51.566] [DEBUG] debug-file - runTaskFromQueue task cost before running: 5 s 627 ms 
+[2026-01-14T15:40:51.567] [INFO] debug-file - Finished :entry:default@BuildNativeWithCmake... after 42 ms 
+[2026-01-14T15:40:51.567] [DEBUG] debug-file - Executing task :entry:compileNative
+[2026-01-14T15:40:51.568] [DEBUG] debug-file - entry : compileNative cost memory 0.014404296875
+[2026-01-14T15:40:51.568] [DEBUG] debug-file - runTaskFromQueue task cost before running: 5 s 628 ms 
+[2026-01-14T15:40:51.568] [INFO] debug-file - Finished :entry:compileNative... after 1 ms 
+[2026-01-14T15:40:51.578] [INFO] debug-file - BUILD SUCCESSFUL in 5 s 638 ms 
+[2026-01-14T15:40:51.582] [DEBUG] debug-file - Update task entry:default@PreBuild input file:F:\zhoubingquan\VpnProxyServer\AppScope\app.json5 cache by regenerate.
+[2026-01-14T15:40:51.582] [DEBUG] debug-file - Update task entry:default@PreBuild input file:F:\zhoubingquan\VpnProxyServer\entry\src\main\module.json5 cache by regenerate.
+[2026-01-14T15:40:51.583] [DEBUG] debug-file - Update task entry:default@PreBuild input file:F:\zhoubingquan\VpnProxyServer\build-profile.json5 cache from map.
+[2026-01-14T15:40:51.583] [DEBUG] debug-file - Update task entry:default@PreBuild input file:F:\zhoubingquan\VpnProxyServer\entry\build-profile.json5 cache by regenerate.
+[2026-01-14T15:40:51.583] [DEBUG] debug-file - Update task entry:default@PreBuild input file:F:\zhoubingquan\VpnProxyServer\entry\src\main\resources\base\profile\main_pages.json cache by regenerate.
+[2026-01-14T15:40:51.584] [DEBUG] debug-file - Update task entry:default@PreBuild input file:F:\zhoubingquan\VpnProxyServer\hvigor\hvigor-config.json5 cache by regenerate.
+[2026-01-14T15:40:51.584] [DEBUG] debug-file - Update task entry:default@PreBuild input file:F:\zhoubingquan\VpnProxyServer\entry\src\mock\mock-config.json5 cache by regenerate.
+[2026-01-14T15:40:51.585] [DEBUG] debug-file - Update task entry:default@PreBuild input file:F:\zhoubingquan\VpnProxyServer\entry\oh-package.json5 cache by regenerate.
+[2026-01-14T15:40:51.586] [DEBUG] debug-file - Update task entry:default@PreBuild input file:F:\zhoubingquan\VpnProxyServer\oh-package.json5 cache by regenerate.
+[2026-01-14T15:40:51.587] [DEBUG] debug-file - Incremental task entry:default@PreBuild post-execution cost:9 ms .
+[2026-01-14T15:40:51.626] [DEBUG] debug-file - Since there is no instance or instance is terminated, create a new worker pool.
+[2026-01-14T15:40:51.626] [DEBUG] debug-file - Worker pool is initialized with config:  {
+  minPoolNum: 2,
+  maxPoolNum: undefined,
+  maxCoreSize: undefined,
+  cacheCapacity: undefined,
+  cacheTtl: undefined
+}
+[2026-01-14T15:40:51.627] [DEBUG] debug-file - Create  resident worker with id: 0.
+[2026-01-14T15:40:51.629] [DEBUG] debug-file - Create  resident worker with id: 1.
+[2026-01-14T15:40:51.635] [DEBUG] debug-file - session manager: send message to worker process.
+[2026-01-14T15:40:51.636] [DEBUG] debug-file - session manager: send message to worker process.
+[2026-01-14T15:40:51.633] [DEBUG] debug-file - Cleanup worker 0.
+[2026-01-14T15:40:51.633] [DEBUG] debug-file - Worker 0 has been cleaned up.
+[2026-01-14T15:40:51.633] [DEBUG] debug-file - Current idle worker size: 1.
+[2026-01-14T15:40:51.633] [DEBUG] debug-file - Current resident worker size: 2.
+[2026-01-14T15:40:51.633] [DEBUG] debug-file - Cleanup worker 1.
+[2026-01-14T15:40:51.633] [DEBUG] debug-file - Worker 1 has been cleaned up.
+[2026-01-14T15:40:51.634] [DEBUG] debug-file - Current idle worker size: 0.
+[2026-01-14T15:40:51.634] [DEBUG] debug-file - Current resident worker size: 2.
+[2026-01-14T15:40:51.636] [DEBUG] debug-file - hvigor build process will be closed.
+[2026-01-14T15:40:51.638] [DEBUG] debug-file - watch worker: worker id should be larger than 0. Nothing will be sent to any worker thread.
+[2026-01-14T15:40:51.638] [DEBUG] debug-file - watch worker: worker id should be larger than 0. Nothing will be sent to any worker thread.
+[2026-01-14T15:40:51.641] [DEBUG] debug-file - worker[0] exits with exit code 0.
+[2026-01-14T15:40:51.644] [DEBUG] debug-file - worker[1] exits with exit code 0.
+[2026-01-14T15:40:46.941] [DEBUG] debug-file - env: nodejsVersion=v18.20.1
+[2026-01-14T15:40:48.181] [DEBUG] debug-file - Hvigor init with startParameters:{
+  hvigorfileTypeCheck: false,
+  parallelExecution: true,
+  incrementalExecution: true,
+  printStackTrace: false,
+  daemon: false,
+  analyze: 0,
+  logLevel: Level { level: 20000, levelStr: 'INFO', colour: 'green' },
+  optimizationStrategy: 'memory',
+  hotCompile: undefined,
+  hotReloadBuild: undefined
+}
+[2026-01-14T15:40:52.769] [DEBUG] debug-file - hvigorfile, require result:  { default: { system: [Function: appTasks], plugins: [] } }
+[2026-01-14T15:40:53.094] [DEBUG] debug-file - Start initialize project's product build option map with build mode debug.
+[2026-01-14T15:40:53.104] [DEBUG] debug-file - Obtain build option for product 'default'in this build.
+[2026-01-14T15:40:53.134] [DEBUG] debug-file - Start recording SDK configuration permission data.
+[2026-01-14T15:40:53.191] [DEBUG] debug-file - Project task initialization takes 13 ms 
+[2026-01-14T15:40:53.239] [DEBUG] debug-file - Start initialize module-target build option map, moduleName=entry, buildMode=debug
+[2026-01-14T15:40:53.257] [DEBUG] debug-file - project has submodules:entry
+[2026-01-14T15:40:53.303] [DEBUG] debug-file - Start to initialize dependency information.
+[2026-01-14T15:40:53.330] [DEBUG] debug-file - Executing task :entry:default@ColdReloadArkTS
+[2026-01-14T15:40:53.427] [DEBUG] debug-file - Executing task :entry:default@PreBuild
+[2026-01-14T15:40:46.944] [DEBUG] debug-file - env: hvigor-config.json5 content = {
+  modelVersion: '6.0.1',
+  dependencies: {},
+  execution: {},
+  logging: {},
+  debugging: {},
+  nodeOptions: {}
+}
+[2026-01-14T15:40:53.398] [DEBUG] debug-file - Create  resident worker with id: 0.
+[2026-01-14T15:40:48.190] [DEBUG] debug-file - Cache service initialization finished in 9 ms 
+[2026-01-14T15:40:52.769] [DEBUG] debug-file - hvigorfile, binding system plugins [Function: appTasks]
+[2026-01-14T15:40:53.094] [DEBUG] debug-file - Picking option from product 'default' with build mode 'debug'.
+[2026-01-14T15:40:53.116] [DEBUG] debug-file - F:\zhoubingquan\VpnProxyServer\build\cache\default\remote_hsp\remoteHspCache.json not exists.
+[2026-01-14T15:40:53.175] [DEBUG] debug-file - Sdk init in 58 ms 
+[2026-01-14T15:40:53.192] [DEBUG] debug-file - hvigorfile, binding custom plugins []
+[2026-01-14T15:40:53.239] [DEBUG] debug-file - Target 'default' config initialized
+[2026-01-14T15:40:53.261] [DEBUG] debug-file - start to load updatedOhPackageInfo to the disk
+[2026-01-14T15:40:53.312] [DEBUG] debug-file - Module entry Collected Dependency: 
+[2026-01-14T15:40:53.330] [DEBUG] debug-file - obfuscationOptions: undefined
+[2026-01-14T15:40:53.431] [DEBUG] debug-file - Task 'entry:default@PreBuild' cost while wrapping incremental declarations: 2 ms 
+[2026-01-14T15:40:46.947] [DEBUG] debug-file - env: daemon=false
+[2026-01-14T15:40:53.401] [DEBUG] debug-file - Create  resident worker with id: 1.
+[2026-01-14T15:40:48.193] [DEBUG] debug-file - hvigorfile, resolving F:\zhoubingquan\VpnProxyServer\hvigorfile.ts
+[2026-01-14T15:40:53.094] [DEBUG] debug-file - Product 'default' build option initialized
+[2026-01-14T15:40:53.119] [DEBUG] debug-file - Local scan or download HarmonyOS sdk components toolchains,ets,js,native,previewer
+[2026-01-14T15:40:53.192] [DEBUG] debug-file - hvigorfile, no custom plugins were found in F:\zhoubingquan\VpnProxyServer\hvigorfile.ts
+[2026-01-14T15:40:53.240] [DEBUG] debug-file - Target 'ohosTest' config initialized
+[2026-01-14T15:40:53.272] [DEBUG] debug-file - load to the disk finished
+[2026-01-14T15:40:53.312] [DEBUG] debug-file - Module entry's total dependency: 0
+[2026-01-14T15:40:53.333] [DEBUG] debug-file - Task 'entry:default@ColdReloadArkTS' cost while wrapping incremental declarations: 1 ms 
+[2026-01-14T15:40:53.455] [DEBUG] debug-file - entry:default@PreBuild is not up-to-date, since the input file 'F:\zhoubingquan\VpnProxyServer\build-profile.json5' has been changed.
+[2026-01-14T15:40:46.947] [DEBUG] debug-file - no-daemon, use the parent process.execArgv --max-old-space-size=8192,--max-semi-space-size=16,--expose-gc
+[2026-01-14T15:40:53.405] [DEBUG] debug-file - default@ColdReloadArkTS work[0] is submitted.
+[2026-01-14T15:40:53.095] [DEBUG] debug-file - End initialize project's product build option map with build mode 'debug'.
+[2026-01-14T15:40:53.125] [DEBUG] debug-file - Local scan or download hmscore sdk components toolchains,ets,native
+[2026-01-14T15:40:53.192] [DEBUG] debug-file - hvigorfile, resolve finished F:\zhoubingquan\VpnProxyServer\hvigorfile.ts
+[2026-01-14T15:40:53.241] [DEBUG] debug-file - Module 'entry' target 'default' build option initialized
+[2026-01-14T15:40:53.274] [DEBUG] debug-file - Start to initialize dependency information.
+[2026-01-14T15:40:53.318] [DEBUG] debug-file - Configuration phase cost:5 s 128 ms 
+[2026-01-14T15:40:53.456] [DEBUG] debug-file - Incremental task entry:default@PreBuild pre-execution cost: 14 ms .
+[2026-01-14T15:40:53.391] [DEBUG] debug-file - coldReload build config: [object Object]
+[2026-01-14T15:40:53.406] [DEBUG] debug-file - default@ColdReloadArkTS work[0] is pushed to ready queue.
+[2026-01-14T15:40:53.923] [DEBUG] debug-file - Executing task :entry:default@BuildNativeWithCmake
+[2026-01-14T15:40:53.933] [DEBUG] debug-file - Use tool [Cmake]
+ [
+  'F:\\Huawei\\DevEco Studio\\sdk\\default\\openharmony\\native\\build-tools\\cmake\\bin\\cmake.exe',
+  '-HF:\\zhoubingquan\\VpnProxyServer\\entry\\src\\main\\cpp',
+  '-BF:\\zhoubingquan\\VpnProxyServer\\entry\\.cxx\\default\\default\\debug\\arm64-v8a',
+  '-DOHOS_ARCH=arm64-v8a',
+  '-DCMAKE_LIBRARY_OUTPUT_DIRECTORY=F:\\zhoubingquan\\VpnProxyServer\\entry\\build\\default\\intermediates\\cmake\\default\\obj\\arm64-v8a',
+  '-DCMAKE_BUILD_TYPE=Debug',
+  '-DOHOS_SDK_NATIVE=F:\\Huawei\\DevEco Studio\\sdk\\default\\openharmony\\native',
+  '-DCMAKE_SYSTEM_NAME=OHOS',
+  '-DCMAKE_OHOS_ARCH_ABI=arm64-v8a',
+  '-DCMAKE_EXPORT_COMPILE_COMMANDS=ON',
+  '-DCMAKE_TOOLCHAIN_FILE=F:\\Huawei\\DevEco Studio\\sdk\\default\\hms\\native\\build\\cmake\\hmos.toolchain.cmake',
+  '-GNinja',
+  '-DCMAKE_MAKE_PROGRAM=F:\\Huawei\\DevEco Studio\\sdk\\default\\openharmony\\native\\build-tools\\cmake\\bin\\ninja.exe',
+  '-DCMAKE_FIND_ROOT_PATH=F:\\zhoubingquan\\VpnProxyServer\\entry\\.cxx\\default\\default\\debug\\hvigor\\arm64-v8a',
+  '-DPACKAGE_FIND_FILE=F:\\zhoubingquan\\VpnProxyServer\\entry\\.cxx\\default\\default\\debug\\hvigor\\arm64-v8a\\summary.cmake',
+  '--no-warn-unused-cli',
+  '-DHMOS_SDK_NATIVE=F:\\Huawei\\DevEco Studio\\sdk\\default\\hms\\native'
+]
+[2026-01-14T15:40:53.194] [DEBUG] debug-file - hvigorfile, resolving F:\zhoubingquan\VpnProxyServer\entry\hvigorfile.ts
+[2026-01-14T15:40:53.241] [DEBUG] debug-file - Module 'entry' target 'ohosTest' build option initialized
+[2026-01-14T15:40:53.300] [DEBUG] debug-file - Module VpnProxyServer Collected Dependency: 
+[2026-01-14T15:40:53.321] [DEBUG] debug-file - Configuration task cost before running: 5 s 158 ms 
+[2026-01-14T15:40:53.855] [DEBUG] debug-file - current product is not Atomic service.
+[2026-01-14T15:40:53.395] [DEBUG] debug-file - Since there is no instance or instance is terminated, create a new worker pool.
+[2026-01-14T15:40:53.406] [DEBUG] debug-file - A work dispatched to worker[11] failed because unable to get work from ready queue.
+[2026-01-14T15:40:53.209] [DEBUG] debug-file - hvigorfile, require result:  { default: { system: [Function: hapTasks], plugins: [] } }
+[2026-01-14T15:40:53.300] [DEBUG] debug-file - Module VpnProxyServer's total dependency: 0
+[2026-01-14T15:40:53.241] [DEBUG] debug-file - End initialize module-target build option map, moduleName=entry
+[2026-01-14T15:40:53.858] [DEBUG] debug-file - Use tool [win32: JAVA_HOME, CLASSPATH]
+ [
+  { JAVA_HOME: 'F:\\Huawei\\DevEco Studio\\jbr' },
+  { CLASSPATH: undefined }
+]
+[2026-01-14T15:40:53.395] [DEBUG] debug-file - Worker pool is initialized with config:  {
+  minPoolNum: 2,
+  maxPoolNum: undefined,
+  maxCoreSize: undefined,
+  cacheCapacity: undefined,
+  cacheTtl: undefined
+}
+[2026-01-14T15:40:53.406] [DEBUG] debug-file - A work dispatched to worker[10] failed because unable to get work from ready queue.
+[2026-01-14T15:40:53.209] [DEBUG] debug-file - hvigorfile, binding system plugins [Function: hapTasks]
+[2026-01-14T15:40:53.241] [DEBUG] debug-file - Start initialize module-target build option map, moduleName=entry, buildMode=release
+[2026-01-14T15:40:53.859] [DEBUG] debug-file - Use tool [win32: NODE_HOME]
+ [ { NODE_HOME: 'F:\\Huawei\\DevEco Studio\\tools\\node' } ]
+[2026-01-14T15:40:53.407] [DEBUG] debug-file - A work dispatched to worker[9] failed because unable to get work from ready queue.
+[2026-01-14T15:40:53.213] [DEBUG] debug-file - failed to load cangjie to dynamically generate schemas: Error: Cannot find module '@ohos/cangjie-build-support/index'
+Require stack:
+- F:\Huawei\DevEco Studio\tools\hvigor\hvigor-ohos-plugin\src\plugin\factory\plugin-factory.js
+- F:\Huawei\DevEco Studio\tools\hvigor\hvigor-ohos-plugin\index.js
+- F:\zhoubingquan\VpnProxyServer\hvigorfile.ts
+- F:\Huawei\DevEco Studio\tools\hvigor\hvigor\src\base\internal\lifecycle\configuration.js
+- F:\Huawei\DevEco Studio\tools\hvigor\hvigor\src\base\boot\index.js
+- F:\Huawei\DevEco Studio\tools\hvigor\hvigor\src\cli\main\cli.js
+- F:\Huawei\DevEco Studio\tools\hvigor\hvigor\bin\hvigor.js
+[2026-01-14T15:40:53.241] [DEBUG] debug-file - Target 'default' config initialized
+[2026-01-14T15:40:53.862] [DEBUG] debug-file - entry : default@PreBuild cost memory 7.172782897949219
+[2026-01-14T15:40:53.407] [DEBUG] debug-file - A work dispatched to worker[8] failed because unable to get work from ready queue.
+[2026-01-14T15:40:53.241] [DEBUG] debug-file - Target 'ohosTest' config initialized
+[2026-01-14T15:40:53.863] [DEBUG] debug-file - runTaskFromQueue task cost before running: 5 s 700 ms 
+[2026-01-14T15:40:53.407] [DEBUG] debug-file - A work dispatched to worker[7] failed because unable to get work from ready queue.
+[2026-01-14T15:40:53.242] [DEBUG] debug-file - Module 'entry' target 'default' build option initialized
+[2026-01-14T15:40:53.873] [INFO] debug-file - Finished :entry:default@PreBuild... after 436 ms 
+[2026-01-14T15:40:53.407] [DEBUG] debug-file - A work dispatched to worker[6] failed because unable to get work from ready queue.
+[2026-01-14T15:40:53.242] [DEBUG] debug-file - Module 'entry' target 'ohosTest' build option initialized
+[2026-01-14T15:40:53.878] [DEBUG] debug-file - Executing task :entry:default@ConfigureCmake
+[2026-01-14T15:40:53.407] [DEBUG] debug-file - A work dispatched to worker[5] failed because unable to get work from ready queue.
+[2026-01-14T15:40:53.242] [DEBUG] debug-file - End initialize module-target build option map, moduleName=entry
+[2026-01-14T15:40:53.917] [DEBUG] debug-file - entry : default@ConfigureCmake cost memory 1.3105010986328125
+[2026-01-14T15:40:53.407] [DEBUG] debug-file - Create  resident worker with id: 4.
+[2026-01-14T15:40:53.242] [DEBUG] debug-file - Start initialize module-target build option map, moduleName=entry, buildMode=debug
+[2026-01-14T15:40:53.917] [DEBUG] debug-file - runTaskFromQueue task cost before running: 5 s 755 ms 
+[2026-01-14T15:40:53.409] [DEBUG] debug-file - default@ColdReloadArkTS work[0] has been dispatched to worker[4].
+[2026-01-14T15:40:53.242] [DEBUG] debug-file - Target 'default' config initialized
+[2026-01-14T15:40:53.919] [INFO] debug-file - Finished :entry:default@ConfigureCmake... after 40 ms 
+[2026-01-14T15:40:53.409] [DEBUG] debug-file - default@ColdReloadArkTS work[0] is dispatched.
+[2026-01-14T15:40:53.242] [DEBUG] debug-file - Target 'ohosTest' config initialized
+[2026-01-14T15:40:53.409] [DEBUG] debug-file - entry : default@ColdReloadArkTS cost memory 2.3797225952148438
+[2026-01-14T15:40:53.243] [DEBUG] debug-file - Module 'entry' target 'default' build option initialized
+[2026-01-14T15:40:53.973] [DEBUG] debug-file - CMake configuration was up-to-date
+[2026-01-14T15:40:53.243] [DEBUG] debug-file - Module 'entry' target 'ohosTest' build option initialized
+[2026-01-14T15:40:53.243] [DEBUG] debug-file - End initialize module-target build option map, moduleName=entry
+[2026-01-14T15:40:53.246] [DEBUG] debug-file - Obtain build option for module 'entry' target 'default'in this build.
+[2026-01-14T15:40:53.254] [DEBUG] debug-file - Module entry task initialization takes 7 ms 
+[2026-01-14T15:40:53.255] [DEBUG] debug-file - hvigorfile, binding custom plugins []
+[2026-01-14T15:40:53.255] [DEBUG] debug-file - hvigorfile, no custom plugins were found in F:\zhoubingquan\VpnProxyServer\entry\hvigorfile.ts
+[2026-01-14T15:40:53.255] [DEBUG] debug-file - hvigorfile, resolve finished F:\zhoubingquan\VpnProxyServer\entry\hvigorfile.ts
+[2026-01-14T15:40:53.983] [DEBUG] debug-file - entry : default@BuildNativeWithCmake cost memory 1.0313873291015625
+[2026-01-14T15:40:53.983] [DEBUG] debug-file - runTaskFromQueue task cost before running: 5 s 821 ms 
+[2026-01-14T15:40:53.984] [INFO] debug-file - Finished :entry:default@BuildNativeWithCmake... after 61 ms 
+[2026-01-14T15:40:53.988] [DEBUG] debug-file - Executing task :entry:default@BuildNativeWithNinja
+[2026-01-14T15:40:53.992] [DEBUG] debug-file - Use tool [Ninja]
+ [
+  'F:\\Huawei\\DevEco Studio\\sdk\\default\\openharmony\\native\\build-tools\\cmake\\bin\\ninja.exe',
+  '-C',
+  'F:\\zhoubingquan\\VpnProxyServer\\entry\\.cxx\\default\\default\\debug\\arm64-v8a'
+]
+[2026-01-14T15:40:53.992] [DEBUG] debug-file - default@BuildNativeWithNinja work[1] is submitted.
+[2026-01-14T15:40:53.993] [DEBUG] debug-file - default@BuildNativeWithNinja work[1] is pushed to ready queue.
+[2026-01-14T15:40:53.993] [DEBUG] debug-file - default@BuildNativeWithNinja work[1] is not dispatched.
+[2026-01-14T15:40:54.011] [DEBUG] debug-file - OHOS_STL is c++_shared
+[2026-01-14T15:40:54.011] [DEBUG] debug-file - Copy STL libc++_shared.so to F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\cmake\default\obj\arm64-v8a due to OHOS_STL is 'c++_shared'
+[2026-01-14T15:40:54.013] [DEBUG] debug-file - entry : default@BuildNativeWithNinja cost memory 1.0795516967773438
+[2026-01-14T15:40:54.107] [DEBUG] debug-file - A work dispatched to worker[11] failed because unable to get work from ready queue.
+[2026-01-14T15:40:54.107] [DEBUG] debug-file - Create  resident worker with id: 10.
+[2026-01-14T15:40:54.109] [DEBUG] debug-file - default@BuildNativeWithNinja work[1] has been dispatched to worker[10].
+[2026-01-14T15:40:59.203] [DEBUG] debug-file - ninja: Entering directory `F:\zhoubingquan\VpnProxyServer\entry\.cxx\default\default\debug\arm64-v8a'
+[1/2] Building CXX object CMakeFiles/vpn_server.dir/packet_forwarder.cpp.o
+
+[2026-01-14T15:40:59.748] [DEBUG] debug-file - clang++: warning: argument unused during compilation: '--gcc-toolchain=F:/Huawei/DevEco Studio/sdk/default/openharmony/native/llvm' [-Wunused-command-line-argument]
+[2/2] Linking CXX shared library F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\cmake\default\obj\arm64-v8a\libvpn_server.so
+
+[2026-01-14T15:40:59.755] [DEBUG] debug-file - worker[10] has one work done.
+[2026-01-14T15:40:59.766] [DEBUG] debug-file - default@BuildNativeWithNinja work[1] done.
+[2026-01-14T15:40:59.767] [DEBUG] debug-file - A work dispatched to worker[10] failed because unable to get work from ready queue.
+[2026-01-14T15:40:59.767] [INFO] debug-file - Finished :entry:default@BuildNativeWithNinja... after 2 s 248 ms 
+[2026-01-14T15:40:59.770] [DEBUG] debug-file - Executing task :entry:default@ProcessLibs
+[2026-01-14T15:40:59.782] [DEBUG] debug-file - Check content hash for F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\cmake\default\obj\arm64-v8a\libvpn_server.so
+[2026-01-14T15:40:59.802] [DEBUG] debug-file - Check content hash for F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\cmake\default\obj\arm64-v8a\libc++_shared.so
+[2026-01-14T15:40:59.811] [DEBUG] debug-file - entry:default@ProcessLibs is not up-to-date, since the input file 'F:\zhoubingquan\VpnProxyServer\build-profile.json5' has been changed.
+[2026-01-14T15:40:59.811] [DEBUG] debug-file - Incremental task entry:default@ProcessLibs pre-execution cost: 2 ms .
+[2026-01-14T15:40:59.817] [DEBUG] debug-file - Worker dispatch failed, running processLibs on main thread.
+[2026-01-14T15:40:59.823] [DEBUG] debug-file - Link F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\cmake\default\obj\arm64-v8a\libvpn_server.so to F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\libs\default\arm64-v8a\libvpn_server.so successfully.
+[2026-01-14T15:40:59.826] [DEBUG] debug-file - Link F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\cmake\default\obj\arm64-v8a\libc++_shared.so to F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\libs\default\arm64-v8a\libc++_shared.so successfully.
+[2026-01-14T15:40:59.826] [DEBUG] debug-file - entry : default@ProcessLibs cost memory 1.4496231079101562
+[2026-01-14T15:40:59.826] [DEBUG] debug-file - runTaskFromQueue task cost before running: 11 s 663 ms 
+[2026-01-14T15:40:59.827] [INFO] debug-file - Finished :entry:default@ProcessLibs... after 56 ms 
+[2026-01-14T15:40:59.830] [DEBUG] debug-file - Executing task :entry:default@DoNativeStrip
+[2026-01-14T15:40:59.830] [DEBUG] debug-file - Task 'entry:default@DoNativeStrip' cost while wrapping incremental declarations: 1 ms 
+[2026-01-14T15:40:59.845] [DEBUG] debug-file - entry:default@DoNativeStrip is not up-to-date, since the input file 'F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\libs\default' has been changed.
+[2026-01-14T15:40:59.845] [DEBUG] debug-file - Incremental task entry:default@DoNativeStrip pre-execution cost: 15 ms .
+[2026-01-14T15:40:59.854] [DEBUG] debug-file - default@DoNativeStrip work[2] is submitted.
+[2026-01-14T15:40:59.855] [DEBUG] debug-file - default@DoNativeStrip work[2] is pushed to ready queue.
+[2026-01-14T15:40:59.855] [DEBUG] debug-file - A work dispatched to worker[11] failed because unable to get work from ready queue.
+[2026-01-14T15:40:59.855] [DEBUG] debug-file - default@DoNativeStrip work[2] has been dispatched to worker[10].
+[2026-01-14T15:40:59.855] [DEBUG] debug-file - default@DoNativeStrip work[2] is dispatched.
+[2026-01-14T15:40:59.855] [DEBUG] debug-file - entry : default@DoNativeStrip cost memory 0.24921417236328125
+[2026-01-14T15:40:59.895] [DEBUG] debug-file - current process  memoryUsage: {
+  rss: 533213184,
+  heapTotal: 89305088,
+  heapUsed: 54737152,
+  external: 4140534,
+  arrayBuffers: 149453
+} os memoryUsage :12.778728485107422
+[2026-01-14T15:41:00.078] [DEBUG] debug-file - worker[10] has one work done.
+[2026-01-14T15:41:00.078] [DEBUG] debug-file - default@DoNativeStrip work[2] done.
+[2026-01-14T15:41:00.078] [DEBUG] debug-file - A work dispatched to worker[10] failed because unable to get work from ready queue.
+[2026-01-14T15:41:00.078] [INFO] debug-file - Finished :entry:default@DoNativeStrip... after 232 ms 
+[2026-01-14T15:41:05.949] [WARN] debug-file - [33mWARN: [33m[33mArkTS:WARN File: F:/zhoubingquan/VpnProxyServer/entry/src/main/ets/pages/Index.ets:2:24
+ Currently module for 'libvpn_server.so' is not verified. If you're importing napi, its verification will be enabled in later SDK version. Please make sure the corresponding .d.ts file is provided and the napis are correctly declared.
+[39m[39m
+
+[2026-01-14T15:41:05.949] [DEBUG] debug-file - Ark compile task finished.finished time is 12306686916400
+[2026-01-14T15:41:05.950] [DEBUG] debug-file - worker[4] has one work done.
+[2026-01-14T15:41:05.951] [DEBUG] debug-file - default@ColdReloadArkTS work[0] done.
+[2026-01-14T15:41:05.951] [DEBUG] debug-file - A work dispatched to worker[4] failed because unable to get work from ready queue.
+[2026-01-14T15:41:05.956] [INFO] debug-file - Finished :entry:default@ColdReloadArkTS... after 6 s 638 ms 
+[2026-01-14T15:41:05.958] [DEBUG] debug-file - Executing task :entry:default@PrepareQuickfix
+[2026-01-14T15:41:06.002] [DEBUG] debug-file - native files had been changed, state is 2
+[2026-01-14T15:41:06.014] [DEBUG] debug-file - Prepare c***r quickfix with patch versionCode 3000002.
+[2026-01-14T15:41:06.014] [DEBUG] debug-file - entry : default@PrepareQuickfix cost memory 0.48894500732421875
+[2026-01-14T15:41:06.014] [DEBUG] debug-file - runTaskFromQueue task cost before running: 17 s 852 ms 
+[2026-01-14T15:41:06.014] [INFO] debug-file - Finished :entry:default@PrepareQuickfix... after 57 ms 
+[2026-01-14T15:41:06.017] [DEBUG] debug-file - Executing task :entry:default@PackageHqf
+[2026-01-14T15:41:06.020] [DEBUG] debug-file - current process  memoryUsage: {
+  rss: 684974080,
+  heapTotal: 165953536,
+  heapUsed: 142429728,
+  external: 8940456,
+  arrayBuffers: 5902025
+} os memoryUsage :13.04897689819336
+[2026-01-14T15:41:06.609] [DEBUG] debug-file - entry : default@PackageHqf cost memory 0.24416351318359375
+[2026-01-14T15:41:06.609] [DEBUG] debug-file - runTaskFromQueue task cost before running: 18 s 446 ms 
+[2026-01-14T15:41:06.648] [DEBUG] debug-file - Executing task :entry:default@SignHqf
+[2026-01-14T15:41:06.609] [INFO] debug-file - Finished :entry:default@PackageHqf... after 592 ms 
+[2026-01-14T15:41:06.684] [DEBUG] debug-file - current process  memoryUsage: {
+  rss: 685056000,
+  heapTotal: 165953536,
+  heapUsed: 143101856,
+  external: 8940924,
+  arrayBuffers: 5902461
+} os memoryUsage :13.053886413574219
+[2026-01-14T15:41:07.495] [DEBUG] debug-file - 01-14 15:41:07.483  INFO - Start sign-app
+
+[2026-01-14T15:41:07.712] [DEBUG] debug-file - 01-14 15:41:07.712  INFO - certificate in profile: 周炳权(1857167889551890433)\,Development
+
+[2026-01-14T15:41:07.738] [DEBUG] debug-file - 01-14 15:41:07.737  INFO - Start to sign code.
+
+[2026-01-14T15:41:07.745] [DEBUG] debug-file - 01-14 15:41:07.745  INFO - profile type is: debug
+
+[2026-01-14T15:41:07.788] [DEBUG] debug-file - 01-14 15:41:07.788  INFO - C:\Users\LeagSoft\.ohos\config\default_VpnProxyServer_3OY97C7DhfR-jqc5aua3vHRaPtcUoLk1-zsOXb_JqbA=.p12 is exist. Try to load it with given passwd
+
+[2026-01-14T15:41:07.978] [DEBUG] debug-file - 01-14 15:41:07.978  INFO - Create a sign info successfully.
+
+[2026-01-14T15:41:07.997] [DEBUG] debug-file - 01-14 15:41:07.997  INFO - Create a sign info successfully.
+
+[2026-01-14T15:41:08.017] [DEBUG] debug-file - 01-14 15:41:08.016  INFO - Create a sign info successfully.
+
+[2026-01-14T15:41:08.022] [DEBUG] debug-file - 01-14 15:41:08.022  INFO - Sign successfully.
+
+[2026-01-14T15:41:08.036] [DEBUG] debug-file - 01-14 15:41:08.035  INFO - Add sign data in sign info list success.
+
+[2026-01-14T15:41:08.041] [DEBUG] debug-file - 01-14 15:41:08.041  INFO - Generate signing block success, begin write it to output file
+
+[2026-01-14T15:41:08.043] [DEBUG] debug-file - 01-14 15:41:08.043  INFO - Sign Hap success!
+
+[2026-01-14T15:41:08.043] [DEBUG] debug-file - 01-14 15:41:08.043  INFO - sign-app success
+
+[2026-01-14T15:41:08.118] [DEBUG] debug-file - entry : default@SignHqf cost memory -7.2870330810546875
+[2026-01-14T15:41:08.118] [DEBUG] debug-file - runTaskFromQueue task cost before running: 19 s 956 ms 
+[2026-01-14T15:41:08.119] [INFO] debug-file - Finished :entry:default@SignHqf... after 1 s 471 ms 
+[2026-01-14T15:41:08.119] [DEBUG] debug-file - Executing task :entry:assembleDevHqf
+[2026-01-14T15:41:08.122] [DEBUG] debug-file - entry : assembleDevHqf cost memory 0.02819061279296875
+[2026-01-14T15:41:08.122] [DEBUG] debug-file - runTaskFromQueue task cost before running: 19 s 959 ms 
+[2026-01-14T15:41:08.122] [INFO] debug-file - Finished :entry:assembleDevHqf... after 3 ms 
+[2026-01-14T15:41:08.140] [INFO] debug-file - BUILD SUCCESSFUL in 19 s 977 ms 
+[2026-01-14T15:41:08.151] [DEBUG] debug-file - Update task entry:default@ColdReloadArkTS input file:F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\loader\default cache by regenerate.
+[2026-01-14T15:41:08.153] [DEBUG] debug-file - Update task entry:default@ColdReloadArkTS input file:F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\res\default\resources\rawfile cache by regenerate.
+[2026-01-14T15:41:08.155] [DEBUG] debug-file - Update task entry:default@ColdReloadArkTS input file:F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\res\default\ResourceTable.txt cache by regenerate.
+[2026-01-14T15:41:08.156] [DEBUG] debug-file - Update task entry:default@ColdReloadArkTS input file:F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\res\default\ark_module.json cache by regenerate.
+[2026-01-14T15:41:08.157] [DEBUG] debug-file - Update task entry:default@ColdReloadArkTS input file:F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\res\default\resources\base\profile cache by regenerate.
+[2026-01-14T15:41:08.161] [DEBUG] debug-file - Update task entry:default@ColdReloadArkTS input file:F:\zhoubingquan\VpnProxyServer\entry\src\main\ets cache by regenerate.
+[2026-01-14T15:41:08.177] [DEBUG] debug-file - Update task entry:default@ColdReloadArkTS input file:F:\zhoubingquan\VpnProxyServer\entry\build\default\generated\profile\default\BuildProfile.ets cache by regenerate.
+[2026-01-14T15:41:08.178] [DEBUG] debug-file - Update task entry:default@ColdReloadArkTS input file:F:\zhoubingquan\VpnProxyServer\entry\src\main\cpp\types cache by regenerate.
+[2026-01-14T15:41:08.183] [DEBUG] debug-file - Update task entry:default@ColdReloadArkTS input file:F:\zhoubingquan\VpnProxyServer\entry\src\mock\mock-config.json5 cache by regenerate.
+[2026-01-14T15:41:08.185] [DEBUG] debug-file - Update task entry:default@ColdReloadArkTS output file:F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\loader_out\default\ets cache.
+[2026-01-14T15:41:08.190] [DEBUG] debug-file - Incremental task entry:default@ColdReloadArkTS post-execution cost:49 ms .
+[2026-01-14T15:41:08.193] [DEBUG] debug-file - Update task entry:default@PreBuild input file:F:\zhoubingquan\VpnProxyServer\AppScope\app.json5 cache by regenerate.
+[2026-01-14T15:41:08.193] [DEBUG] debug-file - Update task entry:default@PreBuild input file:F:\zhoubingquan\VpnProxyServer\entry\src\main\module.json5 cache by regenerate.
+[2026-01-14T15:41:08.194] [DEBUG] debug-file - Update task entry:default@PreBuild input file:F:\zhoubingquan\VpnProxyServer\build-profile.json5 cache from map.
+[2026-01-14T15:41:08.194] [DEBUG] debug-file - Update task entry:default@PreBuild input file:F:\zhoubingquan\VpnProxyServer\entry\build-profile.json5 cache by regenerate.
+[2026-01-14T15:41:08.195] [DEBUG] debug-file - Update task entry:default@PreBuild input file:F:\zhoubingquan\VpnProxyServer\entry\src\main\resources\base\profile\main_pages.json cache by regenerate.
+[2026-01-14T15:41:08.195] [DEBUG] debug-file - Update task entry:default@PreBuild input file:F:\zhoubingquan\VpnProxyServer\hvigor\hvigor-config.json5 cache by regenerate.
+[2026-01-14T15:41:08.196] [DEBUG] debug-file - Update task entry:default@PreBuild input file:F:\zhoubingquan\VpnProxyServer\entry\src\mock\mock-config.json5 cache by regenerate.
+[2026-01-14T15:41:08.197] [DEBUG] debug-file - Update task entry:default@PreBuild input file:F:\zhoubingquan\VpnProxyServer\entry\oh-package.json5 cache by regenerate.
+[2026-01-14T15:41:08.197] [DEBUG] debug-file - Update task entry:default@PreBuild input file:F:\zhoubingquan\VpnProxyServer\oh-package.json5 cache by regenerate.
+[2026-01-14T15:41:08.198] [DEBUG] debug-file - Incremental task entry:default@PreBuild post-execution cost:8 ms .
+[2026-01-14T15:41:08.198] [DEBUG] debug-file - Update task entry:default@ProcessLibs input file:F:\zhoubingquan\VpnProxyServer\build-profile.json5 cache from map.
+[2026-01-14T15:41:08.198] [DEBUG] debug-file - Update task entry:default@ProcessLibs input file:F:\zhoubingquan\VpnProxyServer\entry\build-profile.json5 cache by regenerate.
+[2026-01-14T15:41:08.199] [DEBUG] debug-file - Update task entry:default@ProcessLibs output file:F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\libs\default cache.
+[2026-01-14T15:41:08.203] [DEBUG] debug-file - Incremental task entry:default@ProcessLibs post-execution cost:5 ms .
+[2026-01-14T15:41:08.203] [DEBUG] debug-file - Update task entry:default@DoNativeStrip input file:F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\libs\default cache from map.
+[2026-01-14T15:41:08.203] [DEBUG] debug-file - Update task entry:default@DoNativeStrip output file:F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\stripped_native_libs\default cache.
+[2026-01-14T15:41:08.207] [DEBUG] debug-file - Incremental task entry:default@DoNativeStrip post-execution cost:5 ms .
+[2026-01-14T15:41:08.250] [DEBUG] debug-file - Current worker pool is stopped or closed.
+[2026-01-14T15:41:08.251] [DEBUG] debug-file - Clear worker 0.
+[2026-01-14T15:41:08.251] [DEBUG] debug-file - Worker 0 has been cleared.
+[2026-01-14T15:41:08.251] [DEBUG] debug-file - Current idle worker size: 3.
+[2026-01-14T15:41:08.251] [DEBUG] debug-file - Current busy worker size: 0.
+[2026-01-14T15:41:08.251] [DEBUG] debug-file - Clear worker 1.
+[2026-01-14T15:41:08.251] [DEBUG] debug-file - Worker 1 has been cleared.
+[2026-01-14T15:41:08.251] [DEBUG] debug-file - Current idle worker size: 2.
+[2026-01-14T15:41:08.251] [DEBUG] debug-file - Current busy worker size: 0.
+[2026-01-14T15:41:08.251] [DEBUG] debug-file - Clear worker 10.
+[2026-01-14T15:41:08.251] [DEBUG] debug-file - Worker 10 has been cleared.
+[2026-01-14T15:41:08.251] [DEBUG] debug-file - Current idle worker size: 1.
+[2026-01-14T15:41:08.251] [DEBUG] debug-file - Current busy worker size: 0.
+[2026-01-14T15:41:08.251] [DEBUG] debug-file - Clear worker 4.
+[2026-01-14T15:41:08.251] [DEBUG] debug-file - Worker 4 has been cleared.
+[2026-01-14T15:41:08.251] [DEBUG] debug-file - Current idle worker size: 0.
+[2026-01-14T15:41:08.251] [DEBUG] debug-file - Current busy worker size: 0.
+[2026-01-14T15:41:08.254] [DEBUG] debug-file - hvigor build process will be closed.
+[2026-01-14T15:41:08.256] [DEBUG] debug-file - Current worker pool is terminated.
+[2026-01-14T15:41:08.257] [DEBUG] debug-file - worker[0] exits with exit code 1.
+[2026-01-14T15:41:08.258] [DEBUG] debug-file - worker[1] exits with exit code 1.
+[2026-01-14T15:41:08.271] [DEBUG] debug-file - worker[10] exits with exit code 1.
+[2026-01-14T15:41:08.314] [DEBUG] debug-file - worker[4] exits with exit code 1.

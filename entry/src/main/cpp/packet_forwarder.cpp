@@ -794,7 +794,11 @@ static bool TestTCPConnection(const char* serverIP, int port, const char* server
     fcntl(tcpSock, F_SETFL, flags | O_NONBLOCK);
     
     int connectResult = connect(tcpSock, (struct sockaddr*)&serverAddr, sizeof(serverAddr));
+    FORWARDER_LOGI("🔍 connect()返回: %{public}d, errno: %{public}d (%{public}s)", connectResult, errno, strerror(errno));
+    
     if (connectResult < 0 && errno == EINPROGRESS) {
+        FORWARDER_LOGI("🔍 连接正在进行中，等待完成...");
+        
         // 等待连接完成，处理 EINTR 错误（信号中断时重试）
         int selectResult = -1;
         int retryCount = 0;
@@ -802,45 +806,82 @@ static bool TestTCPConnection(const char* serverIP, int port, const char* server
         
         while (retryCount < maxRetries) {
             fd_set writefds;
+            fd_set exceptfds;  // 添加异常fd集合
             struct timeval timeout;
             timeout.tv_sec = 5;
             timeout.tv_usec = 0;
             
             FD_ZERO(&writefds);
+            FD_ZERO(&exceptfds);
             FD_SET(tcpSock, &writefds);
+            FD_SET(tcpSock, &exceptfds);
             
-            selectResult = select(tcpSock + 1, nullptr, &writefds, nullptr, &timeout);
+            FORWARDER_LOGI("🔍 开始select()，等待socket可写...");
+            selectResult = select(tcpSock + 1, nullptr, &writefds, &exceptfds, &timeout);
+            int selectErrno = errno;  // 保存errno
+            FORWARDER_LOGI("🔍 select()返回: %{public}d, errno: %{public}d (%{public}s)", 
+                          selectResult, selectErrno, strerror(selectErrno));
+            
+            // 检查socket是否在异常集合中
+            if (FD_ISSET(tcpSock, &exceptfds)) {
+                FORWARDER_LOGE("❌ Socket出现异常（在except集合中）");
+                int error = 0;
+                socklen_t len = sizeof(error);
+                if (getsockopt(tcpSock, SOL_SOCKET, SO_ERROR, &error, &len) == 0) {
+                    FORWARDER_LOGE("❌ Socket错误: %{public}d (%{public}s)", error, strerror(error));
+                }
+                break;
+            }
             
             if (selectResult > 0) {
                 // Socket 可写，检查连接是否成功
+                FORWARDER_LOGI("🔍 select()成功，检查连接状态...");
                 int error = 0;
                 socklen_t len = sizeof(error);
-                if (getsockopt(tcpSock, SOL_SOCKET, SO_ERROR, &error, &len) == 0 && error == 0) {
-                    FORWARDER_LOGI("✅ 成功连接到 %{public}s (%{public}s:%{public}d)", serverName, serverIP, port);
-                    close(tcpSock);
-                    return true;
+                if (getsockopt(tcpSock, SOL_SOCKET, SO_ERROR, &error, &len) == 0) {
+                    FORWARDER_LOGI("🔍 getsockopt(SO_ERROR): %{public}d (%{public}s)", error, strerror(error));
+                    if (error == 0) {
+                        FORWARDER_LOGI("✅ 成功连接到 %{public}s (%{public}s:%{public}d)", serverName, serverIP, port);
+                        close(tcpSock);
+                        return true;
+                    } else {
+                        FORWARDER_LOGE("❌ 连接%{public}s失败: %{public}s (错误码=%{public}d)", serverName, strerror(error), error);
+                        break;
+                    }
                 } else {
-                    FORWARDER_LOGE("❌ 连接%{public}s失败: %{public}s", serverName, strerror(error));
+                    FORWARDER_LOGE("❌ getsockopt()失败: %{public}s", strerror(errno));
                     break;
                 }
             } else if (selectResult == 0) {
                 // 超时
-                FORWARDER_LOGE("❌ 连接%{public}s超时 (5秒)", serverName);
+                FORWARDER_LOGE("❌ 连接%{public}s超时 (5秒) - select返回0", serverName);
                 break;
-            } else if (errno == EINTR) {
+            } else if (selectErrno == EINTR) {
                 // 被信号中断，重试
                 retryCount++;
-                FORWARDER_LOGI("⚠️  select()被中断 (EINTR)，重试 %{public}d/%{public}d", retryCount, maxRetries);
+                FORWARDER_LOGI("⚠️  select()被系统信号中断 (EINTR #%{public}d)，重试 %{public}d/%{public}d", selectErrno, retryCount, maxRetries);
+                
+                // 检查socket是否仍然有效
+                int sockError = 0;
+                socklen_t len = sizeof(sockError);
+                if (getsockopt(tcpSock, SOL_SOCKET, SO_ERROR, &sockError, &len) == 0) {
+                    FORWARDER_LOGI("🔍 socket状态检查: error=%{public}d (%{public}s)", sockError, strerror(sockError));
+                    if (sockError != 0 && sockError != EINPROGRESS) {
+                        FORWARDER_LOGE("❌ socket已失效，错误: %{public}s", strerror(sockError));
+                        break;
+                    }
+                }
                 continue;
             } else {
                 // 其他错误
-                FORWARDER_LOGE("❌ select()失败: %{public}s (errno=%{public}d)", strerror(errno), errno);
+                FORWARDER_LOGE("❌ select()失败: %{public}s (errno=%{public}d)", strerror(selectErrno), selectErrno);
                 break;
             }
         }
         
         if (retryCount >= maxRetries) {
-            FORWARDER_LOGE("❌ select()重试%{public}d次后仍失败", maxRetries);
+            FORWARDER_LOGE("❌ select()重试%{public}d次后仍失败 - HarmonyOS系统可能主动阻止了TCP连接", maxRetries);
+            FORWARDER_LOGE("❌ 这不是网络问题，而是系统安全策略限制");
         }
     } else if (connectResult == 0) {
         FORWARDER_LOGI("✅ 立即连接成功到 %{public}s", serverName);
