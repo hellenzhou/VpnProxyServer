@@ -828,15 +828,35 @@ static bool TestSimpleTCP(const char* serverIP, int port, const char* serverName
         return true;
     } else if (errno == EINPROGRESS) {
         // 连接进行中，用select等待（短超时）
-        fd_set writefds;
-        struct timeval timeout;
-        timeout.tv_sec = 2;  // 2秒超时
-        timeout.tv_usec = 0;
+        // ⚠️ 重要：处理 EINTR（系统调用被信号中断）
+        int selectResult = -1;
+        int retryCount = 0;
+        const int maxRetries = 5;  // 增加到5次重试
         
-        FD_ZERO(&writefds);
-        FD_SET(sock, &writefds);
-        
-        int selectResult = select(sock + 1, nullptr, &writefds, nullptr, &timeout);
+        while (retryCount < maxRetries) {
+            fd_set writefds;
+            struct timeval timeout;
+            timeout.tv_sec = 3;  // 增加到3秒超时
+            timeout.tv_usec = 0;
+            
+            FD_ZERO(&writefds);
+            FD_SET(sock, &writefds);
+            
+            selectResult = select(sock + 1, nullptr, &writefds, nullptr, &timeout);
+            
+            if (selectResult >= 0) {
+                // 成功或超时，跳出循环
+                break;
+            } else if (errno == EINTR) {
+                // 被信号中断，重试
+                retryCount++;
+                FORWARDER_LOGI("⚠️  select()被信号中断 (EINTR)，重试 %{public}d/%{public}d", retryCount, maxRetries);
+                continue;
+            } else {
+                // 其他错误，跳出循环
+                break;
+            }
+        }
         
         if (selectResult > 0) {
             // 检查连接是否成功
@@ -850,9 +870,9 @@ static bool TestSimpleTCP(const char* serverIP, int port, const char* serverName
                 FORWARDER_LOGE("❌ TCP连接失败: %{public}s", strerror(error));
             }
         } else if (selectResult == 0) {
-            FORWARDER_LOGE("❌ TCP连接超时 (2秒)");
+            FORWARDER_LOGE("❌ TCP连接超时 (3秒) - 目标服务器可能不可达");
         } else {
-            FORWARDER_LOGE("❌ select()失败: %{public}s", strerror(errno));
+            FORWARDER_LOGE("❌ select()失败: %{public}s (重试%{public}d次后)", strerror(errno), retryCount);
         }
     } else {
         FORWARDER_LOGE("❌ TCP连接失败: %{public}s", strerror(errno));
