@@ -1,0 +1,215 @@
+{
+  "ohos-module-entry": {
+    "SELECT_TARGET": "default",
+    "MODULE_BUILD_DIR": "F:\\zbqwork\\VPNServer\\entry\\build",
+    "TARGETS": {
+      "default": {
+        "SOURCE_ROOT": "F:\\zbqwork\\VPNServer\\entry\\src\\main",
+        "RESOURCES_PATH": [
+          "F:\\zbqwork\\VPNServer\\entry\\src\\main\\resources"
+        ],
+        "BUILD_PATH": {
+          "OUTPUT_PATH": "F:\\zbqwork\\VPNServer\\entry\\build\\default\\outputs\\default",
+          "INTERMEDIA_PATH": "F:\\zbqwork\\VPNServer\\entry\\build\\default\\intermediates",
+          "JS_ASSETS_PATH": "F:\\zbqwork\\VPNServer\\entry\\build\\default\\intermediates\\loader_out\\default",
+          "JS_LITE_ASSETS_PATH": "F:\\zbqwork\\VPNServer\\entry\\build\\default\\intermediates\\loader_out_lite\\default",
+          "RES_PATH": "F:\\zbqwork\\VPNServer\\entry\\build\\default\\intermediates\\res\\default",
+          "RES_PROFILE_PATH": "F:\\zbqwork\\VPNServer\\entry\\build\\default\\intermediates\\res\\default\\resources\\base\\profile",
+          "ETS_SUPER_VISUAL_PATH": "F:\\zbqwork\\VPNServer\\entry\\build\\default\\cache\\default\\default@CompileArkTS\\esmodule",
+          "JS_SUPER_VISUAL_PATH": "F:\\zbqwork\\VPNServer\\entry\\build\\default\\cache\\default\\default@CompileJS\\jsbundle",
+          "WORKER_LOADER": "F:\\zbqwork\\VPNServer\\entry\\build\\default\\intermediates\\loader\\default\\loader.json",
+          "MANIFEST_JSON": "F:\\zbqwork\\VPNServer\\entry\\build\\default\\intermediates\\manifest\\default",
+          "OUTPUT_METADATA_JSON": "F:\\zbqwork\\VPNServer\\entry\\build\\default\\intermediates\\hap_metadata\\default\\output_metadata.json",
+          "SOURCE_MAP_DIR": "F:\\zbqwork\\VPNServer\\entry\\build\\default\\intermediates\\source_map\\default"
+        },
+        "BUILD_OPTION": {
+          "debuggable": true
+        }
+      },
+      "ohosTest": {
+        "SOURCE_ROOT": "F:\\zbqwork\\VPNServer\\entry\\src\\ohosTest",
+        "RESOURCES_PATH": [
+          "F:\\zbqwork\\VPNServer\\entry\\src\\ohosTest\\resources"
+        ],
+        "BUILD_PATH": {
+          "OUTPUT_PATH": "F:\\zbqwork\\VPNServer\\entry\\build\\default\\outputs\\ohosTest",
+          "INTERMEDIA_PATH": "F:\\zbqwork\\VPNServer\\entry\\build\\default\\intermediates",
+          "JS_ASSETS_PATH": "F:\\zbqwork\\VPNServer\\entry\\build\\default\\intermediates\\loader_out\\ohosTest",
+          "JS_LITE_ASSETS_PATH": "F:\\zbqwork\\VPNServer\\entry\\build\\default\\intermediates\\loader_out_lite\\ohosTest",
+          "RES_PATH": "F:\\zbqwork\\VPNServer\\entry\\build\\default\\intermediates\\res\\ohosTest",
+          "RES_PROFILE_PATH": "F:\\zbqwork\\VPNServer\\entry\\build\\default\\intermediates\\res\\ohosTest\\resources\\base\\profile",
+          "ETS_SUPER_VISUAL_PATH": "F:\\zbqwork\\VPNServer\\entry\\build\\default\\cache\\ohosTest\\ohosTest@OhosTestCompileArkTS\\esmodule",
+          "JS_SUPER_VISUAL_PATH": "F:\\zbqwork\\VPNServer\\entry\\build\\default\\cache\\ohosTest\\ohosTest@OhosTestCompileJS\\jsbundle",
+          "WORKER_LOADER": "F:\\zbqwork\\VPNServer\\entry\\build\\default\\intermediates\\loader\\ohosTest\\loader.json",
+          "MANIFEST_JSON": "F:\\zbqwork\\VPNServer\\entry\\build\\default\\intermediates\\manifest\\ohosTest",
+          "OUTPUT_METADATA_JSON": "F:\\zbqwork\\VPNServer\\entry\\build\\default\\intermediates\\hap_metadata\\ohosTest\\output_metadata.json",
+          "SOURCE_MAP_DIR": "F:\\zbqwork\\VPNServer\\entry\\build\\default\\intermediates\\source_map\\ohosTest"
+        },
+        "BUILD_OPTION": {
+          "debuggable": true
+        }
+      }
+    },
+    "BUILD_OPTION": {
+      "default-default": {
+        "debuggable": true,
+        "copyFrom": "default",
+        "strictMode": {
+          "caseSensitiveCheck": true,
+          "useNormalizedOHMUrl": false
+        },
+        "resOptions": {
+          "copyCodeResource": {
+            "enable": false
+          }
+        },
+        "externalNativeOptions": {
+          "path": "./src/main/cpp/CMakeLists.txt",
+          "arguments": "",
+          "abiFilters": [
+            "arm64-v8a"
+          ],
+          "cppFlags": ""
+        },
+        "name": "debug"
+      }
+    },
+    "BUILD_PROFILE_OPT": {
+      "apiType": "stageMode",
+      "buildOption": {
+        "resOptions": {
+          "copyCodeResource": {
+            "enable": false
+          }
+        },
+        "externalNativeOptions": {
+          "path": "./src/main/cpp/CMakeLists.txt",
+          "arguments": "",
+          "abiFilters": [
+            "arm64-v8a"
+          ],
+          "cppFlags": ""
+        }
+      },
+      "buildOptionSet": [
+        {
+          "name": "release",
+          "arkOptions": {
+            "obfuscation": {
+              "ruleOptions": {
+                "enable": false,
+                "files": [
+                  "./obfuscation-rules.txt"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "name": "default"
+        },
+        {
+          "name": "debug"
+        }
+      ],
+      "targets": [
+        {
+          "name": "default"
+        },
+        {
+          "name": "ohosTest"
+        }
+      ]
+    },
+    "BUILD_CACHE_DIR": ""
+  },
+  "ohos-project": {
+    "SELECT_PRODUCT_NAME": "default",
+    "MODULE_BUILD_DIR": "F:\\zbqwork\\VPNServer\\build",
+    "BUNDLE_NAME": "com.hellen.vpnserver",
+    "BUILD_PATH": {
+      "OUTPUT_PATH": "F:\\zbqwork\\VPNServer\\build\\outputs\\default"
+    },
+    "MODULES": [
+      {
+        "name": "entry",
+        "srcPath": "F:\\zbqwork\\VPNServer\\entry",
+        "targets": [
+          {
+            "name": "default",
+            "applyToProducts": [
+              "default"
+            ]
+          }
+        ],
+        "belongProjectPath": "F:\\zbqwork\\VPNServer"
+      }
+    ],
+    "PROFILE_OPT": {
+      "app": {
+        "signingConfigs": [
+          {
+            "name": "default",
+            "type": "HarmonyOS",
+            "material": {
+              "certpath": "C:\\Users\\LeagSoft\\.ohos\\config\\default_VPNServer_4Aoz4Gv20kqc8Dm2OJcVKNOVmiLLraDWJqRqD9IG998=.cer",
+              "keyAlias": "debugKey",
+              "keyPassword": "0000001A95D98978270F1C7FC2CB6FB75E97AABE5162E827F17F9FB5CB2302E4FE186BD05C7E94C9847A",
+              "profile": "C:\\Users\\LeagSoft\\.ohos\\config\\default_VPNServer_4Aoz4Gv20kqc8Dm2OJcVKNOVmiLLraDWJqRqD9IG998=.p7b",
+              "signAlg": "SHA256withECDSA",
+              "storeFile": "C:\\Users\\LeagSoft\\.ohos\\config\\default_VPNServer_4Aoz4Gv20kqc8Dm2OJcVKNOVmiLLraDWJqRqD9IG998=.p12",
+              "storePassword": "0000001A5A91479A6F540E395B0306EF736246443FD4651DE735E45CE1F63E458103D94A5CDF935EBE15"
+            }
+          }
+        ],
+        "products": [
+          {
+            "name": "default",
+            "signingConfig": "default",
+            "targetSdkVersion": "6.0.0(20)",
+            "compatibleSdkVersion": "5.0.2(14)",
+            "runtimeOS": "HarmonyOS",
+            "buildOption": {
+              "strictMode": {
+                "caseSensitiveCheck": true,
+                "useNormalizedOHMUrl": false
+              }
+            }
+          }
+        ],
+        "buildModeSet": [
+          {
+            "name": "debug"
+          },
+          {
+            "name": "release"
+          }
+        ]
+      },
+      "modules": [
+        {
+          "name": "entry",
+          "srcPath": "./entry",
+          "targets": [
+            {
+              "name": "default",
+              "applyToProducts": [
+                "default"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "CONFIG_PROPERTIES": {
+      "enableSignTask": true,
+      "skipNativeIncremental": false,
+      "hvigor.keepDependency": true
+    },
+    "OVERALL_PROJECT_PATHS": [
+      "F:\\zbqwork\\VPNServer"
+    ],
+    "BUILD_CACHE_DIR": ""
+  },
+  "version": 1
+}

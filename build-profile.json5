@@ -1,0 +1,56 @@
+{
+  "app": {
+    "signingConfigs": [
+      {
+        "name": "default",
+        "type": "HarmonyOS",
+        "material": {
+          "certpath": "C:\\Users\\LeagSoft\\.ohos\\config\\default_VPNServer_4Aoz4Gv20kqc8Dm2OJcVKNOVmiLLraDWJqRqD9IG998=.cer",
+          "keyAlias": "debugKey",
+          "keyPassword": "0000001A95D98978270F1C7FC2CB6FB75E97AABE5162E827F17F9FB5CB2302E4FE186BD05C7E94C9847A",
+          "profile": "C:\\Users\\LeagSoft\\.ohos\\config\\default_VPNServer_4Aoz4Gv20kqc8Dm2OJcVKNOVmiLLraDWJqRqD9IG998=.p7b",
+          "signAlg": "SHA256withECDSA",
+          "storeFile": "C:\\Users\\LeagSoft\\.ohos\\config\\default_VPNServer_4Aoz4Gv20kqc8Dm2OJcVKNOVmiLLraDWJqRqD9IG998=.p12",
+          "storePassword": "0000001A5A91479A6F540E395B0306EF736246443FD4651DE735E45CE1F63E458103D94A5CDF935EBE15"
+        }
+      }
+    ],
+    "products": [
+      {
+        "name": "default",
+        "signingConfig": "default",
+        "targetSdkVersion": "6.0.0(20)",
+        "compatibleSdkVersion": "5.0.2(14)",
+        "runtimeOS": "HarmonyOS",
+        "buildOption": {
+          "strictMode": {
+            "caseSensitiveCheck": true,
+            "useNormalizedOHMUrl": false
+          }
+        }
+      }
+    ],
+    "buildModeSet": [
+      {
+        "name": "debug",
+      },
+      {
+        "name": "release"
+      }
+    ]
+  },
+  "modules": [
+    {
+      "name": "entry",
+      "srcPath": "./entry",
+      "targets": [
+        {
+          "name": "default",
+          "applyToProducts": [
+            "default"
+          ]
+        }
+      ]
+    }
+  ]
+}

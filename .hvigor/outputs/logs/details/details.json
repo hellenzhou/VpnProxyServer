@@ -1,0 +1,50 @@
+{
+  "HVIGOR_OHOS_PLUGIN": {
+    "MODULES": [
+      {
+        "MODULE_NAME": "923fe53966c6cd9343e11af776cd4b05be315ea4b200b02e4d5dfb0f929b73bf",
+        "API_TYPE": "stageMode"
+      }
+    ],
+    "NATIVE_COMPILER": "Default",
+    "BUILD_MODE": "debug"
+  },
+  "HVIGOR": {
+    "IS_INCREMENTAL": true,
+    "IS_DAEMON": true,
+    "IS_PARALLEL": true,
+    "IS_HVIGORFILE_TYPE_CHECK": false,
+    "TASK_TIME": {},
+    "APIS": [
+      "getHvigorConfig",
+      "getRootNodeDescriptor",
+      "getChildNode",
+      "getNodeByName",
+      "getAllNodes",
+      "getRootNode",
+      "getNodeName",
+      "getStartParams",
+      "buildFinished",
+      "getNodePath",
+      "subNodes",
+      "getExtraOption",
+      "getExtParam",
+      "getExtParams",
+      "getProperty",
+      "getProperties"
+    ],
+    "CONFIG_PROPERTIES": {},
+    "BUILD_ID": "202601141155116030",
+    "ERROR_MESSAGE": [
+      {
+        "CODE": "00303217",
+        "MESSAGE": "Invalid value of '%s' in the system environment path.",
+        "SOLUTIONS": [
+          "Correct the value, run hvigorw --stop-daemon to stop the daemon process, and then try again."
+        ],
+        "TIMESTAMP": "1768362920062"
+      }
+    ],
+    "TOTAL_TIME": 8499035200
+  }
+}
