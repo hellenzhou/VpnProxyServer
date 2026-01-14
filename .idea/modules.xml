@@ -2,7 +2,7 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
-      <module fileurl="file://$PROJECT_DIR$/.idea/modules/VPNServer.iml" filepath="$PROJECT_DIR$/.idea/modules/VPNServer.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/modules/VpnProxyServer.iml" filepath="$PROJECT_DIR$/.idea/modules/VpnProxyServer.iml" />
       <module fileurl="file://$PROJECT_DIR$/.idea/modules/entry.iml" filepath="$PROJECT_DIR$/.idea/modules/entry.iml" />
     </modules>
   </component>

@@ -3,18 +3,44 @@
     "MODULES": [
       {
         "MODULE_NAME": "923fe53966c6cd9343e11af776cd4b05be315ea4b200b02e4d5dfb0f929b73bf",
-        "API_TYPE": "stageMode"
+        "API_TYPE": "stageMode",
+        "INCREMENTAL_TASKS": {
+          "BUILD_NATIVE_WITH_CMAKE": false
+        }
       }
     ],
     "NATIVE_COMPILER": "Default",
-    "BUILD_MODE": "debug"
+    "BUILD_MODE": "debug",
+    "USE_NORMALIZED_OHMURL": false
   },
   "HVIGOR": {
     "IS_INCREMENTAL": true,
     "IS_DAEMON": true,
     "IS_PARALLEL": true,
     "IS_HVIGORFILE_TYPE_CHECK": false,
-    "TASK_TIME": {},
+    "TASK_TIME": {
+      "923fe53966c6cd9343e11af776cd4b05be315ea4b200b02e4d5dfb0f929b73bf": {
+        "CreateModuleInfo": 1204200,
+        "ConfigureCmake": 1634800,
+        "PreCheckSyscap": 356600,
+        "GeneratePkgContextInfo": 6531500,
+        "ProcessIntegratedHsp": 790400,
+        "SyscapTransform": 6523900,
+        "ProcessStartupConfig": 1808200,
+        "BuildJS": 4876700,
+        "BuildNativeWithCmake": 2326919300,
+        "BuildNativeWithNinja": 7503557900,
+        "ProcessLibs": 75559700,
+        "DoNativeStrip": 601820900,
+        "CacheNativeLibs": 11055100,
+        "ProcessCompiledResources": 1475000,
+        "PackageHap": 831241200,
+        "PackingCheck": 17618900,
+        "SignHap": 2894535800,
+        "CollectDebugSymbol": 4540100,
+        "assembleHap": 1044900
+      }
+    },
     "APIS": [
       "getHvigorConfig",
       "getRootNodeDescriptor",
@@ -23,28 +49,20 @@
       "getAllNodes",
       "getRootNode",
       "getNodeName",
-      "getStartParams",
-      "buildFinished",
       "getNodePath",
       "subNodes",
       "getExtraOption",
       "getExtParam",
       "getExtParams",
       "getProperty",
-      "getProperties"
+      "getProperties",
+      "getParameter",
+      "getProductName",
+      "nodesEvaluated",
+      "getCommandEntryTask"
     ],
     "CONFIG_PROPERTIES": {},
-    "BUILD_ID": "202601141155116030",
-    "ERROR_MESSAGE": [
-      {
-        "CODE": "00303217",
-        "MESSAGE": "Invalid value of '%s' in the system environment path.",
-        "SOLUTIONS": [
-          "Correct the value, run hvigorw --stop-daemon to stop the daemon process, and then try again."
-        ],
-        "TIMESTAMP": "1768362920062"
-      }
-    ],
-    "TOTAL_TIME": 8499035200
+    "TOTAL_TIME": 14631411600,
+    "BUILD_ID": "202601141456563120"
   }
 }

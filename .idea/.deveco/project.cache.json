@@ -9,7 +9,7 @@
 		"SELECT_BUILD_PRODUCT":"default",
 		"BUNDLE_NAME":"com.hellen.vpnserver",
 		"BUILD_PATH":{
-			"OUTPUT_PATH":"F:\\zbqwork\\VPNServer\\build\\outputs\\default"
+			"OUTPUT_PATH":"F:\\zhoubingquan\\VpnProxyServer\\build\\outputs\\default"
 		},
 		"SELECT_BUILD_MODE":""
 	}

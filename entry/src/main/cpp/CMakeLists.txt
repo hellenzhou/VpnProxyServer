@@ -28,6 +28,7 @@ add_library(vpn_server SHARED
     protocol_handler.cpp
     packet_forwarder.cpp
     simple_dns_cache.cpp
+    network_diagnostics.cpp
 )
 
 target_link_libraries(vpn_server PUBLIC libace_napi.z.so libc++.a)

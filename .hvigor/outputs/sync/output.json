@@ -1,49 +1,49 @@
 {
   "ohos-module-entry": {
     "SELECT_TARGET": "default",
-    "MODULE_BUILD_DIR": "F:\\zbqwork\\VPNServer\\entry\\build",
+    "MODULE_BUILD_DIR": "F:\\zhoubingquan\\VpnProxyServer\\entry\\build",
     "TARGETS": {
       "default": {
-        "SOURCE_ROOT": "F:\\zbqwork\\VPNServer\\entry\\src\\main",
+        "SOURCE_ROOT": "F:\\zhoubingquan\\VpnProxyServer\\entry\\src\\main",
         "RESOURCES_PATH": [
-          "F:\\zbqwork\\VPNServer\\entry\\src\\main\\resources"
+          "F:\\zhoubingquan\\VpnProxyServer\\entry\\src\\main\\resources"
         ],
         "BUILD_PATH": {
-          "OUTPUT_PATH": "F:\\zbqwork\\VPNServer\\entry\\build\\default\\outputs\\default",
-          "INTERMEDIA_PATH": "F:\\zbqwork\\VPNServer\\entry\\build\\default\\intermediates",
-          "JS_ASSETS_PATH": "F:\\zbqwork\\VPNServer\\entry\\build\\default\\intermediates\\loader_out\\default",
-          "JS_LITE_ASSETS_PATH": "F:\\zbqwork\\VPNServer\\entry\\build\\default\\intermediates\\loader_out_lite\\default",
-          "RES_PATH": "F:\\zbqwork\\VPNServer\\entry\\build\\default\\intermediates\\res\\default",
-          "RES_PROFILE_PATH": "F:\\zbqwork\\VPNServer\\entry\\build\\default\\intermediates\\res\\default\\resources\\base\\profile",
-          "ETS_SUPER_VISUAL_PATH": "F:\\zbqwork\\VPNServer\\entry\\build\\default\\cache\\default\\default@CompileArkTS\\esmodule",
-          "JS_SUPER_VISUAL_PATH": "F:\\zbqwork\\VPNServer\\entry\\build\\default\\cache\\default\\default@CompileJS\\jsbundle",
-          "WORKER_LOADER": "F:\\zbqwork\\VPNServer\\entry\\build\\default\\intermediates\\loader\\default\\loader.json",
-          "MANIFEST_JSON": "F:\\zbqwork\\VPNServer\\entry\\build\\default\\intermediates\\manifest\\default",
-          "OUTPUT_METADATA_JSON": "F:\\zbqwork\\VPNServer\\entry\\build\\default\\intermediates\\hap_metadata\\default\\output_metadata.json",
-          "SOURCE_MAP_DIR": "F:\\zbqwork\\VPNServer\\entry\\build\\default\\intermediates\\source_map\\default"
+          "OUTPUT_PATH": "F:\\zhoubingquan\\VpnProxyServer\\entry\\build\\default\\outputs\\default",
+          "INTERMEDIA_PATH": "F:\\zhoubingquan\\VpnProxyServer\\entry\\build\\default\\intermediates",
+          "JS_ASSETS_PATH": "F:\\zhoubingquan\\VpnProxyServer\\entry\\build\\default\\intermediates\\loader_out\\default",
+          "JS_LITE_ASSETS_PATH": "F:\\zhoubingquan\\VpnProxyServer\\entry\\build\\default\\intermediates\\loader_out_lite\\default",
+          "RES_PATH": "F:\\zhoubingquan\\VpnProxyServer\\entry\\build\\default\\intermediates\\res\\default",
+          "RES_PROFILE_PATH": "F:\\zhoubingquan\\VpnProxyServer\\entry\\build\\default\\intermediates\\res\\default\\resources\\base\\profile",
+          "ETS_SUPER_VISUAL_PATH": "F:\\zhoubingquan\\VpnProxyServer\\entry\\build\\default\\cache\\default\\default@CompileArkTS\\esmodule",
+          "JS_SUPER_VISUAL_PATH": "F:\\zhoubingquan\\VpnProxyServer\\entry\\build\\default\\cache\\default\\default@CompileJS\\jsbundle",
+          "WORKER_LOADER": "F:\\zhoubingquan\\VpnProxyServer\\entry\\build\\default\\intermediates\\loader\\default\\loader.json",
+          "MANIFEST_JSON": "F:\\zhoubingquan\\VpnProxyServer\\entry\\build\\default\\intermediates\\manifest\\default",
+          "OUTPUT_METADATA_JSON": "F:\\zhoubingquan\\VpnProxyServer\\entry\\build\\default\\intermediates\\hap_metadata\\default\\output_metadata.json",
+          "SOURCE_MAP_DIR": "F:\\zhoubingquan\\VpnProxyServer\\entry\\build\\default\\intermediates\\source_map\\default"
         },
         "BUILD_OPTION": {
           "debuggable": true
         }
       },
       "ohosTest": {
-        "SOURCE_ROOT": "F:\\zbqwork\\VPNServer\\entry\\src\\ohosTest",
+        "SOURCE_ROOT": "F:\\zhoubingquan\\VpnProxyServer\\entry\\src\\ohosTest",
         "RESOURCES_PATH": [
-          "F:\\zbqwork\\VPNServer\\entry\\src\\ohosTest\\resources"
+          "F:\\zhoubingquan\\VpnProxyServer\\entry\\src\\ohosTest\\resources"
         ],
         "BUILD_PATH": {
-          "OUTPUT_PATH": "F:\\zbqwork\\VPNServer\\entry\\build\\default\\outputs\\ohosTest",
-          "INTERMEDIA_PATH": "F:\\zbqwork\\VPNServer\\entry\\build\\default\\intermediates",
-          "JS_ASSETS_PATH": "F:\\zbqwork\\VPNServer\\entry\\build\\default\\intermediates\\loader_out\\ohosTest",
-          "JS_LITE_ASSETS_PATH": "F:\\zbqwork\\VPNServer\\entry\\build\\default\\intermediates\\loader_out_lite\\ohosTest",
-          "RES_PATH": "F:\\zbqwork\\VPNServer\\entry\\build\\default\\intermediates\\res\\ohosTest",
-          "RES_PROFILE_PATH": "F:\\zbqwork\\VPNServer\\entry\\build\\default\\intermediates\\res\\ohosTest\\resources\\base\\profile",
-          "ETS_SUPER_VISUAL_PATH": "F:\\zbqwork\\VPNServer\\entry\\build\\default\\cache\\ohosTest\\ohosTest@OhosTestCompileArkTS\\esmodule",
-          "JS_SUPER_VISUAL_PATH": "F:\\zbqwork\\VPNServer\\entry\\build\\default\\cache\\ohosTest\\ohosTest@OhosTestCompileJS\\jsbundle",
-          "WORKER_LOADER": "F:\\zbqwork\\VPNServer\\entry\\build\\default\\intermediates\\loader\\ohosTest\\loader.json",
-          "MANIFEST_JSON": "F:\\zbqwork\\VPNServer\\entry\\build\\default\\intermediates\\manifest\\ohosTest",
-          "OUTPUT_METADATA_JSON": "F:\\zbqwork\\VPNServer\\entry\\build\\default\\intermediates\\hap_metadata\\ohosTest\\output_metadata.json",
-          "SOURCE_MAP_DIR": "F:\\zbqwork\\VPNServer\\entry\\build\\default\\intermediates\\source_map\\ohosTest"
+          "OUTPUT_PATH": "F:\\zhoubingquan\\VpnProxyServer\\entry\\build\\default\\outputs\\ohosTest",
+          "INTERMEDIA_PATH": "F:\\zhoubingquan\\VpnProxyServer\\entry\\build\\default\\intermediates",
+          "JS_ASSETS_PATH": "F:\\zhoubingquan\\VpnProxyServer\\entry\\build\\default\\intermediates\\loader_out\\ohosTest",
+          "JS_LITE_ASSETS_PATH": "F:\\zhoubingquan\\VpnProxyServer\\entry\\build\\default\\intermediates\\loader_out_lite\\ohosTest",
+          "RES_PATH": "F:\\zhoubingquan\\VpnProxyServer\\entry\\build\\default\\intermediates\\res\\ohosTest",
+          "RES_PROFILE_PATH": "F:\\zhoubingquan\\VpnProxyServer\\entry\\build\\default\\intermediates\\res\\ohosTest\\resources\\base\\profile",
+          "ETS_SUPER_VISUAL_PATH": "F:\\zhoubingquan\\VpnProxyServer\\entry\\build\\default\\cache\\ohosTest\\ohosTest@OhosTestCompileArkTS\\esmodule",
+          "JS_SUPER_VISUAL_PATH": "F:\\zhoubingquan\\VpnProxyServer\\entry\\build\\default\\cache\\ohosTest\\ohosTest@OhosTestCompileJS\\jsbundle",
+          "WORKER_LOADER": "F:\\zhoubingquan\\VpnProxyServer\\entry\\build\\default\\intermediates\\loader\\ohosTest\\loader.json",
+          "MANIFEST_JSON": "F:\\zhoubingquan\\VpnProxyServer\\entry\\build\\default\\intermediates\\manifest\\ohosTest",
+          "OUTPUT_METADATA_JSON": "F:\\zhoubingquan\\VpnProxyServer\\entry\\build\\default\\intermediates\\hap_metadata\\ohosTest\\output_metadata.json",
+          "SOURCE_MAP_DIR": "F:\\zhoubingquan\\VpnProxyServer\\entry\\build\\default\\intermediates\\source_map\\ohosTest"
         },
         "BUILD_OPTION": {
           "debuggable": true
@@ -125,15 +125,15 @@
   },
   "ohos-project": {
     "SELECT_PRODUCT_NAME": "default",
-    "MODULE_BUILD_DIR": "F:\\zbqwork\\VPNServer\\build",
+    "MODULE_BUILD_DIR": "F:\\zhoubingquan\\VpnProxyServer\\build",
     "BUNDLE_NAME": "com.hellen.vpnserver",
     "BUILD_PATH": {
-      "OUTPUT_PATH": "F:\\zbqwork\\VPNServer\\build\\outputs\\default"
+      "OUTPUT_PATH": "F:\\zhoubingquan\\VpnProxyServer\\build\\outputs\\default"
     },
     "MODULES": [
       {
         "name": "entry",
-        "srcPath": "F:\\zbqwork\\VPNServer\\entry",
+        "srcPath": "F:\\zhoubingquan\\VpnProxyServer\\entry",
         "targets": [
           {
             "name": "default",
@@ -142,7 +142,7 @@
             ]
           }
         ],
-        "belongProjectPath": "F:\\zbqwork\\VPNServer"
+        "belongProjectPath": "F:\\zhoubingquan\\VpnProxyServer"
       }
     ],
     "PROFILE_OPT": {
@@ -207,7 +207,7 @@
       "hvigor.keepDependency": true
     },
     "OVERALL_PROJECT_PATHS": [
-      "F:\\zbqwork\\VPNServer"
+      "F:\\zhoubingquan\\VpnProxyServer"
     ],
     "BUILD_CACHE_DIR": ""
   },

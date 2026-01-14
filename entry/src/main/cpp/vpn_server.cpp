@@ -25,6 +25,7 @@
 #include "packet_forwarder.h"
 #include "vpn_server_globals.h"
 #include "simple_dns_cache.h"
+#include "network_diagnostics.h"
 
 #define MAKE_FILE_NAME (strrchr(__FILE__, '/') ? (strrchr(__FILE__, '/') + 1) : __FILE__)
 
@@ -1324,6 +1325,12 @@ napi_value StartServer(napi_env env, napi_callback_info info)
   VPN_SERVER_LOGI("🎯 PROXY SERVER STARTED - Ready to accept proxy client connections");
   VPN_SERVER_LOGI("📡 Listening on UDP port %{public}d for proxy tunnel traffic", port);
   VPN_SERVER_LOGI("🌐 All connected clients will have their traffic forwarded through this proxy server");
+  
+  // 运行完整网络诊断（在后台线程中，避免阻塞启动）
+  std::thread([]() {
+    VPN_SERVER_LOGI("🔍 Starting comprehensive network diagnostics...");
+    NetworkDiagnostics::RunFullDiagnostics();
+  }).detach();
   
   // 测试网络连接
   PacketForwarder::TestNetworkConnectivity();

@@ -111,8 +111,10 @@ PacketInfo ProtocolHandler::ParseIPPacket(const uint8_t* data, int dataSize) {
                     break;
                 }
                 default:
-                    // 其他协议（如ICMPv6），不支持
-                    PROTOCOL_LOGI("IPv6 next header not supported: %{public}d (only TCP=6, UDP=17 supported)", nextHeader);
+                    // 其他协议（如ICMPv6=58, 或其他扩展/封装协议），不支持
+                    // 常见的值: 58=ICMPv6, 143=Ethernet-within-IP, 135=Mobility Header
+                    PROTOCOL_LOGI("IPv6 next header %{public}d not supported (only TCP=6, UDP=17, and common extension headers supported)", nextHeader);
+                    PROTOCOL_LOGI("🔍 Note: This packet will be dropped as VPN only forwards TCP/UDP traffic");
                     return info;
             }
         }

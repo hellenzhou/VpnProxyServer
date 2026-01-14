@@ -263,11 +263,16 @@ int PacketForwarder::HandleUDPForwarding(int sockFd, const uint8_t* data, int da
     // 绑定到本地网络接口（如果需要）
     struct sockaddr_in localAddr{};
     localAddr.sin_family = AF_INET;
-    localAddr.sin_addr.s_addr = INADDR_ANY;
+    localAddr.sin_addr.s_addr = INADDR_ANY;  // 0.0.0.0 允许系统选择最佳接口
     localAddr.sin_port = 0;  // 让系统选择端口
     
+    // 尝试绑定 - 这允许socket使用任何可用的网络接口
     if (bind(sockFd, (struct sockaddr*)&localAddr, sizeof(localAddr)) < 0) {
         FORWARDER_LOGE("Failed to bind UDP socket: %{public}s", strerror(errno));
+        FORWARDER_LOGE("🔍 [网络诊断] bind()失败 - 可能原因:");
+        FORWARDER_LOGE("🔍 [网络诊断]   1) 端口已被占用（但我们使用0让系统选择）");
+        FORWARDER_LOGE("🔍 [网络诊断]   2) 权限不足");
+        FORWARDER_LOGE("🔍 [网络诊断]   3) 网络接口不可用");
         close(sockFd);
         return -1;
     }
@@ -364,16 +369,16 @@ int PacketForwarder::HandleUDPForwarding(int sockFd, const uint8_t* data, int da
                     
                     // 发送DNS响应回客户端
                     uint8_t ipPacket[BUFFER_SIZE];
-                    int ipPacketLen = BuildIPv4Packet(
-                        originalPeer.sin_addr.s_addr,  // 目标是客户端
-                        inet_addr("192.168.100.2"),     // 源是VPN虚拟IP
-                        dnsResponse, responseLen,
-                        IPPROTO_UDP, 53, 34924,       // DNS端口
-                        ipPacket, sizeof(ipPacket)
+                    int ipPacketLen = BuildIPPacket(
+                        ipPacket, sizeof(ipPacket),                // 输出缓冲区
+                        "192.168.100.2", 53,                       // 源IP和端口 (VPN DNS服务器)
+                        packetInfo.sourceIP, packetInfo.sourcePort, // 目标IP和端口 (客户端)
+                        IPPROTO_UDP,                               // 协议
+                        dnsResponse, responseLen                   // 载荷数据
                     );
                     
                     if (ipPacketLen > 0) {
-                        ssize_t sent = sendto(g_serverSocket, ipPacket, ipPacketLen, 0,
+                        ssize_t sent = sendto(g_sockFd, ipPacket, ipPacketLen, 0,
                                             (struct sockaddr*)&originalPeer, sizeof(originalPeer));
                         if (sent > 0) {
                             FORWARDER_LOGI("✅ [HarmonyOS] 本地DNS响应已发送: %{public}zd字节", sent);
@@ -522,11 +527,16 @@ int PacketForwarder::HandleTCPForwarding(int sockFd, const uint8_t* data, int da
     // 绑定到本地网络接口
     struct sockaddr_in localAddr{};
     localAddr.sin_family = AF_INET;
-    localAddr.sin_addr.s_addr = INADDR_ANY;
+    localAddr.sin_addr.s_addr = INADDR_ANY;  // 0.0.0.0 允许系统选择最佳接口
     localAddr.sin_port = 0;  // 让系统选择端口
     
+    // 尝试绑定 - 这允许socket使用任何可用的网络接口
     if (bind(sockFd, (struct sockaddr*)&localAddr, sizeof(localAddr)) < 0) {
         FORWARDER_LOGE("Failed to bind TCP socket: %{public}s", strerror(errno));
+        FORWARDER_LOGE("🔍 [网络诊断] bind()失败 - 可能原因:");
+        FORWARDER_LOGE("🔍 [网络诊断]   1) 端口已被占用（但我们使用0让系统选择）");
+        FORWARDER_LOGE("🔍 [网络诊断]   2) 权限不足");
+        FORWARDER_LOGE("🔍 [网络诊断]   3) 网络接口不可用");
         close(sockFd);
         return -1;
     }
