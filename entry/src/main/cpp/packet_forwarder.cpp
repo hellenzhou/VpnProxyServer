@@ -223,15 +223,17 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
 }
 
 int PacketForwarder::CreateSocket(int addressFamily, uint8_t protocol) {
-    // 代理服务器在trustedApplications中，socket不会被VPN路由表拦截
-    // 直接创建socket，逻辑正确：代理服务器自己创建socket连接真实服务器
+    // ⚠️ 重要：代理服务器必须在VPN配置的trustedApplications列表中！
+    // - 如果不在列表中，这个socket会被VPN路由拦截，导致路由循环
+    // - 正确配置：在VpnClient的Config中设置 trustedApplications = ['com.hellen.vpnserver']
+    // - 这样代理服务器创建的socket可以直接访问真实网络，不经过VPN路由
     int sockFd = -1;
     if (protocol == PROTOCOL_UDP) {
         sockFd = socket(addressFamily, SOCK_DGRAM, 0);
-        FORWARDER_LOGI("✅ Created UDP socket for forwarding (not intercepted by VPN routing)");
+        FORWARDER_LOGI("✅ Created UDP socket for forwarding (requires app in trustedApplications)");
     } else if (protocol == PROTOCOL_TCP) {
         sockFd = socket(addressFamily, SOCK_STREAM, 0);
-        FORWARDER_LOGI("✅ Created TCP socket for forwarding (not intercepted by VPN routing)");
+        FORWARDER_LOGI("✅ Created TCP socket for forwarding (requires app in trustedApplications)");
     } else {
         FORWARDER_LOGE("❌ Unsupported protocol: %{public}d", protocol);
         return -1;
