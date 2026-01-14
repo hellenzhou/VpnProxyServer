@@ -43,6 +43,12 @@
         }
       }
     ],
+    "metadata": [
+      {
+        "name": "network_security_config",
+        "resource": "$profile:network_security_config"
+      }
+    ],
     "abilities": [
       {
         "name": "EntryAbility",

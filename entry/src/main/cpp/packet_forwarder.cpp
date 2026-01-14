@@ -1068,35 +1068,59 @@ bool PacketForwarder::TestNetworkConnectivity() {
         successCount++;
     }
     
-    // ==================== 简单TCP测试 - 百度 ====================
+    // ==================== 简单TCP测试 - 百度 HTTP ====================
     FORWARDER_LOGI("");
-    FORWARDER_LOGI("🔗 [3/6] 简单TCP测试 - 百度...");
+    FORWARDER_LOGI("🔗 [3/9] 简单TCP测试 - 百度 HTTP...");
     totalTests++;
-    if (TestSimpleTCP("110.242.68.66", 80, "百度")) {
+    if (TestSimpleTCP("110.242.68.66", 80, "百度 HTTP")) {
+        successCount++;
+    }
+    
+    // ==================== 简单TCP测试 - 百度 HTTPS ====================
+    FORWARDER_LOGI("");
+    FORWARDER_LOGI("🔗 [4/9] 简单TCP测试 - 百度 HTTPS...");
+    totalTests++;
+    if (TestSimpleTCP("110.242.68.66", 443, "百度 HTTPS")) {
         successCount++;
     }
     
     // ==================== 简单TCP测试 - 淘宝 ====================
     FORWARDER_LOGI("");
-    FORWARDER_LOGI(" [4/6] 简单TCP测试 - 淘宝...");
+    FORWARDER_LOGI("🔗 [5/9] 简单TCP测试 - 淘宝 HTTPS...");
     totalTests++;
-    if (TestSimpleTCP("140.205.94.189", 80, "淘宝")) {
+    if (TestSimpleTCP("140.205.94.189", 443, "淘宝 HTTPS")) {
         successCount++;
     }
     
     // ==================== 简单TCP测试 - 腾讯 ====================
     FORWARDER_LOGI("");
-    FORWARDER_LOGI(" [5/6] 简单TCP测试 - 腾讯...");
+    FORWARDER_LOGI("🔗 [6/9] 简单TCP测试 - 腾讯 HTTPS...");
     totalTests++;
-    if (TestSimpleTCP("183.3.226.35", 80, "腾讯")) {
+    if (TestSimpleTCP("183.3.226.35", 443, "腾讯 HTTPS")) {
+        successCount++;
+    }
+    
+    // ==================== 简单TCP测试 - Google DNS ====================
+    FORWARDER_LOGI("");
+    FORWARDER_LOGI("🔗 [7/9] 简单TCP测试 - Google DNS...");
+    totalTests++;
+    if (TestSimpleTCP("8.8.8.8", 53, "Google DNS")) {
+        successCount++;
+    }
+    
+    // ==================== 简单TCP测试 - Cloudflare DNS ====================
+    FORWARDER_LOGI("");
+    FORWARDER_LOGI("🔗 [8/9] 简单TCP测试 - Cloudflare DNS...");
+    totalTests++;
+    if (TestSimpleTCP("1.1.1.1", 53, "Cloudflare DNS")) {
         successCount++;
     }
     
     // ==================== 简单TCP测试 - 阿里云 ====================
     FORWARDER_LOGI("");
-    FORWARDER_LOGI("🔗 [6/6] 简单TCP测试 - 阿里云...");
+    FORWARDER_LOGI("🔗 [9/9] 简单TCP测试 - 阿里云 HTTPS...");
     totalTests++;
-    if (TestSimpleTCP("47.95.164.112", 80, "阿里云")) {
+    if (TestSimpleTCP("47.95.164.112", 443, "阿里云 HTTPS")) {
         successCount++;
     }
     
