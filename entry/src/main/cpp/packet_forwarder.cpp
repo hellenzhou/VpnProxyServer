@@ -750,11 +750,77 @@ bool PacketForwarder::IsDNSQuery(const std::string& targetIP, int targetPort) {
     return targetPort == 53;
 }
 
+// 辅助函数：测试TCP连接到指定服务器
+static bool TestTCPConnection(const char* serverIP, int port, const char* serverName) {
+    FORWARDER_LOGI("🔗 测试TCP连接到 %{public}s (%{public}s:%{public}d)", serverName, serverIP, port);
+    
+    int tcpSock = socket(AF_INET, SOCK_STREAM, 0);
+    if (tcpSock < 0) {
+        FORWARDER_LOGE("❌ 创建TCP socket失败: %{public}s", strerror(errno));
+        return false;
+    }
+    
+    struct sockaddr_in serverAddr{};
+    serverAddr.sin_family = AF_INET;
+    serverAddr.sin_port = htons(port);
+    inet_pton(AF_INET, serverIP, &serverAddr.sin_addr);
+    
+    // 设置非阻塞
+    int flags = fcntl(tcpSock, F_GETFL, 0);
+    fcntl(tcpSock, F_SETFL, flags | O_NONBLOCK);
+    
+    int connectResult = connect(tcpSock, (struct sockaddr*)&serverAddr, sizeof(serverAddr));
+    if (connectResult < 0 && errno == EINPROGRESS) {
+        fd_set writefds;
+        struct timeval timeout;
+        timeout.tv_sec = 5;
+        timeout.tv_usec = 0;
+        
+        FD_ZERO(&writefds);
+        FD_SET(tcpSock, &writefds);
+        
+        int selectResult = select(tcpSock + 1, nullptr, &writefds, nullptr, &timeout);
+        if (selectResult > 0) {
+            int error = 0;
+            socklen_t len = sizeof(error);
+            if (getsockopt(tcpSock, SOL_SOCKET, SO_ERROR, &error, &len) == 0 && error == 0) {
+                FORWARDER_LOGI("✅ 成功连接到 %{public}s (%{public}s:%{public}d)", serverName, serverIP, port);
+                close(tcpSock);
+                return true;
+            } else {
+                FORWARDER_LOGE("❌ 连接%{public}s失败: %{public}s", serverName, strerror(error));
+            }
+        } else if (selectResult == 0) {
+            FORWARDER_LOGE("❌ 连接%{public}s超时 (5秒)", serverName);
+        } else {
+            FORWARDER_LOGE("❌ select()失败: %{public}s", strerror(errno));
+        }
+    } else if (connectResult == 0) {
+        FORWARDER_LOGI("✅ 立即连接成功到 %{public}s", serverName);
+        close(tcpSock);
+        return true;
+    } else {
+        FORWARDER_LOGE("❌ connect()立即失败: %{public}s", strerror(errno));
+    }
+    
+    close(tcpSock);
+    return false;
+}
+
 // 测试网络连接
 bool PacketForwarder::TestNetworkConnectivity() {
-    FORWARDER_LOGI("=== Testing Network Connectivity ===");
+    FORWARDER_LOGI("╔═══════════════════════════════════════════════════════╗");
+    FORWARDER_LOGI("║   🌐 网络连接诊断测试开始                              ║");
+    FORWARDER_LOGI("╚═══════════════════════════════════════════════════════╝");
     
-    // 测试UDP DNS连接
+    int successCount = 0;
+    int totalTests = 0;
+    
+    // ==================== UDP DNS 测试 ====================
+    FORWARDER_LOGI("");
+    FORWARDER_LOGI("📡 [1/5] 测试 UDP DNS 连接...");
+    totalTests++;
+    
     int udpSock = socket(AF_INET, SOCK_DGRAM, 0);
     if (udpSock >= 0) {
         struct sockaddr_in dnsAddr{};
@@ -762,14 +828,10 @@ bool PacketForwarder::TestNetworkConnectivity() {
         dnsAddr.sin_port = htons(53);
         inet_pton(AF_INET, "10.20.2.74", &dnsAddr.sin_addr);
         
-        // 发送一个简单的DNS查询包
         uint8_t dnsQuery[] = {0x12, 0x34, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x07, 0x65, 0x78, 0x61, 0x6d, 0x70, 0x6c, 0x65, 0x03, 0x63, 0x6f, 0x6d, 0x00, 0x00, 0x01, 0x00, 0x01};
         
         ssize_t sent = sendto(udpSock, dnsQuery, sizeof(dnsQuery), 0, (struct sockaddr*)&dnsAddr, sizeof(dnsAddr));
         if (sent > 0) {
-            FORWARDER_LOGI("✅ UDP DNS query sent successfully: %{public}zd bytes", sent);
-            
-            // 等待响应
             fd_set readfds;
             struct timeval timeout;
             timeout.tv_sec = 3;
@@ -783,64 +845,79 @@ bool PacketForwarder::TestNetworkConnectivity() {
                 uint8_t response[512];
                 ssize_t received = recvfrom(udpSock, response, sizeof(response), 0, nullptr, nullptr);
                 if (received > 0) {
-                    FORWARDER_LOGI("✅ UDP DNS response received: %{public}zd bytes", received);
+                    FORWARDER_LOGI("✅ UDP DNS测试成功 - 收到响应 %{public}zd 字节", received);
+                    successCount++;
                 } else {
-                    FORWARDER_LOGE("❌ Failed to receive DNS response: %{public}s", strerror(errno));
+                    FORWARDER_LOGE("❌ UDP DNS测试失败 - 无法接收响应");
                 }
             } else {
-                FORWARDER_LOGE("❌ DNS response timeout");
+                FORWARDER_LOGE("❌ UDP DNS测试失败 - 响应超时");
             }
         } else {
-            FORWARDER_LOGE("❌ Failed to send DNS query: %{public}s", strerror(errno));
+            FORWARDER_LOGE("❌ UDP DNS测试失败 - 无法发送查询");
         }
         close(udpSock);
     } else {
-        FORWARDER_LOGE("❌ Failed to create UDP socket: %{public}s", strerror(errno));
+        FORWARDER_LOGE("❌ UDP DNS测试失败 - 无法创建socket");
     }
     
-    // 测试TCP连接
-    int tcpSock = socket(AF_INET, SOCK_STREAM, 0);
-    if (tcpSock >= 0) {
-        struct sockaddr_in webAddr{};
-        webAddr.sin_family = AF_INET;
-        webAddr.sin_port = htons(80);
-        inet_pton(AF_INET, "121.36.118.244", &webAddr.sin_addr);
-        
-        // 设置非阻塞
-        int flags = fcntl(tcpSock, F_GETFL, 0);
-        fcntl(tcpSock, F_SETFL, flags | O_NONBLOCK);
-        
-        int connectResult = connect(tcpSock, (struct sockaddr*)&webAddr, sizeof(webAddr));
-        if (connectResult < 0 && errno == EINPROGRESS) {
-            fd_set writefds;
-            struct timeval timeout;
-            timeout.tv_sec = 5;
-            timeout.tv_usec = 0;
-            
-            FD_ZERO(&writefds);
-            FD_SET(tcpSock, &writefds);
-            
-            int selectResult = select(tcpSock + 1, nullptr, &writefds, nullptr, &timeout);
-            if (selectResult > 0) {
-                int error = 0;
-                socklen_t len = sizeof(error);
-                if (getsockopt(tcpSock, SOL_SOCKET, SO_ERROR, &error, &len) == 0 && error == 0) {
-                    FORWARDER_LOGI("✅ TCP connection test successful");
-                } else {
-                    FORWARDER_LOGE("❌ TCP connection test failed: %{public}s", strerror(error));
-                }
-            } else {
-                FORWARDER_LOGE("❌ TCP connection test timeout: %{public}s", strerror(errno));
-            }
-        } else {
-            FORWARDER_LOGE("❌ TCP connect failed immediately: %{public}s", strerror(errno));
-        }
-        close(tcpSock);
+    // ==================== TCP 测试：百度 ====================
+    FORWARDER_LOGI("");
+    FORWARDER_LOGI("📡 [2/5] 测试 TCP 连接到百度...");
+    totalTests++;
+    if (TestTCPConnection("110.242.68.66", 80, "百度 (www.baidu.com)")) {
+        successCount++;
+    }
+    
+    // ==================== TCP 测试：淘宝 ====================
+    FORWARDER_LOGI("");
+    FORWARDER_LOGI("📡 [3/5] 测试 TCP 连接到淘宝...");
+    totalTests++;
+    if (TestTCPConnection("140.205.94.189", 80, "淘宝 (www.taobao.com)")) {
+        successCount++;
+    }
+    
+    // ==================== TCP 测试：腾讯 ====================
+    FORWARDER_LOGI("");
+    FORWARDER_LOGI("📡 [4/5] 测试 TCP 连接到腾讯...");
+    totalTests++;
+    if (TestTCPConnection("183.3.226.35", 80, "腾讯 (www.qq.com)")) {
+        successCount++;
+    }
+    
+    // ==================== TCP 测试：阿里云 ====================
+    FORWARDER_LOGI("");
+    FORWARDER_LOGI("📡 [5/5] 测试 TCP 连接到阿里云...");
+    totalTests++;
+    if (TestTCPConnection("47.95.164.112", 80, "阿里云公网服务器")) {
+        successCount++;
+    }
+    
+    // ==================== 测试结果总结 ====================
+    FORWARDER_LOGI("");
+    FORWARDER_LOGI("╔═══════════════════════════════════════════════════════╗");
+    FORWARDER_LOGI("║   📊 网络诊断测试结果                                  ║");
+    FORWARDER_LOGI("╠═══════════════════════════════════════════════════════╣");
+    FORWARDER_LOGI("║   成功: %{public}d/%{public}d 项测试通过                                    ║", successCount, totalTests);
+    
+    if (successCount == totalTests) {
+        FORWARDER_LOGI("║   状态: ✅ 网络连接正常，可以正常使用                   ║");
+    } else if (successCount > 0) {
+        FORWARDER_LOGI("║   状态: ⚠️  部分网络连接受限                           ║");
+        FORWARDER_LOGI("║   建议: 检查防火墙或网络策略设置                       ║");
     } else {
-        FORWARDER_LOGE("❌ Failed to create TCP socket: %{public}s", strerror(errno));
+        FORWARDER_LOGI("║   状态: ❌ 网络完全不可用                              ║");
+        FORWARDER_LOGI("║   建议:                                               ║");
+        FORWARDER_LOGI("║   1) 检查鸿蒙PC是否连接到互联网                        ║");
+        FORWARDER_LOGI("║   2) 检查系统防火墙设置                               ║");
+        FORWARDER_LOGI("║   3) 检查是否在受限网络环境（如企业网络）             ║");
+        FORWARDER_LOGI("║   4) 尝试用浏览器访问网站测试基础网络                 ║");
     }
     
-    return true;
+    FORWARDER_LOGI("╚═══════════════════════════════════════════════════════╝");
+    FORWARDER_LOGI("");
+    
+    return successCount > 0;
 }
 
 void PacketForwarder::HandleUdpResponse(int sockFd, sockaddr_in originalPeer, const PacketInfo& packetInfo) {
