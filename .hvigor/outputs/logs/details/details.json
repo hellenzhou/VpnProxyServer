@@ -3,10 +3,7 @@
     "MODULES": [
       {
         "MODULE_NAME": "923fe53966c6cd9343e11af776cd4b05be315ea4b200b02e4d5dfb0f929b73bf",
-        "API_TYPE": "stageMode",
-        "INCREMENTAL_TASKS": {
-          "BUILD_NATIVE_WITH_CMAKE": true
-        }
+        "API_TYPE": "stageMode"
       }
     ],
     "NATIVE_COMPILER": "Default",
@@ -18,29 +15,7 @@
     "IS_DAEMON": true,
     "IS_PARALLEL": true,
     "IS_HVIGORFILE_TYPE_CHECK": false,
-    "TASK_TIME": {
-      "923fe53966c6cd9343e11af776cd4b05be315ea4b200b02e4d5dfb0f929b73bf": {
-        "CreateModuleInfo": 595700,
-        "ConfigureCmake": 1645800,
-        "PreCheckSyscap": 470000,
-        "GeneratePkgContextInfo": 7001100,
-        "ProcessIntegratedHsp": 659000,
-        "BuildNativeWithCmake": 31236000,
-        "SyscapTransform": 6515800,
-        "ProcessStartupConfig": 1037800,
-        "BuildJS": 5760000,
-        "BuildNativeWithNinja": 1939784100,
-        "ProcessLibs": 50207100,
-        "DoNativeStrip": 193412200,
-        "CacheNativeLibs": 11968500,
-        "ProcessCompiledResources": 804500,
-        "PackageHap": 640766200,
-        "PackingCheck": 12464200,
-        "SignHap": 2554346400,
-        "CollectDebugSymbol": 1824200,
-        "assembleHap": 496700
-      }
-    },
+    "TASK_TIME": {},
     "APIS": [
       "getHvigorConfig",
       "getRootNodeDescriptor",
@@ -49,6 +24,8 @@
       "getAllNodes",
       "getRootNode",
       "getNodeName",
+      "getStartParams",
+      "buildFinished",
       "getNodePath",
       "subNodes",
       "getExtraOption",
@@ -62,7 +39,17 @@
       "getCommandEntryTask"
     ],
     "CONFIG_PROPERTIES": {},
-    "TOTAL_TIME": 5715969300,
-    "BUILD_ID": "202601141514439740"
+    "BUILD_ID": "202601141523180490",
+    "ERROR_MESSAGE": [
+      {
+        "CODE": "00303221",
+        "MESSAGE": "The %s permission under requestPermissions must be a value that is predefined within the SDK or a custom one that you have included under definePermissions.\nat %s",
+        "SOLUTIONS": [
+          "Modify the permission configuration in the preceding file."
+        ],
+        "TIMESTAMP": "1768375402533"
+      }
+    ],
+    "TOTAL_TIME": 4510227100
   }
 }

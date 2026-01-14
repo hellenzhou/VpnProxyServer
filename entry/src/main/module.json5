@@ -29,7 +29,7 @@
           "abilities": [
             "EntryAbility"
           ],
-          "when": "inuse"
+          "when": "always"
         }
       },
       {
@@ -39,7 +39,7 @@
           "abilities": [
             "EntryAbility"
           ],
-          "when": "inuse"
+          "when": "always"
         }
       }
     ],

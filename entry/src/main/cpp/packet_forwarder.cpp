@@ -556,18 +556,42 @@ int PacketForwarder::HandleTCPForwarding(int sockFd, const uint8_t* data, int da
     if (connectResult < 0) {
         if (errno == EINPROGRESS) {
             FORWARDER_LOGI("⏳ TCP连接进行中 (EINPROGRESS)，等待连接完成...");
-            // 使用select等待连接完成
-            fd_set writefds;
-            struct timeval timeout;
-            timeout.tv_sec = 5;  // 5秒超时
-            timeout.tv_usec = 0;
             
-            FD_ZERO(&writefds);
-            FD_SET(sockFd, &writefds);
+            // 使用select等待连接完成，处理 EINTR 错误
+            int selectResult = -1;
+            int retryCount = 0;
+            const int maxRetries = 3;
             
             FORWARDER_LOGI("🔍 [网络诊断] 等待select()返回 (超时=5秒)...");
-            int selectResult = select(sockFd + 1, nullptr, &writefds, nullptr, &timeout);
-            FORWARDER_LOGI("🔍 [网络诊断] select()返回: %{public}d", selectResult);
+            
+            while (retryCount < maxRetries) {
+                fd_set writefds;
+                struct timeval timeout;
+                timeout.tv_sec = 5;  // 5秒超时
+                timeout.tv_usec = 0;
+                
+                FD_ZERO(&writefds);
+                FD_SET(sockFd, &writefds);
+                
+                selectResult = select(sockFd + 1, nullptr, &writefds, nullptr, &timeout);
+                
+                if (selectResult > 0 || selectResult == 0) {
+                    // 成功或超时，跳出循环
+                    break;
+                } else if (errno == EINTR) {
+                    // 被信号中断，重试
+                    retryCount++;
+                    FORWARDER_LOGI("⚠️  select()被系统信号中断 (EINTR)，重试 %{public}d/%{public}d", retryCount, maxRetries);
+                    continue;
+                } else {
+                    // 其他错误，跳出循环
+                    break;
+                }
+            }
+            
+            FORWARDER_LOGI("🔍 [网络诊断] select()返回: %{public}d%{public}s", 
+                          selectResult, 
+                          retryCount > 0 ? " (经过重试)" : "");
             
             if (selectResult > 0) {
                 int error = 0;
@@ -771,29 +795,52 @@ static bool TestTCPConnection(const char* serverIP, int port, const char* server
     
     int connectResult = connect(tcpSock, (struct sockaddr*)&serverAddr, sizeof(serverAddr));
     if (connectResult < 0 && errno == EINPROGRESS) {
-        fd_set writefds;
-        struct timeval timeout;
-        timeout.tv_sec = 5;
-        timeout.tv_usec = 0;
+        // 等待连接完成，处理 EINTR 错误（信号中断时重试）
+        int selectResult = -1;
+        int retryCount = 0;
+        const int maxRetries = 3;
         
-        FD_ZERO(&writefds);
-        FD_SET(tcpSock, &writefds);
-        
-        int selectResult = select(tcpSock + 1, nullptr, &writefds, nullptr, &timeout);
-        if (selectResult > 0) {
-            int error = 0;
-            socklen_t len = sizeof(error);
-            if (getsockopt(tcpSock, SOL_SOCKET, SO_ERROR, &error, &len) == 0 && error == 0) {
-                FORWARDER_LOGI("✅ 成功连接到 %{public}s (%{public}s:%{public}d)", serverName, serverIP, port);
-                close(tcpSock);
-                return true;
+        while (retryCount < maxRetries) {
+            fd_set writefds;
+            struct timeval timeout;
+            timeout.tv_sec = 5;
+            timeout.tv_usec = 0;
+            
+            FD_ZERO(&writefds);
+            FD_SET(tcpSock, &writefds);
+            
+            selectResult = select(tcpSock + 1, nullptr, &writefds, nullptr, &timeout);
+            
+            if (selectResult > 0) {
+                // Socket 可写，检查连接是否成功
+                int error = 0;
+                socklen_t len = sizeof(error);
+                if (getsockopt(tcpSock, SOL_SOCKET, SO_ERROR, &error, &len) == 0 && error == 0) {
+                    FORWARDER_LOGI("✅ 成功连接到 %{public}s (%{public}s:%{public}d)", serverName, serverIP, port);
+                    close(tcpSock);
+                    return true;
+                } else {
+                    FORWARDER_LOGE("❌ 连接%{public}s失败: %{public}s", serverName, strerror(error));
+                    break;
+                }
+            } else if (selectResult == 0) {
+                // 超时
+                FORWARDER_LOGE("❌ 连接%{public}s超时 (5秒)", serverName);
+                break;
+            } else if (errno == EINTR) {
+                // 被信号中断，重试
+                retryCount++;
+                FORWARDER_LOGI("⚠️  select()被中断 (EINTR)，重试 %{public}d/%{public}d", retryCount, maxRetries);
+                continue;
             } else {
-                FORWARDER_LOGE("❌ 连接%{public}s失败: %{public}s", serverName, strerror(error));
+                // 其他错误
+                FORWARDER_LOGE("❌ select()失败: %{public}s (errno=%{public}d)", strerror(errno), errno);
+                break;
             }
-        } else if (selectResult == 0) {
-            FORWARDER_LOGE("❌ 连接%{public}s超时 (5秒)", serverName);
-        } else {
-            FORWARDER_LOGE("❌ select()失败: %{public}s", strerror(errno));
+        }
+        
+        if (retryCount >= maxRetries) {
+            FORWARDER_LOGE("❌ select()重试%{public}d次后仍失败", maxRetries);
         }
     } else if (connectResult == 0) {
         FORWARDER_LOGI("✅ 立即连接成功到 %{public}s", serverName);
