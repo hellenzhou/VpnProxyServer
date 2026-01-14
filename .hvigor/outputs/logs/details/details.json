@@ -15,22 +15,30 @@
   },
   "HVIGOR": {
     "IS_INCREMENTAL": true,
-    "IS_DAEMON": false,
+    "IS_DAEMON": true,
     "IS_PARALLEL": true,
     "IS_HVIGORFILE_TYPE_CHECK": false,
     "TASK_TIME": {
       "923fe53966c6cd9343e11af776cd4b05be315ea4b200b02e4d5dfb0f929b73bf": {
-        "PreBuild": 443418700,
-        "ConfigureCmake": 40456000,
-        "BuildNativeWithCmake": 60738200,
-        "BuildNativeWithNinja": 5778860900,
-        "ProcessLibs": 56492300,
-        "DoNativeStrip": 248715600,
-        "ColdReloadArkTS": 12626349900,
-        "PrepareQuickfix": 56176200,
-        "PackageHqf": 591771800,
-        "SignHqf": 1470690000,
-        "assembleDevHqf": 2552400
+        "CreateModuleInfo": 681800,
+        "ConfigureCmake": 2446300,
+        "PreCheckSyscap": 355100,
+        "GeneratePkgContextInfo": 6045300,
+        "ProcessIntegratedHsp": 876300,
+        "BuildNativeWithCmake": 29262800,
+        "SyscapTransform": 5765700,
+        "ProcessStartupConfig": 993100,
+        "BuildJS": 6041000,
+        "BuildNativeWithNinja": 2158611300,
+        "ProcessLibs": 50988300,
+        "DoNativeStrip": 209152600,
+        "CacheNativeLibs": 12400200,
+        "ProcessCompiledResources": 1087100,
+        "PackageHap": 69239100,
+        "PackingCheck": 10182100,
+        "SignHap": 286761700,
+        "CollectDebugSymbol": 2152900,
+        "assembleHap": 494200
       }
     },
     "APIS": [
@@ -41,8 +49,6 @@
       "getAllNodes",
       "getRootNode",
       "getNodeName",
-      "getStartParams",
-      "buildFinished",
       "getNodePath",
       "subNodes",
       "getExtraOption",
@@ -56,7 +62,7 @@
       "getCommandEntryTask"
     ],
     "CONFIG_PROPERTIES": {},
-    "BUILD_ID": "202601141540481620",
-    "TOTAL_TIME": 19976482100
+    "TOTAL_TIME": 3123449700,
+    "BUILD_ID": "202601141552141860"
   }
 }
