@@ -15,10 +15,15 @@
 #include <cstring>
 #include <arpa/inet.h>
 #include <sys/socket.h>
+#include <sys/time.h>
 
 #define MAKE_FILE_NAME (strrchr(__FILE__, '/') ? (strrchr(__FILE__, '/') + 1) : __FILE__)
 #define LOG(fmt, ...) \
   OH_LOG_Print(LOG_APP, LOG_INFO, 0x15b1, "VpnServer", "[%{public}s:%{public}d] " fmt, MAKE_FILE_NAME, __LINE__, ##__VA_ARGS__)
+
+// 静态辅助函数声明
+static void HandleUdpResponseSimple(int sockFd, sockaddr_in originalPeer, const PacketInfo& packetInfo);
+static void HandleTcpResponseSimple(int sockFd, sockaddr_in originalPeer, const PacketInfo& packetInfo);
 
 // ========== 主转发函数 ==========
 int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize, 
@@ -113,10 +118,6 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
     return sockFd;
 }
 
-// 静态辅助函数声明
-static void HandleUdpResponseSimple(int sockFd, sockaddr_in originalPeer, const PacketInfo& packetInfo);
-static void HandleTcpResponseSimple(int sockFd, sockaddr_in originalPeer, const PacketInfo& packetInfo);
-
 // ========== UDP响应处理（简化版）==========
 static void HandleUdpResponseSimple(int sockFd, sockaddr_in originalPeer, const PacketInfo& packetInfo) {
     LOG("📥 UDP响应线程启动: socket=%d", sockFd);
@@ -142,6 +143,11 @@ static void HandleUdpResponseSimple(int sockFd, sockaddr_in originalPeer, const 
     ssize_t received = recvfrom(sockFd, responsePayload, sizeof(responsePayload), 0,
                                 (struct sockaddr*)&responseAddr, &addrLen);
     
+    // 声明所有可能用到的变量
+    uint8_t ipPacket[4096 + 60];
+    int packetLen = 0;
+    ssize_t sent = 0;
+    
     if (received <= 0) {
         LOG("❌ UDP响应接收失败: %s", strerror(errno));
         goto cleanup;
@@ -150,8 +156,7 @@ static void HandleUdpResponseSimple(int sockFd, sockaddr_in originalPeer, const 
     LOG("✅ 收到UDP响应: %zd字节", received);
     
     // 封装成IP包
-    uint8_t ipPacket[4096 + 60];
-    int packetLen = PacketBuilder::BuildResponsePacket(
+    packetLen = PacketBuilder::BuildResponsePacket(
         ipPacket, sizeof(ipPacket),
         responsePayload, received,
         conn.originalRequest
@@ -165,9 +170,9 @@ static void HandleUdpResponseSimple(int sockFd, sockaddr_in originalPeer, const 
     LOG("✅ 构建IP包: %d字节", packetLen);
     
     // 发送给客户端
-    ssize_t sent = sendto(g_sockFd, ipPacket, packetLen, 0,
-                         (struct sockaddr*)&conn.clientPhysicalAddr, 
-                         sizeof(conn.clientPhysicalAddr));
+    sent = sendto(g_sockFd, ipPacket, packetLen, 0,
+                  (struct sockaddr*)&conn.clientPhysicalAddr, 
+                  sizeof(conn.clientPhysicalAddr));
     
     if (sent > 0) {
         LOG("✅ 发送给客户端成功: %zd字节", sent);
