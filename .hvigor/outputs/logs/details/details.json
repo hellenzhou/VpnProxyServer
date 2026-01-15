@@ -5,7 +5,8 @@
         "MODULE_NAME": "923fe53966c6cd9343e11af776cd4b05be315ea4b200b02e4d5dfb0f929b73bf",
         "API_TYPE": "stageMode",
         "INCREMENTAL_TASKS": {
-          "BUILD_NATIVE_WITH_CMAKE": true
+          "BUILD_NATIVE_WITH_CMAKE": false,
+          "COMPILE_ARKTS": false
         }
       }
     ],
@@ -19,20 +20,26 @@
     "IS_HVIGORFILE_TYPE_CHECK": false,
     "TASK_TIME": {
       "923fe53966c6cd9343e11af776cd4b05be315ea4b200b02e4d5dfb0f929b73bf": {
-        "CreateModuleInfo": 1349300,
-        "ConfigureCmake": 1859100,
-        "PreCheckSyscap": 535900,
-        "GeneratePkgContextInfo": 6913500,
-        "ProcessIntegratedHsp": 1232900,
-        "BuildNativeWithCmake": 37315000,
-        "SyscapTransform": 7767700,
-        "ProcessStartupConfig": 2860000,
-        "BuildJS": 6873700,
-        "BuildNativeWithNinja": 223295900,
-        "ProcessCompiledResources": 1362900,
-        "PackingCheck": 12259800,
-        "CollectDebugSymbol": 1585300,
-        "assembleHap": 246300
+        "CreateModuleInfo": 649000,
+        "GenerateMetadata": 6258700,
+        "ConfigureCmake": 1438200,
+        "MergeProfile": 8229300,
+        "CreateBuildProfile": 5295100,
+        "PreCheckSyscap": 1473600,
+        "GeneratePkgContextInfo": 5963400,
+        "ProcessIntegratedHsp": 743700,
+        "MakePackInfo": 10949900,
+        "SyscapTransform": 7434800,
+        "ProcessProfile": 384856600,
+        "ProcessRouterMap": 14464500,
+        "ProcessShareConfig": 12930900,
+        "ProcessStartupConfig": 1788300,
+        "ProcessResource": 14339900,
+        "GenerateLoaderJson": 47630200,
+        "CompileResource": 892092400,
+        "BuildJS": 5550300,
+        "CompileArkTS": 36583601000,
+        "BuildNativeWithCmake": 40737131700
       }
     },
     "APIS": [
@@ -53,10 +60,17 @@
       "getParameter",
       "getProductName",
       "nodesEvaluated",
-      "getCommandEntryTask"
+      "getCommandEntryTask",
+      "getStartParams"
     ],
     "CONFIG_PROPERTIES": {},
-    "TOTAL_TIME": 747674500,
-    "BUILD_ID": "202601150920348360"
+    "TOTAL_TIME": 51023372200,
+    "BUILD_ID": "202601150939575130",
+    "ERROR_MESSAGE": [
+      {
+        "CODE": "00000000",
+        "TIMESTAMP": "1768441248500"
+      }
+    ]
   }
 }

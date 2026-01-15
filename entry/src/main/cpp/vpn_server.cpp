@@ -1072,9 +1072,10 @@ void WorkerLoop()
     VPN_SERVER_LOGI("⏳ Reading data from socket fd: %{public}d", g_sockFd);
     int n = recvfrom(g_sockFd, buf, sizeof(buf), 0, reinterpret_cast<sockaddr *>(&peer), &peerLen);
     
-    VPN_SERVER_LOGI("📨 recvfrom returned: %{public}d, errno: %{public}d (%{public}s)", n, errno, strerror(errno));
-    
+    // 只有在失败时才打印errno，成功时的errno是残留值没有意义
     if (n < 0) {
+      VPN_SERVER_LOGE("❌ recvfrom failed: returned=%{public}d, errno=%{public}d (%{public}s)", 
+                      n, errno, strerror(errno));
       if (!g_running.load()) {
         VPN_SERVER_LOGI("🛑 Server stopping, breaking loop");
         break;
@@ -1084,9 +1085,11 @@ void WorkerLoop()
         VPN_SERVER_LOGI("⏸️ No data available, continuing...");
         continue;
       }
-      // 其他错误记录日志
-      VPN_SERVER_LOGE("❌ recvfrom error: %{public}s", strerror(errno));
+      // 其他错误已在上面记录，直接继续
       continue;
+    } else {
+      // recvfrom成功
+      VPN_SERVER_LOGI("📨 recvfrom succeeded: received %{public}d bytes", n);
     }
     
     // UDP理论上不应该返回0，但为了安全还是检查一下
