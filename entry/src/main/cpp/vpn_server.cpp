@@ -1663,6 +1663,375 @@ napi_value ClearDataBuffer(napi_env env, napi_callback_info info)
   return ret;
 }
 
+ 
+// 注意：超时设置为1秒以避免UI阻塞，如果网络不通会快速失败
+napi_value TestDNSQuery(napi_env env, napi_callback_info info)
+{
+  VPN_SERVER_LOGI("🧪🧪🧪 TestDNSQuery - Starting DNS test for www.baidu.com");
+  
+  // 检查服务器是否运行
+  if (!g_running || g_sockFd < 0) {
+    VPN_SERVER_LOGE("❌ Server not running, cannot test DNS");
+    napi_value result;
+    napi_create_string_utf8(env, "❌ Server not running\nPlease start server first", NAPI_AUTO_LENGTH, &result);
+    return result;
+  }
+  
+  // 构建DNS查询包
+  uint8_t dnsQuery[512] = {0};
+  int offset = 0;
+  
+  // DNS头部
+  dnsQuery[offset++] = 0x12;  // ID high
+  dnsQuery[offset++] = 0x34;  // ID low
+  dnsQuery[offset++] = 0x01;  // Flags high (standard query)
+  dnsQuery[offset++] = 0x00;  // Flags low
+  dnsQuery[offset++] = 0x00;  // Questions high
+  dnsQuery[offset++] = 0x01;  // Questions low (1 question)
+  dnsQuery[offset++] = 0x00;  // Answers high
+  dnsQuery[offset++] = 0x00;  // Answers low
+  dnsQuery[offset++] = 0x00;  // Authority high
+  dnsQuery[offset++] = 0x00;  // Authority low
+  dnsQuery[offset++] = 0x00;  // Additional high
+  dnsQuery[offset++] = 0x00;  // Additional low
+  
+  // 域名编码：www.baidu.com
+  const char* labels[] = {"www", "baidu", "com"};
+  for (int i = 0; i < 3; i++) {
+    int len = strlen(labels[i]);
+    dnsQuery[offset++] = len;
+    memcpy(dnsQuery + offset, labels[i], len);
+    offset += len;
+  }
+  dnsQuery[offset++] = 0x00;  // 结束标记
+  
+  // 查询类型（A记录）和类别（IN）
+  dnsQuery[offset++] = 0x00;
+  dnsQuery[offset++] = 0x01;  // Type A
+  dnsQuery[offset++] = 0x00;
+  dnsQuery[offset++] = 0x01;  // Class IN
+  
+  int dnsLen = offset;
+  VPN_SERVER_LOGI("✅ DNS query built: %{public}d bytes", dnsLen);
+  
+  // 构建UDP包
+  uint16_t srcPort = 54321;
+  uint16_t dstPort = 53;
+  int udpLen = 8 + dnsLen;
+  uint8_t udpPacket[1024] = {0};
+  
+  // UDP头部
+  udpPacket[0] = (srcPort >> 8) & 0xFF;
+  udpPacket[1] = srcPort & 0xFF;
+  udpPacket[2] = (dstPort >> 8) & 0xFF;
+  udpPacket[3] = dstPort & 0xFF;
+  udpPacket[4] = (udpLen >> 8) & 0xFF;
+  udpPacket[5] = udpLen & 0xFF;
+  udpPacket[6] = 0x00;  // Checksum (稍后计算)
+  udpPacket[7] = 0x00;
+  
+  // UDP数据
+  memcpy(udpPacket + 8, dnsQuery, dnsLen);
+  
+  VPN_SERVER_LOGI("✅ UDP packet built: %{public}d bytes", udpLen);
+  
+  // 构建IP包
+  int ipHeaderLen = 20;
+  int totalLen = ipHeaderLen + udpLen;
+  uint8_t ipPacket[2048] = {0};
+  
+  // IP头部
+  ipPacket[0] = 0x45;  // Version 4, header length 5
+  ipPacket[1] = 0x00;  // TOS
+  ipPacket[2] = (totalLen >> 8) & 0xFF;
+  ipPacket[3] = totalLen & 0xFF;
+  ipPacket[4] = 0x12;  // ID high
+  ipPacket[5] = 0x34;  // ID low
+  ipPacket[6] = 0x00;  // Flags
+  ipPacket[7] = 0x00;
+  ipPacket[8] = 64;    // TTL
+  ipPacket[9] = 17;    // Protocol (UDP)
+  ipPacket[10] = 0x00; // Checksum (稍后计算)
+  ipPacket[11] = 0x00;
+  
+  // 源IP: 10.20.1.2
+  inet_pton(AF_INET, "10.20.1.2", ipPacket + 12);
+  
+  // 目标IP: 8.8.8.8
+  inet_pton(AF_INET, "8.8.8.8", ipPacket + 16);
+  
+  // 计算IP校验和
+  uint32_t sum = 0;
+  for (int i = 0; i < ipHeaderLen; i += 2) {
+    sum += (ipPacket[i] << 8) | ipPacket[i + 1];
+  }
+  while (sum >> 16) {
+    sum = (sum & 0xFFFF) + (sum >> 16);
+  }
+  uint16_t checksum = ~sum;
+  ipPacket[10] = (checksum >> 8) & 0xFF;
+  ipPacket[11] = checksum & 0xFF;
+  
+  // 复制UDP数据
+  memcpy(ipPacket + ipHeaderLen, udpPacket, udpLen);
+  
+  VPN_SERVER_LOGI("✅ IP packet built: %{public}d bytes (src:10.20.1.2:%{public}d -> dst:8.8.8.8:%{public}d)",
+                  totalLen, srcPort, dstPort);
+  
+  // 发送到服务器自己 (127.0.0.1:8888)
+  sockaddr_in testAddr{};
+  testAddr.sin_family = AF_INET;
+  testAddr.sin_port = htons(8888);
+  inet_pton(AF_INET, "127.0.0.1", &testAddr.sin_addr);
+  
+  VPN_SERVER_LOGI("📤 Sending DNS test packet to server (127.0.0.1:8888)...");
+  
+  // 创建测试socket
+  int testSock = socket(AF_INET, SOCK_DGRAM, 0);
+  if (testSock < 0) {
+    VPN_SERVER_LOGE("❌ Failed to create test socket: %{public}s", strerror(errno));
+    napi_value result;
+    napi_create_string_utf8(env, "Failed to create test socket", NAPI_AUTO_LENGTH, &result);
+    return result;
+  }
+  
+  // 发送测试包
+  int sent = sendto(testSock, ipPacket, totalLen, 0,
+                   reinterpret_cast<sockaddr*>(&testAddr), sizeof(testAddr));
+  
+  if (sent < 0) {
+    VPN_SERVER_LOGE("❌ Failed to send test packet: %{public}s", strerror(errno));
+    close(testSock);
+    napi_value result;
+    napi_create_string_utf8(env, "Failed to send test packet", NAPI_AUTO_LENGTH, &result);
+    return result;
+  }
+  
+  VPN_SERVER_LOGI("✅ Test packet sent: %{public}d bytes", sent);
+  
+  // 设置接收超时（1秒，避免阻塞UI线程过久）
+  struct timeval timeout;
+  timeout.tv_sec = 1;
+  timeout.tv_usec = 0;
+  setsockopt(testSock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+  
+  // 接收响应
+  uint8_t responseBuffer[2048];
+  sockaddr_in fromAddr{};
+  socklen_t fromLen = sizeof(fromAddr);
+  
+  VPN_SERVER_LOGI("⏳ Waiting for DNS response (timeout: 1 second)...");
+  
+  int received = recvfrom(testSock, responseBuffer, sizeof(responseBuffer), 0,
+                         reinterpret_cast<sockaddr*>(&fromAddr), &fromLen);
+  
+  close(testSock);
+  
+  if (received < 0) {
+    if (errno == EAGAIN || errno == EWOULDBLOCK) {
+      VPN_SERVER_LOGE("❌ DNS test TIMEOUT (1 second)");
+      VPN_SERVER_LOGE("   Root cause: Cannot reach 8.8.8.8 (Google DNS)");
+      VPN_SERVER_LOGE("   Possible reasons:");
+      VPN_SERVER_LOGE("   1. ❌ Firewall blocking UDP port 53 (DNS)");
+      VPN_SERVER_LOGE("   2. ❌ GFW (Great Firewall) blocking Google DNS");
+      VPN_SERVER_LOGE("   3. ❌ Network gateway/Internet connection down");
+      VPN_SERVER_LOGE("   This is NOT a proxy server bug!");
+      napi_value result;
+      napi_create_string_utf8(env, "❌ DNS Test FAILED (Timeout 1s)\n\n🔍 Root Cause: Cannot reach Google DNS (8.8.8.8)\n\n⚠️  This is NOT a proxy server bug!\n\nPossible reasons:\n  • Firewall blocking DNS port 53\n  • GFW blocking Google DNS\n  • Network/Internet down\n\n💡 Try:\n  • Use 114.114.114.114 (China DNS)\n  • Check firewall settings\n  • Verify internet connection", NAPI_AUTO_LENGTH, &result);
+      return result;
+    } else {
+      VPN_SERVER_LOGE("❌ Failed to receive response: %{public}s (errno=%{public}d)", strerror(errno), errno);
+      napi_value result;
+      napi_create_string_utf8(env, "❌ Network error\nCannot receive DNS response", NAPI_AUTO_LENGTH, &result);
+      return result;
+    }
+  }
+  
+  VPN_SERVER_LOGI("✅ Received response: %{public}d bytes", received);
+  
+  // 解析响应
+  if (received < ipHeaderLen + 8 + 12) {
+    VPN_SERVER_LOGE("❌ Response too short: %{public}d bytes", received);
+    napi_value result;
+    napi_create_string_utf8(env, "Response too short", NAPI_AUTO_LENGTH, &result);
+    return result;
+  }
+  
+  // 检查IP头部
+  int respIpHeaderLen = (responseBuffer[0] & 0x0F) * 4;
+  char srcIP[16], dstIP[16];
+  inet_ntop(AF_INET, responseBuffer + 12, srcIP, sizeof(srcIP));
+  inet_ntop(AF_INET, responseBuffer + 16, dstIP, sizeof(dstIP));
+  
+  VPN_SERVER_LOGI("📥 Response: %{public}s -> %{public}s", srcIP, dstIP);
+  
+  // 检查UDP头部
+  const uint8_t* udpHeader = responseBuffer + respIpHeaderLen;
+  uint16_t respSrcPort = (udpHeader[0] << 8) | udpHeader[1];
+  uint16_t respDstPort = (udpHeader[2] << 8) | udpHeader[3];
+  uint16_t respUdpLen = (udpHeader[4] << 8) | udpHeader[5];
+  
+  VPN_SERVER_LOGI("📥 UDP: %{public}d -> %{public}d, length: %{public}d", 
+                  respSrcPort, respDstPort, respUdpLen);
+  
+  // 解析DNS响应
+  const uint8_t* dnsData = udpHeader + 8;
+  int dnsDataLen = respUdpLen - 8;
+  
+  if (dnsDataLen < 12) {
+    VPN_SERVER_LOGE("❌ DNS response too short: %{public}d bytes", dnsDataLen);
+    napi_value result;
+    napi_create_string_utf8(env, "DNS response too short", NAPI_AUTO_LENGTH, &result);
+    return result;
+  }
+  
+  uint16_t dnsId = (dnsData[0] << 8) | dnsData[1];
+  uint16_t dnsFlags = (dnsData[2] << 8) | dnsData[3];
+  uint16_t qdcount = (dnsData[4] << 8) | dnsData[5];
+  uint16_t ancount = (dnsData[6] << 8) | dnsData[7];
+  uint16_t nscount = (dnsData[8] << 8) | dnsData[9];
+  uint16_t arcount = (dnsData[10] << 8) | dnsData[11];
+  
+  VPN_SERVER_LOGI("🎯 DNS Response: ID=0x%{public}04x, Flags=0x%{public}04x, QD=%{public}d, AN=%{public}d, NS=%{public}d, AR=%{public}d",
+                  dnsId, dnsFlags, qdcount, ancount, nscount, arcount);
+  
+  // 检查是否是成功的响应
+  if ((dnsFlags & 0x8000) == 0) {
+    VPN_SERVER_LOGE("❌ Not a DNS response");
+    napi_value result;
+    napi_create_string_utf8(env, "Not a DNS response", NAPI_AUTO_LENGTH, &result);
+    return result;
+  }
+  
+  if ((dnsFlags & 0x000F) != 0) {
+    VPN_SERVER_LOGE("❌ DNS query failed, error code: %{public}d", (dnsFlags & 0x000F));
+    napi_value result;
+    napi_create_string_utf8(env, "DNS query failed", NAPI_AUTO_LENGTH, &result);
+    return result;
+  }
+  
+  if (ancount == 0) {
+    VPN_SERVER_LOGE("❌ No DNS answers received");
+    napi_value result;
+    napi_create_string_utf8(env, "No DNS answers", NAPI_AUTO_LENGTH, &result);
+    return result;
+  }
+  
+  // 提取IP地址
+  VPN_SERVER_LOGI("✅✅✅ DNS Query SUCCESS! www.baidu.com resolved:");
+  std::string resultStr = "DNS Test SUCCESS!\nwww.baidu.com IP addresses:\n";
+  
+  // 简单解析：跳过问题部分，直接查找A记录
+  int dnsOffset = 12;
+  
+  VPN_SERVER_LOGI("🔍 Starting DNS parsing, total=%{public}d bytes, QD=%{public}d, AN=%{public}d, NS=%{public}d, AR=%{public}d", 
+                  dnsDataLen, qdcount, ancount, nscount, arcount);
+  
+  // 跳过问题部分
+  for (int q = 0; q < qdcount && dnsOffset < dnsDataLen; q++) {
+    // 跳过域名
+    while (dnsOffset < dnsDataLen && dnsData[dnsOffset] != 0) {
+      int labelLen = dnsData[dnsOffset];
+      if (labelLen > 63) {
+        if ((labelLen & 0xC0) == 0xC0) {
+          dnsOffset += 2;
+          break;
+        }
+        break;
+      }
+      dnsOffset += labelLen + 1;
+    }
+    if (dnsData[dnsOffset - 1] == 0 || dnsData[dnsOffset - 2] == 0) {
+      // 域名结束符已经在上面的循环中处理
+    } else {
+      dnsOffset++;  // 跳过结束符
+    }
+    dnsOffset += 4;  // 跳过Type和Class
+  }
+  
+  VPN_SERVER_LOGI("🔍 Question section skipped, now at offset %{public}d", dnsOffset);
+  
+  // 解析所有sections：Answer, Authority, Additional
+  int totalRecords = ancount + nscount + arcount;
+  VPN_SERVER_LOGI("🔍 Total records to parse: %{public}d (AN=%{public}d, NS=%{public}d, AR=%{public}d)", 
+                  totalRecords, ancount, nscount, arcount);
+  
+  for (int i = 0; i < totalRecords && dnsOffset < dnsDataLen; i++) {
+    const char* sectionName = i < ancount ? "Answer" : (i < ancount + nscount ? "Authority" : "Additional");
+    VPN_SERVER_LOGI("🔍 Parsing record #%{public}d [%{public}s], offset=%{public}d", i+1, sectionName, dnsOffset);
+    
+    // 跳过名称（可能是压缩指针）
+    if ((dnsData[dnsOffset] & 0xC0) == 0xC0) {
+      VPN_SERVER_LOGI("🔍 Found compressed name pointer: 0x%{public}02x%{public}02x", 
+                      dnsData[dnsOffset], dnsData[dnsOffset + 1]);
+      dnsOffset += 2;
+    } else {
+      VPN_SERVER_LOGI("🔍 Skipping non-compressed name at offset %{public}d", dnsOffset);
+      while (dnsOffset < dnsDataLen && dnsData[dnsOffset] != 0) {
+        dnsOffset += dnsData[dnsOffset] + 1;
+      }
+      dnsOffset++;
+    }
+    
+    if (dnsOffset + 10 > dnsDataLen) {
+      VPN_SERVER_LOGE("❌ Not enough data for RR header, offset=%{public}d", dnsOffset);
+      break;
+    }
+    
+    uint16_t type = (dnsData[dnsOffset] << 8) | dnsData[dnsOffset + 1];
+    uint16_t rrClass = (dnsData[dnsOffset + 2] << 8) | dnsData[dnsOffset + 3];
+    uint32_t ttl = (dnsData[dnsOffset + 4] << 24) | (dnsData[dnsOffset + 5] << 16) |
+                   (dnsData[dnsOffset + 6] << 8) | dnsData[dnsOffset + 7];
+    uint16_t dataLen = (dnsData[dnsOffset + 8] << 8) | dnsData[dnsOffset + 9];
+    
+    VPN_SERVER_LOGI("🔍 RR: type=%{public}d, class=%{public}d, ttl=%{public}u, dataLen=%{public}d",
+                    type, rrClass, ttl, dataLen);
+    
+    dnsOffset += 10;
+    
+    if (dnsOffset + dataLen > dnsDataLen) {
+      VPN_SERVER_LOGE("❌ RR data exceeds buffer, offset=%{public}d, dataLen=%{public}d", 
+                      dnsOffset, dataLen);
+      break;
+    }
+    
+    if (type == 1 && dataLen == 4) {  // A记录
+      char ipStr[16];
+      snprintf(ipStr, sizeof(ipStr), "%d.%d.%d.%d",
+               dnsData[dnsOffset], dnsData[dnsOffset + 1],
+               dnsData[dnsOffset + 2], dnsData[dnsOffset + 3]);
+      VPN_SERVER_LOGI("  🌐 IP Address: %{public}s (TTL: %{public}u)", ipStr, ttl);
+      resultStr += "  ";
+      resultStr += ipStr;
+      resultStr += "\n";
+    } else if (type == 5) {  // CNAME记录
+      VPN_SERVER_LOGI("🔍 Found CNAME record (type=5), dataLen=%{public}d", dataLen);
+      // CNAME数据是一个域名，暂不解析
+    } else {
+      VPN_SERVER_LOGI("🔍 Skipping record: type=%{public}d, dataLen=%{public}d", type, dataLen);
+    }
+    
+    dnsOffset += dataLen;
+  }
+  
+  VPN_SERVER_LOGI("🔍 Finished parsing, final offset=%{public}d", dnsOffset);
+  
+  // 检查是否找到了IP地址
+  if (resultStr.find("  ") == std::string::npos) {
+    // 没有找到A记录
+    VPN_SERVER_LOGW("⚠️ No A records found in DNS response (may contain only CNAME)");
+    resultStr += "  (Only CNAME record found, no A record)\n";
+    resultStr += "  This means www.baidu.com is an alias.\n";
+    resultStr += "  Try using the canonical name directly.\n";
+  }
+  
+  VPN_SERVER_LOGI("🎉🎉🎉 DNS TEST COMPLETED!");
+  
+  napi_value result;
+  napi_create_string_utf8(env, resultStr.c_str(), NAPI_AUTO_LENGTH, &result);
+  return result;
+}
+
 napi_value Init(napi_env env, napi_value exports)
 {
   // 模块初始化日志
@@ -1678,6 +2047,7 @@ napi_value Init(napi_env env, napi_value exports)
     {"testDataBuffer", nullptr, TestDataBuffer, nullptr, nullptr, nullptr, napi_default, nullptr},
     {"sendTestData", nullptr, SendTestData, nullptr, nullptr, nullptr, napi_default, nullptr},
     {"clearDataBuffer", nullptr, ClearDataBuffer, nullptr, nullptr, nullptr, napi_default, nullptr},
+    {"testDNSQuery", nullptr, TestDNSQuery, nullptr, nullptr, nullptr, napi_default, nullptr},
   };
   napi_define_properties(env, exports, sizeof(desc) / sizeof(desc[0]), desc);
   

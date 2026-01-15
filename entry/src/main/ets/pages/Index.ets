@@ -1,31 +1,15 @@
 import hilog from '@ohos.hilog';
 import vpn_server from 'libvpn_server.so';
+import type { VpnServerModule, ServerStats, ClientInfo } from '../types/libvpn_server';
 
 // 测试Native模块是否正确加载
 try {
-  const testModule = vpn_server;
+  const testModule: VpnServerModule = vpn_server as VpnServerModule;
   hilog.info(0x0000, 'vpnServer', '✅ Native module loaded successfully: %{public}s', typeof testModule);
   console.log('Native module loaded:', typeof testModule);
 } catch (error) {
-  hilog.error(0x0000, 'vpnServer', '❌ Failed to load native module: %{public}s', error);
+  hilog.error(0x0000, 'vpnServer', '❌ Failed to load native module: %{public}s', String(error));
   console.error('Failed to load native module:', error);
-}
-
-interface ServerStats {
-  packetsReceived: number;
-  packetsSent: number;
-  bytesReceived: number;
-  bytesSent: number;
-  lastActivity: string;
-  connectedClients: ClientInfo[];
-}
-
-interface ClientInfo {
-  ip: string;
-  port: number;
-  lastSeen: string;
-  packetsCount: number;
-  totalBytes: number;
 }
 
 interface TestData {
@@ -67,6 +51,8 @@ struct Index {
   @State dataBuffer: string[] = [];
   @State showHexView: boolean = false;
   @State lastDataCount: number = 0;
+  @State dnsTestResult: string = '';
+  @State showDNSTestDialog: boolean = false;
   private statsTimer?: number;
   private testTimer?: number;
 
@@ -146,6 +132,30 @@ struct Index {
     this.addLog('UDP Server stopped');
     this.stopStatsUpdate();
     hilog.info(0x0000, 'vpnServer', 'stopServer ret=%{public}d', ret);
+  }
+
+  private testDNS(): void {
+    if (!this.isRunning) {
+      this.addLog('ERROR: Server must be running to test DNS');
+      this.dnsTestResult = 'ERROR: Server must be running first';
+      this.showDNSTestDialog = true;
+      return;
+    }
+    
+    this.addLog('🧪 Starting DNS test for www.baidu.com...');
+    this.dnsTestResult = 'Testing DNS... Please wait...';
+    this.showDNSTestDialog = true;
+    
+    try {
+      const result: string = vpn_server.testDNSQuery();
+      hilog.info(0x0000, 'vpnServer', 'DNS Test Result: %{public}s', result);
+      this.dnsTestResult = result;
+      this.addLog(`DNS Test completed: ${result.substring(0, 50)}...`);
+    } catch (error) {
+      hilog.error(0x0000, 'vpnServer', 'DNS Test Failed: %{public}s', error);
+      this.dnsTestResult = `ERROR: ${error}`;
+      this.addLog(`DNS Test failed: ${error}`);
+    }
   }
 
   private startTestMode(): void {
@@ -281,7 +291,17 @@ struct Index {
             .height(40)
             .enabled(this.isRunning)
             .backgroundColor(Color.Red)
-        }.width('100%').justifyContent(FlexAlign.SpaceBetween)
+        }.width('100%').justifyContent(FlexAlign.SpaceBetween).margin({ bottom: 12 })
+        
+        Button('🧪 Test DNS Query (www.baidu.com)')
+          .onClick(() => {
+            this.testDNS();
+          })
+          .width('100%')
+          .height(40)
+          .enabled(this.isRunning)
+          .backgroundColor('#FF9800')
+          .fontColor(Color.White)
       }
       .width('100%')
       .padding(16)
@@ -557,6 +577,40 @@ struct Index {
     .height('100%')
     .padding(16)
     .backgroundColor('#ffffff')
+    .bindContentCover(this.showDNSTestDialog, this.DNSTestDialog(), {
+      modalTransition: ModalTransition.DEFAULT
+    })
+  }
+  
+  @Builder
+  DNSTestDialog() {
+    Column() {
+      Text('DNS Test Result').fontSize(20).fontWeight(FontWeight.Bold).margin({ bottom: 20 })
+      
+      Text(this.dnsTestResult)
+        .fontSize(14)
+        .fontFamily('monospace')
+        .width('100%')
+        .height(200)
+        .backgroundColor('#f5f5f5')
+        .padding(16)
+        .borderRadius(8)
+        .copyOption(CopyOptions.InApp)
+        .margin({ bottom: 20 })
+      
+      Button('Close')
+        .onClick(() => {
+          this.showDNSTestDialog = false;
+        })
+        .width('100%')
+        .height(40)
+        .backgroundColor('#2196F3')
+    }
+    .width('80%')
+    .padding(24)
+    .backgroundColor(Color.White)
+    .borderRadius(12)
+    .shadow({ radius: 20, color: '#00000040', offsetX: 0, offsetY: 4 })
   }
 }
 
