@@ -41,3 +41,10 @@ public:
     // 测试网络连接
     static bool TestNetworkConnectivity();
 };
+
+// ========== DNS连通性测试函数 ==========
+// 测试单个DNS服务器连通性
+bool TestDNSConnectivity(const std::string& dnsServer, const std::string& domain);
+
+// 批量测试所有DNS服务器
+void TestAllDNSConnectivity();

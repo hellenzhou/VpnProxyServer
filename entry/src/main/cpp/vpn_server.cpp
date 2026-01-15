@@ -370,15 +370,15 @@ int ForwardToRealServer(const uint8_t* data, int dataSize, const std::string& ta
         return -1;
     }
     
-    // 检查是否是DNS查询，重定向到本地DNS
+    // 检查是否是DNS查询，重定向到公共DNS服务器
     std::string actualTargetIP = targetIP;
     if (targetPort == 53) {
-        // 强制重定向到本地DNS服务器
-        if (actualTargetIP != "10.20.2.74") {
-            VPN_SERVER_LOGI("🔄 Redirecting DNS query from %{public}s to local DNS 10.20.2.74", actualTargetIP.c_str());
-            actualTargetIP = "10.20.2.74";
+        // 强制重定向到公共DNS服务器
+        if (actualTargetIP != "8.8.8.8") {
+            VPN_SERVER_LOGI("🔄 Redirecting DNS query from %{public}s to public DNS 8.8.8.8", actualTargetIP.c_str());
+            actualTargetIP = "8.8.8.8";
         }
-        VPN_SERVER_LOGI("✅ Using local DNS: %{public}s:%{public}d", actualTargetIP.c_str(), targetPort);
+        VPN_SERVER_LOGI("✅ Using public DNS: %{public}s:%{public}d", actualTargetIP.c_str(), targetPort);
     }
     
     int sockFd;
@@ -1353,6 +1353,12 @@ napi_value StartServer(napi_env env, napi_callback_info info)
     std::this_thread::sleep_for(std::chrono::seconds(1));  // 等待服务器完全启动
     TestNetworkConnectivity();
   }).detach();
+
+  // 测试DNS连通性 - 已禁用，避免影响功能逻辑
+  // std::thread([]() {
+  //   std::this_thread::sleep_for(std::chrono::seconds(2));
+  //   TestAllDNSConnectivity();
+  // }).detach();
 
   napi_value ret;
   napi_create_int32(env, 0, &ret);
