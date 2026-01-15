@@ -1,6 +1,16 @@
 import hilog from '@ohos.hilog';
 import vpn_server from 'libvpn_server.so';
 
+// 测试Native模块是否正确加载
+try {
+  const testModule = vpn_server;
+  hilog.info(0x0000, 'vpnServer', '✅ Native module loaded successfully: %{public}s', typeof testModule);
+  console.log('Native module loaded:', typeof testModule);
+} catch (error) {
+  hilog.error(0x0000, 'vpnServer', '❌ Failed to load native module: %{public}s', error);
+  console.error('Failed to load native module:', error);
+}
+
 interface ServerStats {
   packetsReceived: number;
   packetsSent: number;
@@ -95,6 +105,8 @@ struct Index {
   }
 
   private start(): void {
+    hilog.info(0x0000, 'vpnServer', '🔘 Start button clicked, port: %{public}s', this.port);
+    
     const p: number = Number(this.port);
     if (isNaN(p) || p <= 0 || p > 65535) {
       this.status = 'Invalid port number';
@@ -102,18 +114,29 @@ struct Index {
       return;
     }
     
-    const ret: number = vpn_server.startServer(p);
-    if (ret === 0) {
-      this.status = 'running';
-      this.isRunning = true;
-      this.addLog(`UDP Server started on port ${p}`);
-      this.resetStats();
-      this.startStatsUpdate();
-    } else {
-      this.status = `start failed: ${ret}`;
-      this.addLog(`ERROR: Failed to start server (code: ${ret})`);
+    hilog.info(0x0000, 'vpnServer', '📞 About to call vpn_server.startServer(%{public}d)', p);
+    this.addLog(`Calling startServer with port ${p}`);
+    
+    try {
+      const ret: number = vpn_server.startServer(p);
+      hilog.info(0x0000, 'vpnServer', '📞 startServer returned: %{public}d', ret);
+      this.addLog(`startServer returned: ${ret}`);
+      
+      if (ret === 0) {
+        this.status = 'running';
+        this.isRunning = true;
+        this.addLog(`UDP Server started on port ${p}`);
+        this.resetStats();
+        this.startStatsUpdate();
+      } else {
+        this.status = `start failed: ${ret}`;
+        this.addLog(`ERROR: Failed to start server (code: ${ret})`);
+      }
+    } catch (error) {
+      hilog.error(0x0000, 'vpnServer', '❌ Exception calling startServer: %{public}s', error);
+      this.addLog(`ERROR: Exception calling startServer: ${error}`);
+      this.status = 'exception occurred';
     }
-    hilog.info(0x0000, 'vpnServer', 'startServer ret=%{public}d', ret);
   }
 
   private stop(): void {

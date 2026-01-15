@@ -1227,6 +1227,10 @@ void WorkerLoop()
 
 napi_value StartServer(napi_env env, napi_callback_info info)
 {
+  // 使用系统日志，确保能看到
+  OH_LOG_Print(LOG_APP, LOG_INFO, 0x15b1, "VpnServer", "🚀🚀🚀 StartServer FUNCTION CALLED - VPN SERVER STARTING NOW 🚀🚀🚀");
+  VPN_SERVER_LOGI("🚀🚀🚀 StartServer FUNCTION CALLED - VPN SERVER STARTING NOW 🚀🚀🚀");
+  
   size_t argc = 1;
   napi_value args[1] = {nullptr};
   napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
@@ -1235,6 +1239,9 @@ napi_value StartServer(napi_env env, napi_callback_info info)
   if (argc >= 1) {
     napi_get_value_int32(env, args[0], &port);
   }
+
+  OH_LOG_Print(LOG_APP, LOG_INFO, 0x15b1, "VpnServer", "📡 StartServer called with port: %{public}d", port);
+  VPN_SERVER_LOGI("📡 StartServer called with port: %{public}d", port);
 
   if (port <= 0 || port > 65535) {
     napi_value ret;
@@ -1658,6 +1665,10 @@ napi_value ClearDataBuffer(napi_env env, napi_callback_info info)
 
 napi_value Init(napi_env env, napi_value exports)
 {
+  // 模块初始化日志
+  OH_LOG_Print(LOG_APP, LOG_INFO, 0x15b1, "VpnServer", "🎉🎉🎉 NATIVE MODULE INITIALIZED - VPN SERVER MODULE LOADED 🎉🎉🎉");
+  VPN_SERVER_LOGI("🎉 Native module initialized successfully");
+  
   napi_property_descriptor desc[] = {
     {"startServer", nullptr, StartServer, nullptr, nullptr, nullptr, napi_default, nullptr},
     {"stopServer", nullptr, StopServer, nullptr, nullptr, nullptr, napi_default, nullptr},
@@ -1669,6 +1680,8 @@ napi_value Init(napi_env env, napi_value exports)
     {"clearDataBuffer", nullptr, ClearDataBuffer, nullptr, nullptr, nullptr, napi_default, nullptr},
   };
   napi_define_properties(env, exports, sizeof(desc) / sizeof(desc[0]), desc);
+  
+  VPN_SERVER_LOGI("📋 Native module properties defined");
   return exports;
 }
 
