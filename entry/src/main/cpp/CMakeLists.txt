@@ -27,6 +27,8 @@ add_library(vpn_server SHARED
     vpn_server.cpp
     protocol_handler.cpp
     packet_forwarder.cpp
+    packet_builder.cpp
+    nat_table.cpp
     simple_dns_cache.cpp
     network_diagnostics.cpp
 )
