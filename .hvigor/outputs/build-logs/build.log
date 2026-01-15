@@ -3795,3 +3795,1298 @@ ninja: no work to do.
 [2026-01-15T09:46:05.914] [DEBUG] debug-file - worker[0] exits with exit code 1.
 [2026-01-15T09:46:05.916] [DEBUG] debug-file - worker[1] exits with exit code 1.
 [2026-01-15T09:46:05.954] [DEBUG] debug-file - worker[10] exits with exit code 1.
+[2026-01-15T10:34:21.576] [DEBUG] debug-file - env: nodejsVersion=v18.20.1
+[2026-01-15T10:34:22.408] [DEBUG] debug-file - env: daemon=true
+[2026-01-15T10:34:21.584] [DEBUG] debug-file - env: hvigor-config.json5 content = {
+  modelVersion: '6.0.1',
+  dependencies: {},
+  execution: {},
+  logging: {},
+  debugging: {},
+  nodeOptions: {}
+}
+[2026-01-15T10:34:28.101] [DEBUG] debug-file - session manager: set active socket. socketId=UCDoS-8mrU8MIQSHAAAB
+[2026-01-15T10:34:28.185] [DEBUG] debug-file - java daemon tryConnect success
+[2026-01-15T10:34:32.134] [DEBUG] debug-file - watch worker: worker id should be larger than 0. Nothing will be sent to any worker thread.
+[2026-01-15T10:34:32.170] [DEBUG] debug-file - Hvigor init with startParameters:{
+  hvigorfileTypeCheck: false,
+  parallelExecution: true,
+  incrementalExecution: true,
+  printStackTrace: false,
+  daemon: true,
+  analyze: 0,
+  logLevel: Level { level: 20000, levelStr: 'INFO', colour: 'green' },
+  optimizationStrategy: 'memory',
+  hotCompile: undefined,
+  hotReloadBuild: undefined
+}
+[2026-01-15T10:34:32.199] [DEBUG] debug-file - Cache service initialization finished in 28 ms 
+[2026-01-15T10:34:32.202] [DEBUG] debug-file - hvigorfile, resolving F:\zhoubingquan\VpnProxyServer\hvigorfile.ts
+[2026-01-15T10:34:41.899] [DEBUG] debug-file - hvigorfile, require result:  { default: { plugins: [] } }
+[2026-01-15T10:34:41.899] [DEBUG] debug-file - hvigorfile, binding system plugins null
+[2026-01-15T10:34:42.372] [DEBUG] debug-file - Start initialize project's product build option map with build mode debug.
+[2026-01-15T10:34:42.373] [DEBUG] debug-file - Picking option from product 'default' with build mode 'debug'.
+[2026-01-15T10:34:42.374] [DEBUG] debug-file - Product 'default' build option initialized
+[2026-01-15T10:34:42.375] [DEBUG] debug-file - End initialize project's product build option map with build mode 'debug'.
+[2026-01-15T10:34:42.377] [DEBUG] debug-file - Obtain build option for product 'default'in this build.
+[2026-01-15T10:34:42.397] [DEBUG] debug-file - F:\zhoubingquan\VpnProxyServer\build\cache\default\remote_hsp\remoteHspCache.json not exists.
+[2026-01-15T10:34:42.403] [DEBUG] debug-file - Local scan or download HarmonyOS sdk components toolchains,ets,js,native,previewer
+[2026-01-15T10:34:42.467] [DEBUG] debug-file - Local scan or download hmscore sdk components toolchains,ets,native
+[2026-01-15T10:34:42.502] [DEBUG] debug-file - Start recording SDK configuration permission data.
+[2026-01-15T10:34:42.580] [DEBUG] debug-file - Sdk init in 179 ms 
+[2026-01-15T10:34:42.592] [DEBUG] debug-file - Project task initialization takes 7 ms 
+[2026-01-15T10:34:42.592] [DEBUG] debug-file - hvigorfile, binding custom plugins []
+[2026-01-15T10:34:42.592] [DEBUG] debug-file - hvigorfile, no custom plugins were found in F:\zhoubingquan\VpnProxyServer\hvigorfile.ts
+[2026-01-15T10:34:42.592] [DEBUG] debug-file - hvigorfile, resolve finished F:\zhoubingquan\VpnProxyServer\hvigorfile.ts
+[2026-01-15T10:34:42.593] [DEBUG] debug-file - hvigorfile, resolving F:\zhoubingquan\VpnProxyServer\entry\hvigorfile.ts
+[2026-01-15T10:34:42.606] [DEBUG] debug-file - hvigorfile, require result:  { default: { plugins: [] } }
+[2026-01-15T10:34:42.606] [DEBUG] debug-file - hvigorfile, binding system plugins null
+[2026-01-15T10:34:42.611] [DEBUG] debug-file - failed to load cangjie to dynamically generate schemas: Error: Cannot find module '@ohos/cangjie-build-support/index'
+Require stack:
+- F:\Huawei\DevEco Studio\tools\hvigor\hvigor-ohos-plugin\src\plugin\factory\plugin-factory.js
+- F:\Huawei\DevEco Studio\tools\hvigor\hvigor-ohos-plugin\index.js
+- F:\zhoubingquan\VpnProxyServer\hvigorfile.ts
+- F:\Huawei\DevEco Studio\tools\hvigor\hvigor\src\base\internal\lifecycle\configuration.js
+- F:\Huawei\DevEco Studio\tools\hvigor\hvigor\src\base\boot\index.js
+- F:\Huawei\DevEco Studio\tools\hvigor\hvigor\src\base\daemon\cluster\worker-process-lifecycle.js
+- F:\Huawei\DevEco Studio\tools\hvigor\hvigor\src\base\daemon\process\daemon-process-boot-script.js
+[2026-01-15T10:34:42.642] [DEBUG] debug-file - Start initialize module-target build option map, moduleName=entry, buildMode=debug
+[2026-01-15T10:34:42.643] [DEBUG] debug-file - Target 'default' config initialized
+[2026-01-15T10:34:42.644] [DEBUG] debug-file - Target 'ohosTest' config initialized
+[2026-01-15T10:34:42.644] [DEBUG] debug-file - Module 'entry' target 'default' build option initialized
+[2026-01-15T10:34:42.644] [DEBUG] debug-file - Module 'entry' target 'ohosTest' build option initialized
+[2026-01-15T10:34:42.644] [DEBUG] debug-file - End initialize module-target build option map, moduleName=entry
+[2026-01-15T10:34:42.644] [DEBUG] debug-file - Start initialize module-target build option map, moduleName=entry, buildMode=release
+[2026-01-15T10:34:42.644] [DEBUG] debug-file - Target 'default' config initialized
+[2026-01-15T10:34:42.645] [DEBUG] debug-file - Target 'ohosTest' config initialized
+[2026-01-15T10:34:42.645] [DEBUG] debug-file - Module 'entry' target 'default' build option initialized
+[2026-01-15T10:34:42.645] [DEBUG] debug-file - Module 'entry' target 'ohosTest' build option initialized
+[2026-01-15T10:34:42.646] [DEBUG] debug-file - End initialize module-target build option map, moduleName=entry
+[2026-01-15T10:34:42.646] [DEBUG] debug-file - Start initialize module-target build option map, moduleName=entry, buildMode=debug
+[2026-01-15T10:34:42.646] [DEBUG] debug-file - Target 'default' config initialized
+[2026-01-15T10:34:42.646] [DEBUG] debug-file - Target 'ohosTest' config initialized
+[2026-01-15T10:34:42.646] [DEBUG] debug-file - Module 'entry' target 'default' build option initialized
+[2026-01-15T10:34:42.647] [DEBUG] debug-file - Module 'entry' target 'ohosTest' build option initialized
+[2026-01-15T10:34:42.647] [DEBUG] debug-file - End initialize module-target build option map, moduleName=entry
+[2026-01-15T10:34:42.647] [DEBUG] debug-file - Obtain build option for module 'entry' target 'default'in this build.
+[2026-01-15T10:34:42.657] [DEBUG] debug-file - Module entry task initialization takes 6 ms 
+[2026-01-15T10:34:42.657] [DEBUG] debug-file - hvigorfile, binding custom plugins []
+[2026-01-15T10:34:42.657] [DEBUG] debug-file - hvigorfile, no custom plugins were found in F:\zhoubingquan\VpnProxyServer\entry\hvigorfile.ts
+[2026-01-15T10:34:42.657] [DEBUG] debug-file - hvigorfile, resolve finished F:\zhoubingquan\VpnProxyServer\entry\hvigorfile.ts
+[2026-01-15T10:34:42.702] [DEBUG] debug-file - hvigorfile, resolve hvigorfile dependencies in 43 ms 
+[2026-01-15T10:34:42.704] [DEBUG] debug-file - project has submodules:entry
+[2026-01-15T10:34:42.711] [DEBUG] debug-file - start to load updatedOhPackageInfo to the disk
+[2026-01-15T10:34:42.726] [DEBUG] debug-file - load to the disk finished
+[2026-01-15T10:34:42.727] [DEBUG] debug-file - Start to initialize dependency information.
+[2026-01-15T10:34:42.766] [DEBUG] debug-file - Module VpnProxyServer Collected Dependency: 
+[2026-01-15T10:34:42.767] [DEBUG] debug-file - Module VpnProxyServer's total dependency: 0
+[2026-01-15T10:34:42.770] [DEBUG] debug-file - Start to initialize dependency information.
+[2026-01-15T10:34:42.780] [DEBUG] debug-file - Module entry Collected Dependency: 
+[2026-01-15T10:34:42.781] [DEBUG] debug-file - Module entry's total dependency: 0
+[2026-01-15T10:34:42.807] [DEBUG] debug-file - Configuration phase cost:10 s 607 ms 
+[2026-01-15T10:34:42.816] [DEBUG] debug-file - Configuration task cost before running: 10 s 668 ms 
+[2026-01-15T10:34:42.847] [DEBUG] debug-file - Executing task :entry:default@PreBuild
+[2026-01-15T10:34:42.854] [DEBUG] debug-file - Task 'entry:default@PreBuild' cost while wrapping incremental declarations: 1 ms 
+[2026-01-15T10:34:42.889] [DEBUG] debug-file - entry:default@PreBuild is not up-to-date, since the task snapshots are different.
+[2026-01-15T10:34:42.890] [DEBUG] debug-file - Incremental task entry:default@PreBuild pre-execution cost: 29 ms .
+[2026-01-15T10:34:43.205] [DEBUG] debug-file - current product is not Atomic service.
+[2026-01-15T10:34:43.207] [DEBUG] debug-file - Use tool [win32: JAVA_HOME, CLASSPATH]
+ [
+  { JAVA_HOME: 'F:\\Huawei\\DevEco Studio\\jbr' },
+  { CLASSPATH: undefined }
+]
+[2026-01-15T10:34:43.207] [DEBUG] debug-file - Use tool [win32: NODE_HOME]
+ [ { NODE_HOME: 'F:\\Huawei\\DevEco Studio\\tools\\node' } ]
+[2026-01-15T10:34:43.212] [DEBUG] debug-file - entry : default@PreBuild cost memory 18.005531311035156
+[2026-01-15T10:34:43.213] [DEBUG] debug-file - runTaskFromQueue task cost before running: 11 s 64 ms 
+[2026-01-15T10:34:43.223] [INFO] debug-file - Finished :entry:default@PreBuild... after 366 ms 
+[2026-01-15T10:34:43.230] [DEBUG] debug-file - Executing task :entry:default@ConfigureCmake
+[2026-01-15T10:34:43.256] [DEBUG] debug-file - entry : default@ConfigureCmake cost memory -10.821220397949219
+[2026-01-15T10:34:43.256] [DEBUG] debug-file - runTaskFromQueue task cost before running: 11 s 108 ms 
+[2026-01-15T10:34:43.257] [INFO] debug-file - Finished :entry:default@ConfigureCmake... after 27 ms 
+[2026-01-15T10:34:43.260] [DEBUG] debug-file - Executing task :entry:default@BuildNativeWithCmake
+[2026-01-15T10:34:43.290] [DEBUG] debug-file - Use tool [Cmake]
+ [
+  'F:\\Huawei\\DevEco Studio\\sdk\\default\\openharmony\\native\\build-tools\\cmake\\bin\\cmake.exe',
+  '-HF:\\zhoubingquan\\VpnProxyServer\\entry\\src\\main\\cpp',
+  '-BF:\\zhoubingquan\\VpnProxyServer\\entry\\.cxx\\default\\default\\debug\\arm64-v8a',
+  '-DOHOS_ARCH=arm64-v8a',
+  '-DCMAKE_LIBRARY_OUTPUT_DIRECTORY=F:\\zhoubingquan\\VpnProxyServer\\entry\\build\\default\\intermediates\\cmake\\default\\obj\\arm64-v8a',
+  '-DCMAKE_BUILD_TYPE=Debug',
+  '-DOHOS_SDK_NATIVE=F:\\Huawei\\DevEco Studio\\sdk\\default\\openharmony\\native',
+  '-DCMAKE_SYSTEM_NAME=OHOS',
+  '-DCMAKE_OHOS_ARCH_ABI=arm64-v8a',
+  '-DCMAKE_EXPORT_COMPILE_COMMANDS=ON',
+  '-DCMAKE_TOOLCHAIN_FILE=F:\\Huawei\\DevEco Studio\\sdk\\default\\hms\\native\\build\\cmake\\hmos.toolchain.cmake',
+  '-GNinja',
+  '-DCMAKE_MAKE_PROGRAM=F:\\Huawei\\DevEco Studio\\sdk\\default\\openharmony\\native\\build-tools\\cmake\\bin\\ninja.exe',
+  '-DCMAKE_FIND_ROOT_PATH=F:\\zhoubingquan\\VpnProxyServer\\entry\\.cxx\\default\\default\\debug\\hvigor\\arm64-v8a',
+  '-DPACKAGE_FIND_FILE=F:\\zhoubingquan\\VpnProxyServer\\entry\\.cxx\\default\\default\\debug\\hvigor\\arm64-v8a\\summary.cmake',
+  '--no-warn-unused-cli',
+  '-DHMOS_SDK_NATIVE=F:\\Huawei\\DevEco Studio\\sdk\\default\\hms\\native'
+]
+[2026-01-15T10:34:43.394] [DEBUG] debug-file - - a file changed
+[2026-01-15T10:34:43.395] [DEBUG] debug-file -   - F:\zhoubingquan\VpnProxyServer\entry\src\main\cpp\CMakeLists.txt (LAST_MODIFIED_CHANGED)
+[2026-01-15T10:34:43.402] [DEBUG] debug-file - Since there is no instance or instance is terminated, create a new worker pool.
+[2026-01-15T10:34:43.403] [DEBUG] debug-file - Worker pool is initialized with config:  {
+  minPoolNum: 2,
+  maxPoolNum: undefined,
+  maxCoreSize: undefined,
+  cacheCapacity: undefined,
+  cacheTtl: undefined
+}
+[2026-01-15T10:34:43.405] [DEBUG] debug-file - Create  resident worker with id: 0.
+[2026-01-15T10:34:43.408] [DEBUG] debug-file - Create  resident worker with id: 1.
+[2026-01-15T10:34:43.416] [DEBUG] debug-file - default@BuildNativeWithCmake work[0] is submitted.
+[2026-01-15T10:34:43.417] [DEBUG] debug-file - default@BuildNativeWithCmake work[0] is pushed to ready queue.
+[2026-01-15T10:34:43.418] [DEBUG] debug-file - A work dispatched to worker[11] failed because unable to get work from ready queue.
+[2026-01-15T10:34:43.418] [DEBUG] debug-file - Create  resident worker with id: 10.
+[2026-01-15T10:34:43.421] [DEBUG] debug-file - default@BuildNativeWithCmake work[0] has been dispatched to worker[10].
+[2026-01-15T10:34:43.423] [DEBUG] debug-file - default@BuildNativeWithCmake work[0] is dispatched.
+[2026-01-15T10:34:43.425] [DEBUG] debug-file - entry : default@BuildNativeWithCmake cost memory 1.1629409790039062
+[2026-01-15T10:34:55.697] [DEBUG] debug-file - Not searching for unused variables given on the command line.
+
+[2026-01-15T10:34:56.590] [DEBUG] debug-file - -- Configuring done (0.9s)
+
+[2026-01-15T10:34:56.834] [DEBUG] debug-file - -- Generating done (0.2s)
+
+[2026-01-15T10:34:57.211] [DEBUG] debug-file - -- Build files have been written to: F:/zhoubingquan/VpnProxyServer/entry/.cxx/default/default/debug/arm64-v8a
+
+[2026-01-15T10:34:57.238] [DEBUG] debug-file - worker[10] has one work done.
+[2026-01-15T10:34:57.485] [DEBUG] debug-file - default@BuildNativeWithCmake work[0] done.
+[2026-01-15T10:34:57.489] [INFO] debug-file - Finished :entry:default@BuildNativeWithCmake... after 4 s 193 ms 
+[2026-01-15T10:34:57.490] [DEBUG] debug-file - Executing task :entry:compileNative
+[2026-01-15T10:34:57.491] [DEBUG] debug-file - entry : compileNative cost memory 0.0143280029296875
+[2026-01-15T10:34:57.491] [DEBUG] debug-file - runTaskFromQueue task cost before running: 25 s 343 ms 
+[2026-01-15T10:34:57.491] [INFO] debug-file - Finished :entry:compileNative... after 1 ms 
+[2026-01-15T10:34:57.526] [INFO] debug-file - BUILD SUCCESSFUL in 25 s 377 ms 
+[2026-01-15T10:34:57.531] [DEBUG] debug-file - Update task entry:default@PreBuild input file:F:\zhoubingquan\VpnProxyServer\AppScope\app.json5 cache by regenerate.
+[2026-01-15T10:34:57.532] [DEBUG] debug-file - Update task entry:default@PreBuild input file:F:\zhoubingquan\VpnProxyServer\entry\src\main\module.json5 cache by regenerate.
+[2026-01-15T10:34:57.534] [DEBUG] debug-file - Update task entry:default@PreBuild input file:F:\zhoubingquan\VpnProxyServer\build-profile.json5 cache by regenerate.
+[2026-01-15T10:34:57.539] [DEBUG] debug-file - Update task entry:default@PreBuild input file:F:\zhoubingquan\VpnProxyServer\entry\build-profile.json5 cache by regenerate.
+[2026-01-15T10:34:57.542] [DEBUG] debug-file - Update task entry:default@PreBuild input file:F:\zhoubingquan\VpnProxyServer\entry\src\main\resources\base\profile\main_pages.json cache by regenerate.
+[2026-01-15T10:34:57.544] [DEBUG] debug-file - Update task entry:default@PreBuild input file:F:\zhoubingquan\VpnProxyServer\hvigor\hvigor-config.json5 cache by regenerate.
+[2026-01-15T10:34:57.545] [DEBUG] debug-file - Update task entry:default@PreBuild input file:F:\zhoubingquan\VpnProxyServer\entry\src\mock\mock-config.json5 cache by regenerate.
+[2026-01-15T10:34:57.546] [DEBUG] debug-file - Update task entry:default@PreBuild input file:F:\zhoubingquan\VpnProxyServer\entry\oh-package.json5 cache by regenerate.
+[2026-01-15T10:34:57.551] [DEBUG] debug-file - Update task entry:default@PreBuild input file:F:\zhoubingquan\VpnProxyServer\oh-package.json5 cache by regenerate.
+[2026-01-15T10:34:57.555] [DEBUG] debug-file - Incremental task entry:default@PreBuild post-execution cost:27 ms .
+[2026-01-15T10:34:57.618] [DEBUG] debug-file - Cleanup worker 0.
+[2026-01-15T10:34:57.618] [DEBUG] debug-file - Worker 0 has been cleaned up.
+[2026-01-15T10:34:57.619] [DEBUG] debug-file - Current idle worker size: 2.
+[2026-01-15T10:34:57.619] [DEBUG] debug-file - Current resident worker size: 3.
+[2026-01-15T10:34:57.619] [DEBUG] debug-file - Cleanup worker 1.
+[2026-01-15T10:34:57.619] [DEBUG] debug-file - Worker 1 has been cleaned up.
+[2026-01-15T10:34:57.619] [DEBUG] debug-file - Current idle worker size: 1.
+[2026-01-15T10:34:57.619] [DEBUG] debug-file - Current resident worker size: 3.
+[2026-01-15T10:34:57.623] [DEBUG] debug-file - hvigor build process will be closed.
+[2026-01-15T10:34:57.625] [DEBUG] debug-file - worker[1] exits with exit code 1.
+[2026-01-15T10:34:57.625] [DEBUG] debug-file - worker[0] exits with exit code 1.
+[2026-01-15T10:34:57.637] [DEBUG] debug-file - session manager: send message to worker process.
+[2026-01-15T10:34:57.638] [DEBUG] debug-file - session manager: send message to worker process.
+[2026-01-15T10:34:57.637] [DEBUG] debug-file - watch worker: worker id should be larger than 0. Nothing will be sent to any worker thread.
+[2026-01-15T10:34:57.638] [DEBUG] debug-file - watch worker: worker id should be larger than 0. Nothing will be sent to any worker thread.
+[2026-01-15T10:35:07.276] [DEBUG] debug-file - session manager: set active socket. socketId=uVWBL2wbv7DJH7IkAAAD
+[2026-01-15T10:35:07.317] [DEBUG] debug-file - watch worker: worker id should be larger than 0. Nothing will be sent to any worker thread.
+[2026-01-15T10:35:07.350] [DEBUG] debug-file - Hvigor init with startParameters:{
+  hvigorfileTypeCheck: false,
+  parallelExecution: true,
+  incrementalExecution: true,
+  printStackTrace: false,
+  daemon: true,
+  analyze: 0,
+  logLevel: Level { level: 20000, levelStr: 'INFO', colour: 'green' },
+  optimizationStrategy: 'memory',
+  hotCompile: undefined,
+  hotReloadBuild: undefined
+}
+[2026-01-15T10:35:07.372] [DEBUG] debug-file - Cache service initialization finished in 22 ms 
+[2026-01-15T10:35:07.374] [DEBUG] debug-file - hvigorfile, resolving F:\zhoubingquan\VpnProxyServer\hvigorfile.ts
+[2026-01-15T10:35:07.388] [DEBUG] debug-file - hvigorfile, require result:  { default: { plugins: [] } }
+[2026-01-15T10:35:07.388] [DEBUG] debug-file - hvigorfile, binding system plugins null
+[2026-01-15T10:35:07.420] [DEBUG] debug-file - Start initialize project's product build option map with build mode debug.
+[2026-01-15T10:35:07.421] [DEBUG] debug-file - Picking option from product 'default' with build mode 'debug'.
+[2026-01-15T10:35:07.421] [DEBUG] debug-file - Product 'default' build option initialized
+[2026-01-15T10:35:07.422] [DEBUG] debug-file - End initialize project's product build option map with build mode 'debug'.
+[2026-01-15T10:35:07.425] [DEBUG] debug-file - Obtain build option for product 'default'in this build.
+[2026-01-15T10:35:07.442] [DEBUG] debug-file - F:\zhoubingquan\VpnProxyServer\build\cache\default\remote_hsp\remoteHspCache.json not exists.
+[2026-01-15T10:35:07.468] [DEBUG] debug-file - Start recording SDK configuration permission data.
+[2026-01-15T10:35:07.616] [DEBUG] debug-file - Sdk init in 167 ms 
+[2026-01-15T10:35:07.643] [DEBUG] debug-file - Project task initialization takes 24 ms 
+[2026-01-15T10:35:07.648] [DEBUG] debug-file - hvigorfile, binding custom plugins []
+[2026-01-15T10:35:07.650] [DEBUG] debug-file - hvigorfile, no custom plugins were found in F:\zhoubingquan\VpnProxyServer\hvigorfile.ts
+[2026-01-15T10:35:07.651] [DEBUG] debug-file - hvigorfile, resolve finished F:\zhoubingquan\VpnProxyServer\hvigorfile.ts
+[2026-01-15T10:35:07.653] [DEBUG] debug-file - hvigorfile, resolving F:\zhoubingquan\VpnProxyServer\entry\hvigorfile.ts
+[2026-01-15T10:35:07.683] [DEBUG] debug-file - hvigorfile, require result:  { default: { plugins: [] } }
+[2026-01-15T10:35:07.688] [DEBUG] debug-file - hvigorfile, binding system plugins null
+[2026-01-15T10:35:07.699] [DEBUG] debug-file - failed to load cangjie to dynamically generate schemas: Error: Cannot find module '@ohos/cangjie-build-support/index'
+Require stack:
+- F:\Huawei\DevEco Studio\tools\hvigor\hvigor-ohos-plugin\src\plugin\factory\plugin-factory.js
+- F:\Huawei\DevEco Studio\tools\hvigor\hvigor-ohos-plugin\index.js
+- F:\zhoubingquan\VpnProxyServer\hvigorfile.ts
+- F:\Huawei\DevEco Studio\tools\hvigor\hvigor\src\base\internal\lifecycle\configuration.js
+- F:\Huawei\DevEco Studio\tools\hvigor\hvigor\src\base\boot\index.js
+- F:\Huawei\DevEco Studio\tools\hvigor\hvigor\src\base\daemon\cluster\worker-process-lifecycle.js
+- F:\Huawei\DevEco Studio\tools\hvigor\hvigor\src\base\daemon\process\daemon-process-boot-script.js
+[2026-01-15T10:35:07.722] [DEBUG] debug-file - Start initialize module-target build option map, moduleName=entry, buildMode=debug
+[2026-01-15T10:35:07.722] [DEBUG] debug-file - Target 'default' config initialized
+[2026-01-15T10:35:07.723] [DEBUG] debug-file - Target 'ohosTest' config initialized
+[2026-01-15T10:35:07.731] [DEBUG] debug-file - Module 'entry' target 'default' build option initialized
+[2026-01-15T10:35:07.731] [DEBUG] debug-file - Module 'entry' target 'ohosTest' build option initialized
+[2026-01-15T10:35:07.732] [DEBUG] debug-file - End initialize module-target build option map, moduleName=entry
+[2026-01-15T10:35:07.732] [DEBUG] debug-file - Start initialize module-target build option map, moduleName=entry, buildMode=release
+[2026-01-15T10:35:07.732] [DEBUG] debug-file - Target 'default' config initialized
+[2026-01-15T10:35:07.740] [DEBUG] debug-file - Target 'ohosTest' config initialized
+[2026-01-15T10:35:07.750] [DEBUG] debug-file - Module 'entry' target 'default' build option initialized
+[2026-01-15T10:35:07.754] [DEBUG] debug-file - Module 'entry' target 'ohosTest' build option initialized
+[2026-01-15T10:35:07.755] [DEBUG] debug-file - End initialize module-target build option map, moduleName=entry
+[2026-01-15T10:35:07.755] [DEBUG] debug-file - Start initialize module-target build option map, moduleName=entry, buildMode=debug
+[2026-01-15T10:35:07.755] [DEBUG] debug-file - Target 'default' config initialized
+[2026-01-15T10:35:07.760] [DEBUG] debug-file - Target 'ohosTest' config initialized
+[2026-01-15T10:35:07.766] [DEBUG] debug-file - Module 'entry' target 'default' build option initialized
+[2026-01-15T10:35:07.769] [DEBUG] debug-file - Module 'entry' target 'ohosTest' build option initialized
+[2026-01-15T10:35:07.770] [DEBUG] debug-file - End initialize module-target build option map, moduleName=entry
+[2026-01-15T10:35:07.775] [DEBUG] debug-file - Obtain build option for module 'entry' target 'default'in this build.
+[2026-01-15T10:35:07.796] [DEBUG] debug-file - Module entry task initialization takes 7 ms 
+[2026-01-15T10:35:07.797] [DEBUG] debug-file - hvigorfile, binding custom plugins []
+[2026-01-15T10:35:07.797] [DEBUG] debug-file - hvigorfile, no custom plugins were found in F:\zhoubingquan\VpnProxyServer\entry\hvigorfile.ts
+[2026-01-15T10:35:07.797] [DEBUG] debug-file - hvigorfile, resolve finished F:\zhoubingquan\VpnProxyServer\entry\hvigorfile.ts
+[2026-01-15T10:35:07.950] [DEBUG] debug-file - hvigorfile, resolve hvigorfile dependencies in 148 ms 
+[2026-01-15T10:35:07.951] [DEBUG] debug-file - project has submodules:entry
+[2026-01-15T10:35:07.993] [DEBUG] debug-file - start to load updatedOhPackageInfo to the disk
+[2026-01-15T10:35:08.081] [DEBUG] debug-file - load to the disk finished
+[2026-01-15T10:35:08.094] [DEBUG] debug-file - Start to initialize dependency information.
+[2026-01-15T10:35:08.161] [DEBUG] debug-file - Module VpnProxyServer Collected Dependency: 
+[2026-01-15T10:35:08.161] [DEBUG] debug-file - Module VpnProxyServer's total dependency: 0
+[2026-01-15T10:35:08.163] [DEBUG] debug-file - Start to initialize dependency information.
+[2026-01-15T10:35:08.197] [DEBUG] debug-file - Module entry Collected Dependency: 
+[2026-01-15T10:35:08.198] [DEBUG] debug-file - Module entry's total dependency: 0
+[2026-01-15T10:35:08.208] [DEBUG] debug-file - Configuration phase cost:835 ms 
+[2026-01-15T10:35:08.216] [DEBUG] debug-file - Configuration task cost before running: 882 ms 
+[2026-01-15T10:35:08.276] [DEBUG] debug-file - Executing task :entry:default@PreBuild
+[2026-01-15T10:35:08.283] [DEBUG] debug-file - Task 'entry:default@PreBuild' cost while wrapping incremental declarations: 1 ms 
+[2026-01-15T10:35:08.416] [DEBUG] debug-file - entry:default@PreBuild is not up-to-date, since the task snapshots are different.
+[2026-01-15T10:35:08.417] [DEBUG] debug-file - Incremental task entry:default@PreBuild pre-execution cost: 98 ms .
+[2026-01-15T10:35:08.517] [DEBUG] debug-file - current product is not Atomic service.
+[2026-01-15T10:35:08.525] [DEBUG] debug-file - Use tool [win32: JAVA_HOME, CLASSPATH]
+ [
+  { JAVA_HOME: 'F:\\Huawei\\DevEco Studio\\jbr' },
+  { CLASSPATH: undefined }
+]
+[2026-01-15T10:35:08.527] [DEBUG] debug-file - Use tool [win32: NODE_HOME]
+ [ { NODE_HOME: 'F:\\Huawei\\DevEco Studio\\tools\\node' } ]
+[2026-01-15T10:35:08.529] [DEBUG] debug-file - entry : default@PreBuild cost memory 0.7782363891601562
+[2026-01-15T10:35:08.531] [DEBUG] debug-file - runTaskFromQueue task cost before running: 1 s 198 ms 
+[2026-01-15T10:35:08.560] [INFO] debug-file - Finished :entry:default@PreBuild... after 256 ms 
+[2026-01-15T10:35:08.574] [DEBUG] debug-file - Executing task :entry:default@CreateModuleInfo
+[2026-01-15T10:35:08.576] [DEBUG] debug-file - Task 'entry:default@CreateModuleInfo' cost while wrapping incremental declarations: 2 ms 
+[2026-01-15T10:35:08.579] [DEBUG] debug-file - entry : default@CreateModuleInfo cost memory 0.0432281494140625
+[2026-01-15T10:35:08.581] [DEBUG] debug-file - runTaskFromQueue task cost before running: 1 s 247 ms 
+[2026-01-15T10:35:08.584] [INFO] debug-file - Finished :entry:default@CreateModuleInfo... after 8 ms 
+[2026-01-15T10:35:08.657] [DEBUG] debug-file - Executing task :entry:default@GenerateMetadata
+[2026-01-15T10:35:08.682] [DEBUG] debug-file - Task 'entry:default@GenerateMetadata' cost while wrapping incremental declarations: 25 ms 
+[2026-01-15T10:35:08.712] [DEBUG] debug-file - Incremental task entry:default@GenerateMetadata pre-execution cost: 24 ms .
+[2026-01-15T10:35:08.715] [DEBUG] debug-file - entry : default@GenerateMetadata cost memory 0.19388580322265625
+[2026-01-15T10:35:08.719] [INFO] debug-file - UP-TO-DATE :entry:default@GenerateMetadata...  
+[2026-01-15T10:35:08.734] [DEBUG] debug-file - Executing task :entry:default@ConfigureCmake
+[2026-01-15T10:35:08.786] [DEBUG] debug-file - entry : default@ConfigureCmake cost memory 0.0383148193359375
+[2026-01-15T10:35:08.792] [DEBUG] debug-file - runTaskFromQueue task cost before running: 1 s 453 ms 
+[2026-01-15T10:35:08.795] [INFO] debug-file - Finished :entry:default@ConfigureCmake... after 53 ms 
+[2026-01-15T10:35:08.816] [DEBUG] debug-file - Executing task :entry:default@MergeProfile
+[2026-01-15T10:35:08.822] [DEBUG] debug-file - Task 'entry:default@MergeProfile' cost while wrapping incremental declarations: 5 ms 
+[2026-01-15T10:35:08.876] [DEBUG] debug-file - Incremental task entry:default@MergeProfile pre-execution cost: 50 ms .
+[2026-01-15T10:35:08.881] [DEBUG] debug-file - entry : default@MergeProfile cost memory 0.1452484130859375
+[2026-01-15T10:35:08.892] [INFO] debug-file - UP-TO-DATE :entry:default@MergeProfile...  
+[2026-01-15T10:35:09.055] [DEBUG] debug-file - Executing task :entry:default@CreateBuildProfile
+[2026-01-15T10:35:09.082] [DEBUG] debug-file - Task 'entry:default@CreateBuildProfile' cost while wrapping incremental declarations: 27 ms 
+[2026-01-15T10:35:09.132] [DEBUG] debug-file - Incremental task entry:default@CreateBuildProfile pre-execution cost: 49 ms .
+[2026-01-15T10:35:09.134] [DEBUG] debug-file - entry : default@CreateBuildProfile cost memory 0.1002349853515625
+[2026-01-15T10:35:09.136] [INFO] debug-file - UP-TO-DATE :entry:default@CreateBuildProfile...  
+[2026-01-15T10:35:09.159] [DEBUG] debug-file - Executing task :entry:default@PreCheckSyscap
+[2026-01-15T10:35:09.161] [DEBUG] debug-file - entry : default@PreCheckSyscap cost memory 0.0169219970703125
+[2026-01-15T10:35:09.162] [DEBUG] debug-file - runTaskFromQueue task cost before running: 1 s 828 ms 
+[2026-01-15T10:35:09.173] [INFO] debug-file - Finished :entry:default@PreCheckSyscap... after 3 ms 
+[2026-01-15T10:35:09.215] [DEBUG] debug-file - Executing task :entry:default@GeneratePkgContextInfo
+[2026-01-15T10:35:09.519] [DEBUG] debug-file - Task 'entry:default@GeneratePkgContextInfo' cost while wrapping incremental declarations: 1 ms 
+[2026-01-15T10:35:09.524] [DEBUG] debug-file - entry : default@GeneratePkgContextInfo cost memory 0.25714111328125
+[2026-01-15T10:35:09.526] [DEBUG] debug-file - runTaskFromQueue task cost before running: 2 s 191 ms 
+[2026-01-15T10:35:09.529] [INFO] debug-file - Finished :entry:default@GeneratePkgContextInfo... after 310 ms 
+[2026-01-15T10:35:09.696] [DEBUG] debug-file - Executing task :entry:default@ProcessIntegratedHsp
+[2026-01-15T10:35:09.710] [DEBUG] debug-file - entry:default@ProcessIntegratedHsp is not up-to-date, since the output file 'F:\zhoubingquan\VpnProxyServer\build\cache\default\integrated_hsp\integratedHspCache.json' does not exist.
+[2026-01-15T10:35:09.711] [DEBUG] debug-file - Incremental task entry:default@ProcessIntegratedHsp pre-execution cost: 2 ms .
+[2026-01-15T10:35:09.715] [DEBUG] debug-file - entry : default@ProcessIntegratedHsp cost memory 0.06800079345703125
+[2026-01-15T10:35:09.715] [DEBUG] debug-file - runTaskFromQueue task cost before running: 2 s 382 ms 
+[2026-01-15T10:35:09.733] [INFO] debug-file - Finished :entry:default@ProcessIntegratedHsp... after 20 ms 
+[2026-01-15T10:35:09.764] [DEBUG] debug-file - Executing task :entry:default@BuildNativeWithCmake
+[2026-01-15T10:35:09.823] [DEBUG] debug-file - Use tool [Cmake]
+ [
+  'F:\\Huawei\\DevEco Studio\\sdk\\default\\openharmony\\native\\build-tools\\cmake\\bin\\cmake.exe',
+  '-HF:\\zhoubingquan\\VpnProxyServer\\entry\\src\\main\\cpp',
+  '-BF:\\zhoubingquan\\VpnProxyServer\\entry\\.cxx\\default\\default\\debug\\arm64-v8a',
+  '-DOHOS_ARCH=arm64-v8a',
+  '-DCMAKE_LIBRARY_OUTPUT_DIRECTORY=F:\\zhoubingquan\\VpnProxyServer\\entry\\build\\default\\intermediates\\cmake\\default\\obj\\arm64-v8a',
+  '-DCMAKE_BUILD_TYPE=Debug',
+  '-DOHOS_SDK_NATIVE=F:\\Huawei\\DevEco Studio\\sdk\\default\\openharmony\\native',
+  '-DCMAKE_SYSTEM_NAME=OHOS',
+  '-DCMAKE_OHOS_ARCH_ABI=arm64-v8a',
+  '-DCMAKE_EXPORT_COMPILE_COMMANDS=ON',
+  '-DCMAKE_TOOLCHAIN_FILE=F:\\Huawei\\DevEco Studio\\sdk\\default\\hms\\native\\build\\cmake\\hmos.toolchain.cmake',
+  '-GNinja',
+  '-DCMAKE_MAKE_PROGRAM=F:\\Huawei\\DevEco Studio\\sdk\\default\\openharmony\\native\\build-tools\\cmake\\bin\\ninja.exe',
+  '-DCMAKE_FIND_ROOT_PATH=F:\\zhoubingquan\\VpnProxyServer\\entry\\.cxx\\default\\default\\debug\\hvigor\\arm64-v8a',
+  '-DPACKAGE_FIND_FILE=F:\\zhoubingquan\\VpnProxyServer\\entry\\.cxx\\default\\default\\debug\\hvigor\\arm64-v8a\\summary.cmake',
+  '--no-warn-unused-cli',
+  '-DHMOS_SDK_NATIVE=F:\\Huawei\\DevEco Studio\\sdk\\default\\hms\\native'
+]
+[2026-01-15T10:35:10.252] [DEBUG] debug-file - CMake configuration was up-to-date
+[2026-01-15T10:35:10.302] [DEBUG] debug-file - entry : default@BuildNativeWithCmake cost memory -0.20343780517578125
+[2026-01-15T10:35:10.303] [DEBUG] debug-file - runTaskFromQueue task cost before running: 2 s 969 ms 
+[2026-01-15T10:35:10.306] [INFO] debug-file - Finished :entry:default@BuildNativeWithCmake... after 540 ms 
+[2026-01-15T10:35:10.319] [DEBUG] debug-file - Executing task :entry:default@MakePackInfo
+[2026-01-15T10:35:10.363] [DEBUG] debug-file - Incremental task entry:default@MakePackInfo pre-execution cost: 32 ms .
+[2026-01-15T10:35:10.364] [DEBUG] debug-file - entry : default@MakePackInfo cost memory 0.157684326171875
+[2026-01-15T10:35:10.374] [INFO] debug-file - UP-TO-DATE :entry:default@MakePackInfo...  
+[2026-01-15T10:35:10.382] [DEBUG] debug-file - Executing task :entry:default@SyscapTransform
+[2026-01-15T10:35:10.383] [DEBUG] debug-file - File: 'F:\zhoubingquan\VpnProxyServer\entry\src\main\syscap.json' from 'sysCapJsonPath' is not exists, just ignore.
+[2026-01-15T10:35:10.444] [DEBUG] debug-file - Task 'entry:default@SyscapTransform' cost while wrapping incremental declarations: 62 ms 
+[2026-01-15T10:35:10.536] [DEBUG] debug-file - entry:default@SyscapTransform is not up-to-date, since the output file 'F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\syscap\default\rpcid.sc' does not exist.
+[2026-01-15T10:35:10.536] [DEBUG] debug-file - Incremental task entry:default@SyscapTransform pre-execution cost: 91 ms .
+[2026-01-15T10:35:10.538] [DEBUG] debug-file - entry : default@SyscapTransform cost memory 0.16097259521484375
+[2026-01-15T10:35:10.538] [DEBUG] debug-file - runTaskFromQueue task cost before running: 3 s 205 ms 
+[2026-01-15T10:35:10.542] [INFO] debug-file - Finished :entry:default@SyscapTransform... after 157 ms 
+[2026-01-15T10:35:10.561] [DEBUG] debug-file - Executing task :entry:default@ProcessProfile
+[2026-01-15T10:35:10.577] [DEBUG] debug-file - Task 'entry:default@ProcessProfile' cost while wrapping incremental declarations: 1 ms 
+[2026-01-15T10:35:10.592] [DEBUG] debug-file - Incremental task entry:default@ProcessProfile pre-execution cost: 10 ms .
+[2026-01-15T10:35:10.595] [DEBUG] debug-file - entry : default@ProcessProfile cost memory 0.16504669189453125
+[2026-01-15T10:35:10.597] [INFO] debug-file - UP-TO-DATE :entry:default@ProcessProfile...  
+[2026-01-15T10:35:10.609] [DEBUG] debug-file - Executing task :entry:default@ProcessRouterMap
+[2026-01-15T10:35:10.835] [DEBUG] debug-file - Incremental task entry:default@ProcessRouterMap pre-execution cost: 220 ms .
+[2026-01-15T10:35:10.836] [DEBUG] debug-file - entry : default@ProcessRouterMap cost memory 0.1247100830078125
+[2026-01-15T10:35:10.856] [INFO] debug-file - UP-TO-DATE :entry:default@ProcessRouterMap...  
+[2026-01-15T10:35:10.877] [DEBUG] debug-file - Executing task :entry:default@ProcessShareConfig
+[2026-01-15T10:35:10.956] [DEBUG] debug-file - Incremental task entry:default@ProcessShareConfig pre-execution cost: 69 ms .
+[2026-01-15T10:35:10.956] [DEBUG] debug-file - entry : default@ProcessShareConfig cost memory 0.108978271484375
+[2026-01-15T10:35:10.963] [INFO] debug-file - UP-TO-DATE :entry:default@ProcessShareConfig...  
+[2026-01-15T10:35:10.977] [DEBUG] debug-file - Executing task :entry:default@ProcessStartupConfig
+[2026-01-15T10:35:10.978] [DEBUG] debug-file - Task 'entry:default@ProcessStartupConfig' cost while wrapping incremental declarations: 1 ms 
+[2026-01-15T10:35:10.986] [DEBUG] debug-file - entry:default@ProcessStartupConfig is not up-to-date, since the output file 'F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\startup\default\startup_config.json' does not exist.
+[2026-01-15T10:35:10.987] [DEBUG] debug-file - Incremental task entry:default@ProcessStartupConfig pre-execution cost: 4 ms .
+[2026-01-15T10:35:10.990] [DEBUG] debug-file - entry : default@ProcessStartupConfig cost memory -0.6960372924804688
+[2026-01-15T10:35:10.990] [DEBUG] debug-file - runTaskFromQueue task cost before running: 3 s 656 ms 
+[2026-01-15T10:35:10.991] [INFO] debug-file - Finished :entry:default@ProcessStartupConfig... after 13 ms 
+[2026-01-15T10:35:11.003] [DEBUG] debug-file - Executing task :entry:default@BuildNativeWithNinja
+[2026-01-15T10:35:11.016] [DEBUG] debug-file - Use tool [Ninja]
+ [
+  'F:\\Huawei\\DevEco Studio\\sdk\\default\\openharmony\\native\\build-tools\\cmake\\bin\\ninja.exe',
+  '-C',
+  'F:\\zhoubingquan\\VpnProxyServer\\entry\\.cxx\\default\\default\\debug\\arm64-v8a'
+]
+[2026-01-15T10:35:11.017] [DEBUG] debug-file - default@BuildNativeWithNinja work[1] is submitted.
+[2026-01-15T10:35:11.017] [DEBUG] debug-file - default@BuildNativeWithNinja work[1] is pushed to ready queue.
+[2026-01-15T10:35:11.017] [DEBUG] debug-file - default@BuildNativeWithNinja work[1] is not dispatched.
+[2026-01-15T10:35:11.069] [DEBUG] debug-file - OHOS_STL is c++_shared
+[2026-01-15T10:35:11.069] [DEBUG] debug-file - Copy STL libc++_shared.so to F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\cmake\default\obj\arm64-v8a due to OHOS_STL is 'c++_shared'
+[2026-01-15T10:35:11.096] [DEBUG] debug-file - entry : default@BuildNativeWithNinja cost memory 0.42786407470703125
+[2026-01-15T10:35:11.121] [DEBUG] debug-file - restool module names: entry; moduleName=entry, taskName=default@ProcessResource
+[2026-01-15T10:35:11.155] [DEBUG] debug-file - Executing task :entry:default@ProcessResource
+[2026-01-15T10:35:11.157] [DEBUG] debug-file - Task 'entry:default@ProcessResource' cost while wrapping incremental declarations: 1 ms 
+[2026-01-15T10:35:11.176] [DEBUG] debug-file - Incremental task entry:default@ProcessResource pre-execution cost: 17 ms .
+[2026-01-15T10:35:11.177] [DEBUG] debug-file - entry : default@ProcessResource cost memory 0.1343231201171875
+[2026-01-15T10:35:11.196] [INFO] debug-file - UP-TO-DATE :entry:default@ProcessResource...  
+[2026-01-15T10:35:11.216] [DEBUG] debug-file - Executing task :entry:default@GenerateLoaderJson
+[2026-01-15T10:35:11.218] [DEBUG] debug-file - Task 'entry:default@GenerateLoaderJson' cost while wrapping incremental declarations: 1 ms 
+[2026-01-15T10:35:11.334] [DEBUG] debug-file - Incremental task entry:default@GenerateLoaderJson pre-execution cost: 69 ms .
+[2026-01-15T10:35:11.335] [DEBUG] debug-file - entry : default@GenerateLoaderJson cost memory 0.43846893310546875
+[2026-01-15T10:35:11.373] [INFO] debug-file - UP-TO-DATE :entry:default@GenerateLoaderJson...  
+[2026-01-15T10:35:11.386] [DEBUG] debug-file - restool module names: entry; moduleName=entry, taskName=default@CompileResource
+[2026-01-15T10:35:11.388] [DEBUG] debug-file - Executing task :entry:default@CompileResource
+[2026-01-15T10:35:11.893] [DEBUG] debug-file - Incremental task entry:default@CompileResource pre-execution cost: 492 ms .
+[2026-01-15T10:35:11.893] [DEBUG] debug-file - entry : default@CompileResource cost memory -0.19477081298828125
+[2026-01-15T10:35:11.897] [INFO] debug-file - UP-TO-DATE :entry:default@CompileResource...  
+[2026-01-15T10:35:11.906] [DEBUG] debug-file - Executing task :entry:default@CompileArkTS
+[2026-01-15T10:35:11.907] [DEBUG] debug-file - obfuscationOptions: undefined
+[2026-01-15T10:35:11.910] [DEBUG] debug-file - Task 'entry:default@CompileArkTS' cost while wrapping incremental declarations: 1 ms 
+[2026-01-15T10:35:12.132] [DEBUG] debug-file - Incremental task entry:default@CompileArkTS pre-execution cost: 207 ms .
+[2026-01-15T10:35:12.133] [DEBUG] debug-file - entry : default@CompileArkTS cost memory -0.161651611328125
+[2026-01-15T10:35:12.166] [INFO] debug-file - UP-TO-DATE :entry:default@CompileArkTS...  
+[2026-01-15T10:35:12.181] [DEBUG] debug-file - Executing task :entry:default@BuildJS
+[2026-01-15T10:35:12.183] [DEBUG] debug-file - Task 'entry:default@BuildJS' cost while wrapping incremental declarations: 1 ms 
+[2026-01-15T10:35:12.216] [DEBUG] debug-file - entry : default@BuildJS cost memory 0.146209716796875
+[2026-01-15T10:35:12.217] [DEBUG] debug-file - runTaskFromQueue task cost before running: 4 s 883 ms 
+[2026-01-15T10:35:12.218] [INFO] debug-file - Finished :entry:default@BuildJS... after 36 ms 
+[2026-01-15T10:35:12.546] [DEBUG] debug-file - A work dispatched to worker[11] failed because unable to get work from ready queue.
+[2026-01-15T10:35:12.547] [DEBUG] debug-file - default@BuildNativeWithNinja work[1] has been dispatched to worker[10].
+[2026-01-15T10:35:21.211] [DEBUG] debug-file - ninja: Entering directory `F:\zhoubingquan\VpnProxyServer\entry\.cxx\default\default\debug\arm64-v8a'
+[1/7] Building CXX object CMakeFiles/vpn_server.dir/packet_builder.cpp.o
+
+[2026-01-15T10:35:21.351] [DEBUG] debug-file - clang++: warning: argument unused during compilation: '--gcc-toolchain=F:/Huawei/DevEco Studio/sdk/default/openharmony/native/llvm' [-Wunused-command-line-argument]
+[2/7] Building CXX object CMakeFiles/vpn_server.dir/protocol_handler.cpp.o
+
+[2026-01-15T10:35:21.662] [DEBUG] debug-file - clang++: warning: argument unused during compilation: '--gcc-toolchain=F:/Huawei/DevEco Studio/sdk/default/openharmony/native/llvm' [-Wunused-command-line-argument]
+[3/7] Building CXX object CMakeFiles/vpn_server.dir/packet_forwarder.cpp.o
+
+[2026-01-15T10:35:22.847] [DEBUG] debug-file - clang++: warning: argument unused during compilation: '--gcc-toolchain=F:/Huawei/DevEco Studio/sdk/default/openharmony/native/llvm' [-Wunused-command-line-argument]
+[4/7] Building CXX object CMakeFiles/vpn_server.dir/network_diagnostics.cpp.o
+
+[2026-01-15T10:35:24.676] [DEBUG] debug-file - clang++: warning: argument unused during compilation: '--gcc-toolchain=F:/Huawei/DevEco Studio/sdk/default/openharmony/native/llvm' [-Wunused-command-line-argument]
+[5/7] Building CXX object CMakeFiles/vpn_server.dir/nat_table.cpp.o
+
+[2026-01-15T10:35:25.081] [DEBUG] debug-file - clang++: warning: argument unused during compilation: '--gcc-toolchain=F:/Huawei/DevEco Studio/sdk/default/openharmony/native/llvm' [-Wunused-command-line-argument]
+[6/7] Building CXX object CMakeFiles/vpn_server.dir/vpn_server.cpp.o
+
+[2026-01-15T10:35:34.089] [DEBUG] debug-file - clang++: warning: argument unused during compilation: '--gcc-toolchain=F:/Huawei/DevEco Studio/sdk/default/openharmony/native/llvm' [-Wunused-command-line-argument]
+[7/7] Linking CXX shared library F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\cmake\default\obj\arm64-v8a\libvpn_server.so
+
+[2026-01-15T10:35:34.116] [DEBUG] debug-file - worker[10] has one work done.
+[2026-01-15T10:35:34.164] [DEBUG] debug-file - default@BuildNativeWithNinja work[1] done.
+[2026-01-15T10:35:34.166] [INFO] debug-file - Finished :entry:default@BuildNativeWithNinja... after 21 s 658 ms 
+[2026-01-15T10:35:34.182] [DEBUG] debug-file - Executing task :entry:default@ProcessLibs
+[2026-01-15T10:35:34.229] [DEBUG] debug-file - Check content hash for F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\cmake\default\obj\arm64-v8a\libvpn_server.so
+[2026-01-15T10:35:34.338] [DEBUG] debug-file - Check content hash for F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\cmake\default\obj\arm64-v8a\libc++_shared.so
+[2026-01-15T10:35:34.385] [DEBUG] debug-file - Incremental task entry:default@ProcessLibs pre-execution cost: 15 ms .
+[2026-01-15T10:35:34.386] [DEBUG] debug-file - entry : default@ProcessLibs cost memory 1.1847686767578125
+[2026-01-15T10:35:34.391] [INFO] debug-file - UP-TO-DATE :entry:default@ProcessLibs...  
+[2026-01-15T10:35:34.399] [DEBUG] debug-file - Executing task :entry:default@DoNativeStrip
+[2026-01-15T10:35:34.400] [DEBUG] debug-file - Task 'entry:default@DoNativeStrip' cost while wrapping incremental declarations: 1 ms 
+[2026-01-15T10:35:34.425] [DEBUG] debug-file - Incremental task entry:default@DoNativeStrip pre-execution cost: 26 ms .
+[2026-01-15T10:35:34.425] [DEBUG] debug-file - entry : default@DoNativeStrip cost memory -1.657928466796875
+[2026-01-15T10:35:34.426] [INFO] debug-file - UP-TO-DATE :entry:default@DoNativeStrip...  
+[2026-01-15T10:35:34.438] [DEBUG] debug-file - Executing task :entry:default@CacheNativeLibs
+[2026-01-15T10:35:34.439] [DEBUG] debug-file - Task 'entry:default@CacheNativeLibs' cost while wrapping incremental declarations: 2 ms 
+[2026-01-15T10:35:34.456] [DEBUG] debug-file - Incremental task entry:default@CacheNativeLibs pre-execution cost: 17 ms .
+[2026-01-15T10:35:34.457] [DEBUG] debug-file - entry : default@CacheNativeLibs cost memory 0.16119384765625
+[2026-01-15T10:35:34.457] [INFO] debug-file - UP-TO-DATE :entry:default@CacheNativeLibs...  
+[2026-01-15T10:35:34.462] [DEBUG] debug-file - Executing task :entry:default@GeneratePkgModuleJson
+[2026-01-15T10:35:34.463] [DEBUG] debug-file - File: 'F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\preload\default\preload.json' from 'preloadSoJsonPath' is not exists, just ignore.
+[2026-01-15T10:35:34.463] [DEBUG] debug-file - Error occurs while handling @Input 'shouldDeduplicateHar': The "data" argument must be of type string or an instance of Buffer, TypedArray, or DataView. Received undefined
+[2026-01-15T10:35:34.463] [DEBUG] debug-file - Task 'entry:default@GeneratePkgModuleJson' cost while wrapping incremental declarations: 2 ms 
+[2026-01-15T10:35:34.465] [DEBUG] debug-file - Incremental task entry:default@GeneratePkgModuleJson pre-execution cost: 2 ms .
+[2026-01-15T10:35:34.465] [DEBUG] debug-file - entry : default@GeneratePkgModuleJson cost memory 0.1147003173828125
+[2026-01-15T10:35:34.466] [INFO] debug-file - UP-TO-DATE :entry:default@GeneratePkgModuleJson...  
+[2026-01-15T10:35:34.473] [DEBUG] debug-file - Executing task :entry:default@ProcessCompiledResources
+[2026-01-15T10:35:34.474] [DEBUG] debug-file - File: 'F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\preload\default\preload.json' from 'preloadSoJsonPath' is not exists, just ignore.
+[2026-01-15T10:35:34.474] [DEBUG] debug-file - Task 'entry:default@ProcessCompiledResources' cost while wrapping incremental declarations: 1 ms 
+[2026-01-15T10:35:34.475] [DEBUG] debug-file - entry : default@ProcessCompiledResources cost memory 0.0636138916015625
+[2026-01-15T10:35:34.475] [DEBUG] debug-file - runTaskFromQueue task cost before running: 27 s 141 ms 
+[2026-01-15T10:35:34.476] [INFO] debug-file - Finished :entry:default@ProcessCompiledResources... after 3 ms 
+[2026-01-15T10:35:34.484] [DEBUG] debug-file - Executing task :entry:default@PackageHap
+[2026-01-15T10:35:34.532] [DEBUG] debug-file - Incremental task entry:default@PackageHap pre-execution cost: 42 ms .
+[2026-01-15T10:35:34.532] [DEBUG] debug-file - entry : default@PackageHap cost memory 0.45235443115234375
+[2026-01-15T10:35:34.533] [INFO] debug-file - UP-TO-DATE :entry:default@PackageHap...  
+[2026-01-15T10:35:34.541] [DEBUG] debug-file - Executing task :entry:default@PackingCheck
+[2026-01-15T10:35:34.569] [DEBUG] debug-file - entry : default@PackingCheck cost memory -0.05219268798828125
+[2026-01-15T10:35:34.569] [DEBUG] debug-file - runTaskFromQueue task cost before running: 27 s 235 ms 
+[2026-01-15T10:35:34.569] [INFO] debug-file - Finished :entry:default@PackingCheck... after 29 ms 
+[2026-01-15T10:35:34.572] [DEBUG] debug-file - Executing task :entry:default@SignHap
+[2026-01-15T10:35:34.582] [DEBUG] debug-file - Incremental task entry:default@SignHap pre-execution cost: 9 ms .
+[2026-01-15T10:35:34.583] [DEBUG] debug-file - entry : default@SignHap cost memory 0.1106414794921875
+[2026-01-15T10:35:34.584] [INFO] debug-file - UP-TO-DATE :entry:default@SignHap...  
+[2026-01-15T10:35:34.586] [DEBUG] debug-file - Executing task :entry:default@CollectDebugSymbol
+[2026-01-15T10:35:34.590] [DEBUG] debug-file - entry : default@CollectDebugSymbol cost memory 0.08740997314453125
+[2026-01-15T10:35:34.591] [DEBUG] debug-file - runTaskFromQueue task cost before running: 27 s 257 ms 
+[2026-01-15T10:35:34.591] [INFO] debug-file - Finished :entry:default@CollectDebugSymbol... after 6 ms 
+[2026-01-15T10:35:34.592] [DEBUG] debug-file - Executing task :entry:assembleHap
+[2026-01-15T10:35:34.594] [DEBUG] debug-file - entry : assembleHap cost memory 0.01445770263671875
+[2026-01-15T10:35:34.594] [DEBUG] debug-file - runTaskFromQueue task cost before running: 27 s 260 ms 
+[2026-01-15T10:35:34.594] [INFO] debug-file - Finished :entry:assembleHap... after 2 ms 
+[2026-01-15T10:35:34.620] [INFO] debug-file - BUILD SUCCESSFUL in 27 s 285 ms 
+[2026-01-15T10:35:34.625] [DEBUG] debug-file - Update task entry:default@PreBuild input file:F:\zhoubingquan\VpnProxyServer\AppScope\app.json5 cache by regenerate.
+[2026-01-15T10:35:34.626] [DEBUG] debug-file - Update task entry:default@PreBuild input file:F:\zhoubingquan\VpnProxyServer\entry\src\main\module.json5 cache by regenerate.
+[2026-01-15T10:35:34.627] [DEBUG] debug-file - Update task entry:default@PreBuild input file:F:\zhoubingquan\VpnProxyServer\build-profile.json5 cache by regenerate.
+[2026-01-15T10:35:34.637] [DEBUG] debug-file - Update task entry:default@PreBuild input file:F:\zhoubingquan\VpnProxyServer\entry\build-profile.json5 cache by regenerate.
+[2026-01-15T10:35:34.638] [DEBUG] debug-file - Update task entry:default@PreBuild input file:F:\zhoubingquan\VpnProxyServer\entry\src\main\resources\base\profile\main_pages.json cache by regenerate.
+[2026-01-15T10:35:34.639] [DEBUG] debug-file - Update task entry:default@PreBuild input file:F:\zhoubingquan\VpnProxyServer\hvigor\hvigor-config.json5 cache by regenerate.
+[2026-01-15T10:35:34.645] [DEBUG] debug-file - Update task entry:default@PreBuild input file:F:\zhoubingquan\VpnProxyServer\entry\src\mock\mock-config.json5 cache by regenerate.
+[2026-01-15T10:35:34.647] [DEBUG] debug-file - Update task entry:default@PreBuild input file:F:\zhoubingquan\VpnProxyServer\entry\oh-package.json5 cache by regenerate.
+[2026-01-15T10:35:34.650] [DEBUG] debug-file - Update task entry:default@PreBuild input file:F:\zhoubingquan\VpnProxyServer\oh-package.json5 cache by regenerate.
+[2026-01-15T10:35:34.651] [DEBUG] debug-file - Incremental task entry:default@PreBuild post-execution cost:30 ms .
+[2026-01-15T10:35:34.651] [DEBUG] debug-file - Update task entry:default@CreateModuleInfo output file:F:\zhoubingquan\VpnProxyServer\entry\build\default\generated\profile\default\ModuleInfo.ts cache.
+[2026-01-15T10:35:34.652] [DEBUG] debug-file - Incremental task entry:default@CreateModuleInfo post-execution cost:2 ms .
+[2026-01-15T10:35:34.652] [DEBUG] debug-file - There is no need to refresh cache, since the incremental task entry:default@GenerateMetadata is up-to-date.
+[2026-01-15T10:35:34.653] [DEBUG] debug-file - There is no need to refresh cache, since the incremental task entry:default@MergeProfile is up-to-date.
+[2026-01-15T10:35:34.653] [DEBUG] debug-file - There is no need to refresh cache, since the incremental task entry:default@CreateBuildProfile is up-to-date.
+[2026-01-15T10:35:34.653] [DEBUG] debug-file - Update task entry:default@GeneratePkgContextInfo output file:F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\loader\default\pkgContextInfo.json cache.
+[2026-01-15T10:35:34.654] [DEBUG] debug-file - Incremental task entry:default@GeneratePkgContextInfo post-execution cost:1 ms .
+[2026-01-15T10:35:34.656] [DEBUG] debug-file - Update task entry:default@ProcessIntegratedHsp output file:F:\zhoubingquan\VpnProxyServer\build\cache\default\integrated_hsp\integratedHspCache.json cache.
+[2026-01-15T10:35:34.659] [DEBUG] debug-file - Incremental task entry:default@ProcessIntegratedHsp post-execution cost:4 ms .
+[2026-01-15T10:35:34.659] [DEBUG] debug-file - There is no need to refresh cache, since the incremental task entry:default@MakePackInfo is up-to-date.
+[2026-01-15T10:35:34.659] [DEBUG] debug-file - Update task entry:default@SyscapTransform input file:F:\Huawei\DevEco Studio\sdk\default\openharmony\toolchains\syscap_tool.exe cache by regenerate.
+[2026-01-15T10:35:34.662] [DEBUG] debug-file - Update task entry:default@SyscapTransform input file:F:\Huawei\DevEco Studio\sdk\default\openharmony\ets\api\device-define cache by regenerate.
+[2026-01-15T10:35:34.669] [DEBUG] debug-file - Update task entry:default@SyscapTransform output file:F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\syscap\default\rpcid.sc cache.
+[2026-01-15T10:35:34.671] [DEBUG] debug-file - Incremental task entry:default@SyscapTransform post-execution cost:12 ms .
+[2026-01-15T10:35:34.672] [DEBUG] debug-file - There is no need to refresh cache, since the incremental task entry:default@ProcessProfile is up-to-date.
+[2026-01-15T10:35:34.672] [DEBUG] debug-file - There is no need to refresh cache, since the incremental task entry:default@ProcessRouterMap is up-to-date.
+[2026-01-15T10:35:34.672] [DEBUG] debug-file - There is no need to refresh cache, since the incremental task entry:default@ProcessShareConfig is up-to-date.
+[2026-01-15T10:35:34.673] [DEBUG] debug-file - Update task entry:default@ProcessStartupConfig output file:F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\startup\default\startup_config.json cache.
+[2026-01-15T10:35:34.674] [DEBUG] debug-file - Incremental task entry:default@ProcessStartupConfig post-execution cost:2 ms .
+[2026-01-15T10:35:34.674] [DEBUG] debug-file - There is no need to refresh cache, since the incremental task entry:default@ProcessResource is up-to-date.
+[2026-01-15T10:35:34.675] [DEBUG] debug-file - There is no need to refresh cache, since the incremental task entry:default@GenerateLoaderJson is up-to-date.
+[2026-01-15T10:35:34.675] [DEBUG] debug-file - There is no need to refresh cache, since the incremental task entry:default@CompileResource is up-to-date.
+[2026-01-15T10:35:34.675] [DEBUG] debug-file - There is no need to refresh cache, since the incremental task entry:default@CompileArkTS is up-to-date.
+[2026-01-15T10:35:34.680] [DEBUG] debug-file - Update task entry:default@BuildJS input file:F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\loader\default cache by regenerate.
+[2026-01-15T10:35:34.686] [DEBUG] debug-file - Update task entry:default@BuildJS input file:F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\res\default\resources\rawfile cache by regenerate.
+[2026-01-15T10:35:34.688] [DEBUG] debug-file - Update task entry:default@BuildJS input file:F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\res\default\ResourceTable.txt cache by regenerate.
+[2026-01-15T10:35:34.690] [DEBUG] debug-file - Update task entry:default@BuildJS input file:F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\res\default\ark_module.json cache by regenerate.
+[2026-01-15T10:35:34.691] [DEBUG] debug-file - Update task entry:default@BuildJS input file:F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\res\default\resources\base\profile cache by regenerate.
+[2026-01-15T10:35:34.703] [DEBUG] debug-file - Update task entry:default@BuildJS output file:F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\loader_out\default\js cache.
+[2026-01-15T10:35:34.704] [DEBUG] debug-file - Incremental task entry:default@BuildJS post-execution cost:29 ms .
+[2026-01-15T10:35:34.704] [DEBUG] debug-file - There is no need to refresh cache, since the incremental task entry:default@ProcessLibs is up-to-date.
+[2026-01-15T10:35:34.704] [DEBUG] debug-file - There is no need to refresh cache, since the incremental task entry:default@DoNativeStrip is up-to-date.
+[2026-01-15T10:35:34.704] [DEBUG] debug-file - There is no need to refresh cache, since the incremental task entry:default@CacheNativeLibs is up-to-date.
+[2026-01-15T10:35:34.705] [DEBUG] debug-file - There is no need to refresh cache, since the incremental task entry:default@GeneratePkgModuleJson is up-to-date.
+[2026-01-15T10:35:34.705] [DEBUG] debug-file - Incremental task entry:default@ProcessCompiledResources post-execution cost:1 ms .
+[2026-01-15T10:35:34.705] [DEBUG] debug-file - There is no need to refresh cache, since the incremental task entry:default@PackageHap is up-to-date.
+[2026-01-15T10:35:34.705] [DEBUG] debug-file - There is no need to refresh cache, since the incremental task entry:default@SignHap is up-to-date.
+[2026-01-15T10:35:34.707] [DEBUG] debug-file - Update task entry:default@CollectDebugSymbol input file:F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\loader_out\default\ets\sourceMaps.map cache by regenerate.
+[2026-01-15T10:35:34.712] [DEBUG] debug-file - Update task entry:default@CollectDebugSymbol input file:F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\libs\default cache by regenerate.
+[2026-01-15T10:35:34.719] [DEBUG] debug-file - Update task entry:default@CollectDebugSymbol output file:F:\zhoubingquan\VpnProxyServer\entry\build\default\outputs\default\symbol cache.
+[2026-01-15T10:35:34.720] [DEBUG] debug-file - Incremental task entry:default@CollectDebugSymbol post-execution cost:15 ms .
+[2026-01-15T10:35:34.795] [DEBUG] debug-file - hvigor build process will be closed.
+[2026-01-15T10:35:34.820] [DEBUG] debug-file - session manager: send message to worker process.
+[2026-01-15T10:35:34.823] [DEBUG] debug-file - session manager: send message to worker process.
+[2026-01-15T10:35:34.822] [DEBUG] debug-file - watch worker: worker id should be larger than 0. Nothing will be sent to any worker thread.
+[2026-01-15T10:35:34.823] [DEBUG] debug-file - watch worker: worker id should be larger than 0. Nothing will be sent to any worker thread.
+[2026-01-15T10:43:07.535] [DEBUG] debug-file - session manager: set active socket. socketId=Qi_8vA5Kvjm0KBgeAAAF
+[2026-01-15T10:43:07.553] [DEBUG] debug-file - watch worker: worker id should be larger than 0. Nothing will be sent to any worker thread.
+[2026-01-15T10:43:07.574] [DEBUG] debug-file - Hvigor init with startParameters:{
+  hvigorfileTypeCheck: false,
+  parallelExecution: true,
+  incrementalExecution: true,
+  printStackTrace: false,
+  daemon: true,
+  analyze: 0,
+  logLevel: Level { level: 20000, levelStr: 'INFO', colour: 'green' },
+  optimizationStrategy: 'memory',
+  hotCompile: undefined,
+  hotReloadBuild: undefined
+}
+[2026-01-15T10:43:07.590] [DEBUG] debug-file - Cache service initialization finished in 16 ms 
+[2026-01-15T10:43:07.591] [DEBUG] debug-file - hvigorfile, resolving F:\zhoubingquan\VpnProxyServer\hvigorfile.ts
+[2026-01-15T10:43:07.606] [DEBUG] debug-file - hvigorfile, require result:  { default: { plugins: [] } }
+[2026-01-15T10:43:07.611] [DEBUG] debug-file - hvigorfile, binding system plugins null
+[2026-01-15T10:43:07.629] [DEBUG] debug-file - Start initialize project's product build option map with build mode debug.
+[2026-01-15T10:43:07.629] [DEBUG] debug-file - Picking option from product 'default' with build mode 'debug'.
+[2026-01-15T10:43:07.629] [DEBUG] debug-file - Product 'default' build option initialized
+[2026-01-15T10:43:07.629] [DEBUG] debug-file - End initialize project's product build option map with build mode 'debug'.
+[2026-01-15T10:43:07.631] [DEBUG] debug-file - Obtain build option for product 'default'in this build.
+[2026-01-15T10:43:07.642] [DEBUG] debug-file - F:\zhoubingquan\VpnProxyServer\build\cache\default\remote_hsp\remoteHspCache.json not exists.
+[2026-01-15T10:43:07.650] [DEBUG] debug-file - Start recording SDK configuration permission data.
+[2026-01-15T10:43:07.704] [DEBUG] debug-file - Sdk init in 61 ms 
+[2026-01-15T10:43:07.712] [DEBUG] debug-file - Project task initialization takes 7 ms 
+[2026-01-15T10:43:07.712] [DEBUG] debug-file - hvigorfile, binding custom plugins []
+[2026-01-15T10:43:07.713] [DEBUG] debug-file - hvigorfile, no custom plugins were found in F:\zhoubingquan\VpnProxyServer\hvigorfile.ts
+[2026-01-15T10:43:07.713] [DEBUG] debug-file - hvigorfile, resolve finished F:\zhoubingquan\VpnProxyServer\hvigorfile.ts
+[2026-01-15T10:43:07.713] [DEBUG] debug-file - hvigorfile, resolving F:\zhoubingquan\VpnProxyServer\entry\hvigorfile.ts
+[2026-01-15T10:43:07.721] [DEBUG] debug-file - hvigorfile, require result:  { default: { plugins: [] } }
+[2026-01-15T10:43:07.721] [DEBUG] debug-file - hvigorfile, binding system plugins null
+[2026-01-15T10:43:07.724] [DEBUG] debug-file - failed to load cangjie to dynamically generate schemas: Error: Cannot find module '@ohos/cangjie-build-support/index'
+Require stack:
+- F:\Huawei\DevEco Studio\tools\hvigor\hvigor-ohos-plugin\src\plugin\factory\plugin-factory.js
+- F:\Huawei\DevEco Studio\tools\hvigor\hvigor-ohos-plugin\index.js
+- F:\zhoubingquan\VpnProxyServer\hvigorfile.ts
+- F:\Huawei\DevEco Studio\tools\hvigor\hvigor\src\base\internal\lifecycle\configuration.js
+- F:\Huawei\DevEco Studio\tools\hvigor\hvigor\src\base\boot\index.js
+- F:\Huawei\DevEco Studio\tools\hvigor\hvigor\src\base\daemon\cluster\worker-process-lifecycle.js
+- F:\Huawei\DevEco Studio\tools\hvigor\hvigor\src\base\daemon\process\daemon-process-boot-script.js
+[2026-01-15T10:43:07.727] [DEBUG] debug-file - Start initialize module-target build option map, moduleName=entry, buildMode=debug
+[2026-01-15T10:43:07.727] [DEBUG] debug-file - Target 'default' config initialized
+[2026-01-15T10:43:07.729] [DEBUG] debug-file - Target 'ohosTest' config initialized
+[2026-01-15T10:43:07.730] [DEBUG] debug-file - Module 'entry' target 'default' build option initialized
+[2026-01-15T10:43:07.730] [DEBUG] debug-file - Module 'entry' target 'ohosTest' build option initialized
+[2026-01-15T10:43:07.730] [DEBUG] debug-file - End initialize module-target build option map, moduleName=entry
+[2026-01-15T10:43:07.730] [DEBUG] debug-file - Start initialize module-target build option map, moduleName=entry, buildMode=release
+[2026-01-15T10:43:07.730] [DEBUG] debug-file - Target 'default' config initialized
+[2026-01-15T10:43:07.731] [DEBUG] debug-file - Target 'ohosTest' config initialized
+[2026-01-15T10:43:07.733] [DEBUG] debug-file - Module 'entry' target 'default' build option initialized
+[2026-01-15T10:43:07.734] [DEBUG] debug-file - Module 'entry' target 'ohosTest' build option initialized
+[2026-01-15T10:43:07.734] [DEBUG] debug-file - End initialize module-target build option map, moduleName=entry
+[2026-01-15T10:43:07.734] [DEBUG] debug-file - Start initialize module-target build option map, moduleName=entry, buildMode=debug
+[2026-01-15T10:43:07.734] [DEBUG] debug-file - Target 'default' config initialized
+[2026-01-15T10:43:07.734] [DEBUG] debug-file - Target 'ohosTest' config initialized
+[2026-01-15T10:43:07.735] [DEBUG] debug-file - Module 'entry' target 'default' build option initialized
+[2026-01-15T10:43:07.735] [DEBUG] debug-file - Module 'entry' target 'ohosTest' build option initialized
+[2026-01-15T10:43:07.735] [DEBUG] debug-file - End initialize module-target build option map, moduleName=entry
+[2026-01-15T10:43:07.735] [DEBUG] debug-file - Obtain build option for module 'entry' target 'default'in this build.
+[2026-01-15T10:43:07.738] [DEBUG] debug-file - Module entry task initialization takes 2 ms 
+[2026-01-15T10:43:07.738] [DEBUG] debug-file - hvigorfile, binding custom plugins []
+[2026-01-15T10:43:07.738] [DEBUG] debug-file - hvigorfile, no custom plugins were found in F:\zhoubingquan\VpnProxyServer\entry\hvigorfile.ts
+[2026-01-15T10:43:07.738] [DEBUG] debug-file - hvigorfile, resolve finished F:\zhoubingquan\VpnProxyServer\entry\hvigorfile.ts
+[2026-01-15T10:43:07.774] [DEBUG] debug-file - hvigorfile, resolve hvigorfile dependencies in 35 ms 
+[2026-01-15T10:43:07.774] [DEBUG] debug-file - project has submodules:entry
+[2026-01-15T10:43:07.776] [DEBUG] debug-file - start to load updatedOhPackageInfo to the disk
+[2026-01-15T10:43:07.788] [DEBUG] debug-file - load to the disk finished
+[2026-01-15T10:43:07.789] [DEBUG] debug-file - Start to initialize dependency information.
+[2026-01-15T10:43:07.803] [DEBUG] debug-file - Module VpnProxyServer Collected Dependency: 
+[2026-01-15T10:43:07.804] [DEBUG] debug-file - Module VpnProxyServer's total dependency: 0
+[2026-01-15T10:43:07.804] [DEBUG] debug-file - Start to initialize dependency information.
+[2026-01-15T10:43:07.813] [DEBUG] debug-file - Module entry Collected Dependency: 
+[2026-01-15T10:43:07.813] [DEBUG] debug-file - Module entry's total dependency: 0
+[2026-01-15T10:43:07.817] [DEBUG] debug-file - Configuration phase cost:228 ms 
+[2026-01-15T10:43:07.819] [DEBUG] debug-file - Configuration task cost before running: 255 ms 
+[2026-01-15T10:43:07.835] [DEBUG] debug-file - Executing task :entry:default@PreBuild
+[2026-01-15T10:43:07.840] [DEBUG] debug-file - Task 'entry:default@PreBuild' cost while wrapping incremental declarations: 1 ms 
+[2026-01-15T10:43:07.865] [DEBUG] debug-file - Incremental task entry:default@PreBuild pre-execution cost: 19 ms .
+[2026-01-15T10:43:07.865] [DEBUG] debug-file - entry : default@PreBuild cost memory 0.3420257568359375
+[2026-01-15T10:43:07.871] [INFO] debug-file - UP-TO-DATE :entry:default@PreBuild...  
+[2026-01-15T10:43:07.872] [DEBUG] debug-file - Executing task :entry:default@CreateModuleInfo
+[2026-01-15T10:43:07.872] [DEBUG] debug-file - Task 'entry:default@CreateModuleInfo' cost while wrapping incremental declarations: 1 ms 
+[2026-01-15T10:43:07.873] [DEBUG] debug-file - entry : default@CreateModuleInfo cost memory 0.04163360595703125
+[2026-01-15T10:43:07.873] [DEBUG] debug-file - runTaskFromQueue task cost before running: 309 ms 
+[2026-01-15T10:43:07.873] [INFO] debug-file - Finished :entry:default@CreateModuleInfo... after 2 ms 
+[2026-01-15T10:43:07.885] [DEBUG] debug-file - Executing task :entry:default@GenerateMetadata
+[2026-01-15T10:43:07.885] [DEBUG] debug-file - Task 'entry:default@GenerateMetadata' cost while wrapping incremental declarations: 1 ms 
+[2026-01-15T10:43:07.887] [DEBUG] debug-file - Incremental task entry:default@GenerateMetadata pre-execution cost: 2 ms .
+[2026-01-15T10:43:07.887] [DEBUG] debug-file - entry : default@GenerateMetadata cost memory 0.09449005126953125
+[2026-01-15T10:43:07.888] [INFO] debug-file - UP-TO-DATE :entry:default@GenerateMetadata...  
+[2026-01-15T10:43:07.892] [DEBUG] debug-file - Executing task :entry:default@ConfigureCmake
+[2026-01-15T10:43:07.894] [DEBUG] debug-file - entry : default@ConfigureCmake cost memory 0.0385284423828125
+[2026-01-15T10:43:07.895] [DEBUG] debug-file - runTaskFromQueue task cost before running: 331 ms 
+[2026-01-15T10:43:07.895] [INFO] debug-file - Finished :entry:default@ConfigureCmake... after 3 ms 
+[2026-01-15T10:43:07.897] [DEBUG] debug-file - Executing task :entry:default@MergeProfile
+[2026-01-15T10:43:07.897] [DEBUG] debug-file - Task 'entry:default@MergeProfile' cost while wrapping incremental declarations: 1 ms 
+[2026-01-15T10:43:07.901] [DEBUG] debug-file - Incremental task entry:default@MergeProfile pre-execution cost: 4 ms .
+[2026-01-15T10:43:07.902] [DEBUG] debug-file - entry : default@MergeProfile cost memory 0.13909912109375
+[2026-01-15T10:43:07.903] [INFO] debug-file - UP-TO-DATE :entry:default@MergeProfile...  
+[2026-01-15T10:43:07.907] [DEBUG] debug-file - Executing task :entry:default@CreateBuildProfile
+[2026-01-15T10:43:07.909] [DEBUG] debug-file - Task 'entry:default@CreateBuildProfile' cost while wrapping incremental declarations: 2 ms 
+[2026-01-15T10:43:07.911] [DEBUG] debug-file - Incremental task entry:default@CreateBuildProfile pre-execution cost: 2 ms .
+[2026-01-15T10:43:07.911] [DEBUG] debug-file - entry : default@CreateBuildProfile cost memory 0.09932708740234375
+[2026-01-15T10:43:07.912] [INFO] debug-file - UP-TO-DATE :entry:default@CreateBuildProfile...  
+[2026-01-15T10:43:07.913] [DEBUG] debug-file - Executing task :entry:default@PreCheckSyscap
+[2026-01-15T10:43:07.913] [DEBUG] debug-file - entry : default@PreCheckSyscap cost memory 0.01638031005859375
+[2026-01-15T10:43:07.913] [DEBUG] debug-file - runTaskFromQueue task cost before running: 349 ms 
+[2026-01-15T10:43:07.913] [INFO] debug-file - Finished :entry:default@PreCheckSyscap... after 1 ms 
+[2026-01-15T10:43:07.922] [DEBUG] debug-file - Executing task :entry:default@GeneratePkgContextInfo
+[2026-01-15T10:43:07.933] [DEBUG] debug-file - Task 'entry:default@GeneratePkgContextInfo' cost while wrapping incremental declarations: 1 ms 
+[2026-01-15T10:43:07.934] [DEBUG] debug-file - entry : default@GeneratePkgContextInfo cost memory -1.4790878295898438
+[2026-01-15T10:43:07.934] [DEBUG] debug-file - runTaskFromQueue task cost before running: 370 ms 
+[2026-01-15T10:43:07.934] [INFO] debug-file - Finished :entry:default@GeneratePkgContextInfo... after 13 ms 
+[2026-01-15T10:43:07.940] [DEBUG] debug-file - Executing task :entry:default@ProcessIntegratedHsp
+[2026-01-15T10:43:07.940] [DEBUG] debug-file - entry:default@ProcessIntegratedHsp is not up-to-date, since the output file 'F:\zhoubingquan\VpnProxyServer\build\cache\default\integrated_hsp\integratedHspCache.json' does not exist.
+[2026-01-15T10:43:07.940] [DEBUG] debug-file - Incremental task entry:default@ProcessIntegratedHsp pre-execution cost: 1 ms .
+[2026-01-15T10:43:07.941] [DEBUG] debug-file - entry : default@ProcessIntegratedHsp cost memory 0.06133270263671875
+[2026-01-15T10:43:07.941] [DEBUG] debug-file - runTaskFromQueue task cost before running: 377 ms 
+[2026-01-15T10:43:07.942] [INFO] debug-file - Finished :entry:default@ProcessIntegratedHsp... after 1 ms 
+[2026-01-15T10:43:07.948] [DEBUG] debug-file - Executing task :entry:default@BuildNativeWithCmake
+[2026-01-15T10:43:07.950] [DEBUG] debug-file - Use tool [Cmake]
+ [
+  'F:\\Huawei\\DevEco Studio\\sdk\\default\\openharmony\\native\\build-tools\\cmake\\bin\\cmake.exe',
+  '-HF:\\zhoubingquan\\VpnProxyServer\\entry\\src\\main\\cpp',
+  '-BF:\\zhoubingquan\\VpnProxyServer\\entry\\.cxx\\default\\default\\debug\\arm64-v8a',
+  '-DOHOS_ARCH=arm64-v8a',
+  '-DCMAKE_LIBRARY_OUTPUT_DIRECTORY=F:\\zhoubingquan\\VpnProxyServer\\entry\\build\\default\\intermediates\\cmake\\default\\obj\\arm64-v8a',
+  '-DCMAKE_BUILD_TYPE=Debug',
+  '-DOHOS_SDK_NATIVE=F:\\Huawei\\DevEco Studio\\sdk\\default\\openharmony\\native',
+  '-DCMAKE_SYSTEM_NAME=OHOS',
+  '-DCMAKE_OHOS_ARCH_ABI=arm64-v8a',
+  '-DCMAKE_EXPORT_COMPILE_COMMANDS=ON',
+  '-DCMAKE_TOOLCHAIN_FILE=F:\\Huawei\\DevEco Studio\\sdk\\default\\hms\\native\\build\\cmake\\hmos.toolchain.cmake',
+  '-GNinja',
+  '-DCMAKE_MAKE_PROGRAM=F:\\Huawei\\DevEco Studio\\sdk\\default\\openharmony\\native\\build-tools\\cmake\\bin\\ninja.exe',
+  '-DCMAKE_FIND_ROOT_PATH=F:\\zhoubingquan\\VpnProxyServer\\entry\\.cxx\\default\\default\\debug\\hvigor\\arm64-v8a',
+  '-DPACKAGE_FIND_FILE=F:\\zhoubingquan\\VpnProxyServer\\entry\\.cxx\\default\\default\\debug\\hvigor\\arm64-v8a\\summary.cmake',
+  '--no-warn-unused-cli',
+  '-DHMOS_SDK_NATIVE=F:\\Huawei\\DevEco Studio\\sdk\\default\\hms\\native'
+]
+[2026-01-15T10:43:07.977] [DEBUG] debug-file - CMake configuration was up-to-date
+[2026-01-15T10:43:07.986] [DEBUG] debug-file - entry : default@BuildNativeWithCmake cost memory 0.4932861328125
+[2026-01-15T10:43:07.987] [DEBUG] debug-file - runTaskFromQueue task cost before running: 423 ms 
+[2026-01-15T10:43:07.987] [INFO] debug-file - Finished :entry:default@BuildNativeWithCmake... after 39 ms 
+[2026-01-15T10:43:07.989] [DEBUG] debug-file - Executing task :entry:default@MakePackInfo
+[2026-01-15T10:43:07.994] [DEBUG] debug-file - Incremental task entry:default@MakePackInfo pre-execution cost: 4 ms .
+[2026-01-15T10:43:07.994] [DEBUG] debug-file - entry : default@MakePackInfo cost memory 0.1334686279296875
+[2026-01-15T10:43:07.998] [INFO] debug-file - UP-TO-DATE :entry:default@MakePackInfo...  
+[2026-01-15T10:43:08.001] [DEBUG] debug-file - Executing task :entry:default@SyscapTransform
+[2026-01-15T10:43:08.001] [DEBUG] debug-file - File: 'F:\zhoubingquan\VpnProxyServer\entry\src\main\syscap.json' from 'sysCapJsonPath' is not exists, just ignore.
+[2026-01-15T10:43:08.002] [DEBUG] debug-file - Task 'entry:default@SyscapTransform' cost while wrapping incremental declarations: 2 ms 
+[2026-01-15T10:43:08.009] [DEBUG] debug-file - entry:default@SyscapTransform is not up-to-date, since the output file 'F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\syscap\default\rpcid.sc' does not exist.
+[2026-01-15T10:43:08.010] [DEBUG] debug-file - Incremental task entry:default@SyscapTransform pre-execution cost: 7 ms .
+[2026-01-15T10:43:08.010] [DEBUG] debug-file - entry : default@SyscapTransform cost memory 0.16068267822265625
+[2026-01-15T10:43:08.010] [DEBUG] debug-file - runTaskFromQueue task cost before running: 446 ms 
+[2026-01-15T10:43:08.010] [INFO] debug-file - Finished :entry:default@SyscapTransform... after 9 ms 
+[2026-01-15T10:43:08.014] [DEBUG] debug-file - Executing task :entry:default@ProcessProfile
+[2026-01-15T10:43:08.016] [DEBUG] debug-file - Task 'entry:default@ProcessProfile' cost while wrapping incremental declarations: 1 ms 
+[2026-01-15T10:43:08.018] [DEBUG] debug-file - Incremental task entry:default@ProcessProfile pre-execution cost: 2 ms .
+[2026-01-15T10:43:08.018] [DEBUG] debug-file - entry : default@ProcessProfile cost memory -1.4818115234375
+[2026-01-15T10:43:08.018] [INFO] debug-file - UP-TO-DATE :entry:default@ProcessProfile...  
+[2026-01-15T10:43:08.019] [DEBUG] debug-file - Executing task :entry:default@ProcessRouterMap
+[2026-01-15T10:43:08.027] [DEBUG] debug-file - Incremental task entry:default@ProcessRouterMap pre-execution cost: 7 ms .
+[2026-01-15T10:43:08.027] [DEBUG] debug-file - entry : default@ProcessRouterMap cost memory 0.12413787841796875
+[2026-01-15T10:43:08.028] [INFO] debug-file - UP-TO-DATE :entry:default@ProcessRouterMap...  
+[2026-01-15T10:43:08.029] [DEBUG] debug-file - Executing task :entry:default@ProcessShareConfig
+[2026-01-15T10:43:08.032] [DEBUG] debug-file - Incremental task entry:default@ProcessShareConfig pre-execution cost: 3 ms .
+[2026-01-15T10:43:08.032] [DEBUG] debug-file - entry : default@ProcessShareConfig cost memory 0.10842132568359375
+[2026-01-15T10:43:08.033] [INFO] debug-file - UP-TO-DATE :entry:default@ProcessShareConfig...  
+[2026-01-15T10:43:08.034] [DEBUG] debug-file - Executing task :entry:default@ProcessStartupConfig
+[2026-01-15T10:43:08.036] [DEBUG] debug-file - Task 'entry:default@ProcessStartupConfig' cost while wrapping incremental declarations: 1 ms 
+[2026-01-15T10:43:08.038] [DEBUG] debug-file - entry:default@ProcessStartupConfig is not up-to-date, since the output file 'F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\startup\default\startup_config.json' does not exist.
+[2026-01-15T10:43:08.039] [DEBUG] debug-file - Incremental task entry:default@ProcessStartupConfig pre-execution cost: 2 ms .
+[2026-01-15T10:43:08.040] [DEBUG] debug-file - entry : default@ProcessStartupConfig cost memory 0.09981536865234375
+[2026-01-15T10:43:08.040] [DEBUG] debug-file - runTaskFromQueue task cost before running: 476 ms 
+[2026-01-15T10:43:08.041] [INFO] debug-file - Finished :entry:default@ProcessStartupConfig... after 7 ms 
+[2026-01-15T10:43:08.043] [DEBUG] debug-file - Executing task :entry:default@BuildNativeWithNinja
+[2026-01-15T10:43:08.044] [DEBUG] debug-file - Use tool [Ninja]
+ [
+  'F:\\Huawei\\DevEco Studio\\sdk\\default\\openharmony\\native\\build-tools\\cmake\\bin\\ninja.exe',
+  '-C',
+  'F:\\zhoubingquan\\VpnProxyServer\\entry\\.cxx\\default\\default\\debug\\arm64-v8a'
+]
+[2026-01-15T10:43:08.045] [DEBUG] debug-file - default@BuildNativeWithNinja work[2] is submitted.
+[2026-01-15T10:43:08.045] [DEBUG] debug-file - default@BuildNativeWithNinja work[2] is pushed to ready queue.
+[2026-01-15T10:43:08.045] [DEBUG] debug-file - A work dispatched to worker[11] failed because unable to get work from ready queue.
+[2026-01-15T10:43:08.045] [DEBUG] debug-file - default@BuildNativeWithNinja work[2] has been dispatched to worker[10].
+[2026-01-15T10:43:08.045] [DEBUG] debug-file - default@BuildNativeWithNinja work[2] is dispatched.
+[2026-01-15T10:43:08.058] [DEBUG] debug-file - OHOS_STL is c++_shared
+[2026-01-15T10:43:08.058] [DEBUG] debug-file - Copy STL libc++_shared.so to F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\cmake\default\obj\arm64-v8a due to OHOS_STL is 'c++_shared'
+[2026-01-15T10:43:08.059] [DEBUG] debug-file - entry : default@BuildNativeWithNinja cost memory -0.24570465087890625
+[2026-01-15T10:43:08.062] [DEBUG] debug-file - restool module names: entry; moduleName=entry, taskName=default@ProcessResource
+[2026-01-15T10:43:08.066] [DEBUG] debug-file - Executing task :entry:default@ProcessResource
+[2026-01-15T10:43:08.067] [DEBUG] debug-file - Task 'entry:default@ProcessResource' cost while wrapping incremental declarations: 1 ms 
+[2026-01-15T10:43:08.069] [DEBUG] debug-file - Incremental task entry:default@ProcessResource pre-execution cost: 2 ms .
+[2026-01-15T10:43:08.069] [DEBUG] debug-file - entry : default@ProcessResource cost memory 0.1324615478515625
+[2026-01-15T10:43:08.071] [INFO] debug-file - UP-TO-DATE :entry:default@ProcessResource...  
+[2026-01-15T10:43:08.073] [DEBUG] debug-file - Executing task :entry:default@GenerateLoaderJson
+[2026-01-15T10:43:08.074] [DEBUG] debug-file - Task 'entry:default@GenerateLoaderJson' cost while wrapping incremental declarations: 1 ms 
+[2026-01-15T10:43:08.098] [DEBUG] debug-file - Incremental task entry:default@GenerateLoaderJson pre-execution cost: 12 ms .
+[2026-01-15T10:43:08.098] [DEBUG] debug-file - entry : default@GenerateLoaderJson cost memory 0.43402862548828125
+[2026-01-15T10:43:08.106] [INFO] debug-file - UP-TO-DATE :entry:default@GenerateLoaderJson...  
+[2026-01-15T10:43:08.109] [DEBUG] debug-file - restool module names: entry; moduleName=entry, taskName=default@CompileResource
+[2026-01-15T10:43:08.109] [DEBUG] debug-file - Executing task :entry:default@CompileResource
+[2026-01-15T10:43:08.170] [DEBUG] debug-file - Incremental task entry:default@CompileResource pre-execution cost: 59 ms .
+[2026-01-15T10:43:08.170] [DEBUG] debug-file - entry : default@CompileResource cost memory -1.0972366333007812
+[2026-01-15T10:43:08.175] [INFO] debug-file - UP-TO-DATE :entry:default@CompileResource...  
+[2026-01-15T10:43:08.177] [DEBUG] debug-file - Executing task :entry:default@CompileArkTS
+[2026-01-15T10:43:08.177] [DEBUG] debug-file - obfuscationOptions: undefined
+[2026-01-15T10:43:08.179] [DEBUG] debug-file - Task 'entry:default@CompileArkTS' cost while wrapping incremental declarations: 1 ms 
+[2026-01-15T10:43:08.226] [DEBUG] debug-file - Incremental task entry:default@CompileArkTS pre-execution cost: 41 ms .
+[2026-01-15T10:43:08.226] [DEBUG] debug-file - entry : default@CompileArkTS cost memory 0.5455169677734375
+[2026-01-15T10:43:08.231] [INFO] debug-file - UP-TO-DATE :entry:default@CompileArkTS...  
+[2026-01-15T10:43:08.233] [DEBUG] debug-file - Executing task :entry:default@BuildJS
+[2026-01-15T10:43:08.233] [DEBUG] debug-file - Task 'entry:default@BuildJS' cost while wrapping incremental declarations: 1 ms 
+[2026-01-15T10:43:08.242] [DEBUG] debug-file - entry : default@BuildJS cost memory 0.143035888671875
+[2026-01-15T10:43:08.242] [DEBUG] debug-file - runTaskFromQueue task cost before running: 678 ms 
+[2026-01-15T10:43:08.242] [INFO] debug-file - Finished :entry:default@BuildJS... after 10 ms 
+[2026-01-15T10:43:10.086] [DEBUG] debug-file - ninja: Entering directory `F:\zhoubingquan\VpnProxyServer\entry\.cxx\default\default\debug\arm64-v8a'
+[1/4] Building CXX object CMakeFiles/vpn_server.dir/packet_builder.cpp.o
+
+[2026-01-15T10:43:10.213] [DEBUG] debug-file - clang++: warning: argument unused during compilation: '--gcc-toolchain=F:/Huawei/DevEco Studio/sdk/default/openharmony/native/llvm' [-Wunused-command-line-argument]
+[2/4] Building CXX object CMakeFiles/vpn_server.dir/packet_forwarder.cpp.o
+
+[2026-01-15T10:43:11.114] [DEBUG] debug-file - clang++: warning: argument unused during compilation: '--gcc-toolchain=F:/Huawei/DevEco Studio/sdk/default/openharmony/native/llvm' [-Wunused-command-line-argument]
+[3/4] Building CXX object CMakeFiles/vpn_server.dir/vpn_server.cpp.o
+
+[2026-01-15T10:43:12.405] [DEBUG] debug-file - clang++: warning: argument unused during compilation: '--gcc-toolchain=F:/Huawei/DevEco Studio/sdk/default/openharmony/native/llvm' [-Wunused-command-line-argument]
+[4/4] Linking CXX shared library F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\cmake\default\obj\arm64-v8a\libvpn_server.so
+
+[2026-01-15T10:43:12.417] [DEBUG] debug-file - worker[10] has one work done.
+[2026-01-15T10:43:12.435] [DEBUG] debug-file - default@BuildNativeWithNinja work[2] done.
+[2026-01-15T10:43:12.438] [INFO] debug-file - Finished :entry:default@BuildNativeWithNinja... after 4 s 373 ms 
+[2026-01-15T10:43:12.445] [DEBUG] debug-file - Executing task :entry:default@ProcessLibs
+[2026-01-15T10:43:12.473] [DEBUG] debug-file - Check content hash for F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\cmake\default\obj\arm64-v8a\libvpn_server.so
+[2026-01-15T10:43:12.536] [DEBUG] debug-file - Check content hash for F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\cmake\default\obj\arm64-v8a\libc++_shared.so
+[2026-01-15T10:43:12.576] [DEBUG] debug-file - entry:default@ProcessLibs is not up-to-date, since the task snapshots are different.
+[2026-01-15T10:43:12.577] [DEBUG] debug-file - Incremental task entry:default@ProcessLibs pre-execution cost: 17 ms .
+[2026-01-15T10:43:12.591] [DEBUG] debug-file - Worker dispatch failed, running processLibs on main thread.
+[2026-01-15T10:43:12.630] [DEBUG] debug-file - Link F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\cmake\default\obj\arm64-v8a\libvpn_server.so to F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\libs\default\arm64-v8a\libvpn_server.so successfully.
+[2026-01-15T10:43:12.633] [DEBUG] debug-file - Link F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\cmake\default\obj\arm64-v8a\libc++_shared.so to F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\libs\default\arm64-v8a\libc++_shared.so successfully.
+[2026-01-15T10:43:12.634] [DEBUG] debug-file - entry : default@ProcessLibs cost memory -7.3962249755859375
+[2026-01-15T10:43:12.634] [DEBUG] debug-file - runTaskFromQueue task cost before running: 5 s 70 ms 
+[2026-01-15T10:43:12.635] [INFO] debug-file - Finished :entry:default@ProcessLibs... after 189 ms 
+[2026-01-15T10:43:12.639] [DEBUG] debug-file - Executing task :entry:default@DoNativeStrip
+[2026-01-15T10:43:12.641] [DEBUG] debug-file - Task 'entry:default@DoNativeStrip' cost while wrapping incremental declarations: 2 ms 
+[2026-01-15T10:43:12.645] [DEBUG] debug-file - entry:default@DoNativeStrip is not up-to-date, since the input file 'F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\libs\default' has been changed.
+[2026-01-15T10:43:12.645] [DEBUG] debug-file - Incremental task entry:default@DoNativeStrip pre-execution cost: 4 ms .
+[2026-01-15T10:43:12.645] [DEBUG] debug-file - A work dispatched to worker[10] failed because unable to get work from ready queue.
+[2026-01-15T10:43:12.661] [DEBUG] debug-file - default@DoNativeStrip work[3] is submitted.
+[2026-01-15T10:43:12.662] [DEBUG] debug-file - default@DoNativeStrip work[3] is pushed to ready queue.
+[2026-01-15T10:43:12.662] [DEBUG] debug-file - A work dispatched to worker[11] failed because unable to get work from ready queue.
+[2026-01-15T10:43:12.662] [DEBUG] debug-file - default@DoNativeStrip work[3] has been dispatched to worker[10].
+[2026-01-15T10:43:12.662] [DEBUG] debug-file - default@DoNativeStrip work[3] is dispatched.
+[2026-01-15T10:43:12.662] [DEBUG] debug-file - entry : default@DoNativeStrip cost memory 0.285003662109375
+[2026-01-15T10:43:12.774] [DEBUG] debug-file - current process  memoryUsage: {
+  rss: 239112192,
+  heapTotal: 55750656,
+  heapUsed: 53042856,
+  external: 4058480,
+  arrayBuffers: 67399
+} os memoryUsage :13.28689956665039
+[2026-01-15T10:43:13.659] [DEBUG] debug-file - worker[10] has one work done.
+[2026-01-15T10:43:13.660] [DEBUG] debug-file - default@DoNativeStrip work[3] done.
+[2026-01-15T10:43:13.660] [DEBUG] debug-file - A work dispatched to worker[10] failed because unable to get work from ready queue.
+[2026-01-15T10:43:13.660] [INFO] debug-file - Finished :entry:default@DoNativeStrip... after 977 ms 
+[2026-01-15T10:43:13.667] [DEBUG] debug-file - Executing task :entry:default@CacheNativeLibs
+[2026-01-15T10:43:13.671] [DEBUG] debug-file - Task 'entry:default@CacheNativeLibs' cost while wrapping incremental declarations: 4 ms 
+[2026-01-15T10:43:13.680] [DEBUG] debug-file - entry:default@CacheNativeLibs is not up-to-date, since the input file 'F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\stripped_native_libs\default' has been changed.
+[2026-01-15T10:43:13.680] [DEBUG] debug-file - Incremental task entry:default@CacheNativeLibs pre-execution cost: 10 ms .
+[2026-01-15T10:43:13.684] [DEBUG] debug-file - default@CacheNativeLibs work[4] is submitted.
+[2026-01-15T10:43:13.684] [DEBUG] debug-file - default@CacheNativeLibs work[4] is pushed to ready queue.
+[2026-01-15T10:43:13.684] [DEBUG] debug-file - A work dispatched to worker[11] failed because unable to get work from ready queue.
+[2026-01-15T10:43:13.685] [DEBUG] debug-file - default@CacheNativeLibs work[4] has been dispatched to worker[10].
+[2026-01-15T10:43:13.685] [DEBUG] debug-file - default@CacheNativeLibs work[4] is dispatched.
+[2026-01-15T10:43:13.685] [DEBUG] debug-file - entry : default@CacheNativeLibs cost memory 0.17350006103515625
+[2026-01-15T10:43:13.697] [DEBUG] debug-file - worker[10] has one work done.
+[2026-01-15T10:43:13.697] [DEBUG] debug-file - default@CacheNativeLibs work[4] done.
+[2026-01-15T10:43:13.697] [DEBUG] debug-file - A work dispatched to worker[10] failed because unable to get work from ready queue.
+[2026-01-15T10:43:13.698] [INFO] debug-file - Finished :entry:default@CacheNativeLibs... after 29 ms 
+[2026-01-15T10:43:13.699] [DEBUG] debug-file - Executing task :entry:default@GeneratePkgModuleJson
+[2026-01-15T10:43:13.700] [DEBUG] debug-file - File: 'F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\preload\default\preload.json' from 'preloadSoJsonPath' is not exists, just ignore.
+[2026-01-15T10:43:13.700] [DEBUG] debug-file - Error occurs while handling @Input 'shouldDeduplicateHar': The "data" argument must be of type string or an instance of Buffer, TypedArray, or DataView. Received undefined
+[2026-01-15T10:43:13.700] [DEBUG] debug-file - Task 'entry:default@GeneratePkgModuleJson' cost while wrapping incremental declarations: 1 ms 
+[2026-01-15T10:43:13.702] [DEBUG] debug-file - Incremental task entry:default@GeneratePkgModuleJson pre-execution cost: 2 ms .
+[2026-01-15T10:43:13.702] [DEBUG] debug-file - entry : default@GeneratePkgModuleJson cost memory 0.11295318603515625
+[2026-01-15T10:43:13.702] [INFO] debug-file - UP-TO-DATE :entry:default@GeneratePkgModuleJson...  
+[2026-01-15T10:43:13.707] [DEBUG] debug-file - Executing task :entry:default@ProcessCompiledResources
+[2026-01-15T10:43:13.708] [DEBUG] debug-file - File: 'F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\preload\default\preload.json' from 'preloadSoJsonPath' is not exists, just ignore.
+[2026-01-15T10:43:13.709] [DEBUG] debug-file - Task 'entry:default@ProcessCompiledResources' cost while wrapping incremental declarations: 2 ms 
+[2026-01-15T10:43:13.710] [DEBUG] debug-file - entry : default@ProcessCompiledResources cost memory 0.0637054443359375
+[2026-01-15T10:43:13.711] [DEBUG] debug-file - runTaskFromQueue task cost before running: 6 s 147 ms 
+[2026-01-15T10:43:13.711] [INFO] debug-file - Finished :entry:default@ProcessCompiledResources... after 5 ms 
+[2026-01-15T10:43:13.715] [DEBUG] debug-file - Executing task :entry:default@PackageHap
+[2026-01-15T10:43:13.724] [DEBUG] debug-file - entry:default@PackageHap is not up-to-date, since the input file 'F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\stripped_native_libs\default' has been changed.
+[2026-01-15T10:43:13.725] [DEBUG] debug-file - Incremental task entry:default@PackageHap pre-execution cost: 9 ms .
+[2026-01-15T10:43:13.726] [DEBUG] debug-file - Use tool [F:\Huawei\DevEco Studio\sdk\default\openharmony\toolchains\lib\app_packing_tool.jar]
+ [
+  'java',
+  '-Dfile.encoding=GBK',
+  '-jar',
+  'F:\\Huawei\\DevEco Studio\\sdk\\default\\openharmony\\toolchains\\lib\\app_packing_tool.jar',
+  '--mode',
+  'hap',
+  '--force',
+  'true',
+  '--lib-path',
+  'F:\\zhoubingquan\\VpnProxyServer\\entry\\build\\default\\intermediates\\stripped_native_libs\\default',
+  '--json-path',
+  'F:\\zhoubingquan\\VpnProxyServer\\entry\\build\\default\\intermediates\\package\\default\\module.json',
+  '--resources-path',
+  'F:\\zhoubingquan\\VpnProxyServer\\entry\\build\\default\\intermediates\\res\\default\\resources',
+  '--index-path',
+  'F:\\zhoubingquan\\VpnProxyServer\\entry\\build\\default\\intermediates\\res\\default\\resources.index',
+  '--pack-info-path',
+  'F:\\zhoubingquan\\VpnProxyServer\\entry\\build\\default\\outputs\\default\\pack.info',
+  '--out-path',
+  'F:\\zhoubingquan\\VpnProxyServer\\entry\\build\\default\\outputs\\default\\entry-default-unsigned.hap',
+  '--ets-path',
+  'F:\\zhoubingquan\\VpnProxyServer\\entry\\build\\default\\intermediates\\loader_out\\default\\ets'
+]
+[2026-01-15T10:43:14.543] [DEBUG] debug-file - java daemon socket received message:{"code":0,"message":"pack success"}
+[2026-01-15T10:43:14.577] [DEBUG] debug-file - entry : default@PackageHap cost memory -1.064300537109375
+[2026-01-15T10:43:14.578] [DEBUG] debug-file - runTaskFromQueue task cost before running: 7 s 14 ms 
+[2026-01-15T10:43:14.582] [INFO] debug-file - Finished :entry:default@PackageHap... after 864 ms 
+[2026-01-15T10:43:14.593] [DEBUG] debug-file - Executing task :entry:default@PackingCheck
+[2026-01-15T10:43:14.627] [DEBUG] debug-file - entry : default@PackingCheck cost memory 0.317626953125
+[2026-01-15T10:43:14.628] [DEBUG] debug-file - runTaskFromQueue task cost before running: 7 s 64 ms 
+[2026-01-15T10:43:14.629] [INFO] debug-file - Finished :entry:default@PackingCheck... after 35 ms 
+[2026-01-15T10:43:14.635] [DEBUG] debug-file - Executing task :entry:default@SignHap
+[2026-01-15T10:43:14.643] [DEBUG] debug-file - entry:default@SignHap is not up-to-date, since the input file 'F:\zhoubingquan\VpnProxyServer\entry\build\default\outputs\default\entry-default-unsigned.hap' has been changed.
+[2026-01-15T10:43:14.643] [DEBUG] debug-file - Incremental task entry:default@SignHap pre-execution cost: 8 ms .
+[2026-01-15T10:43:14.752] [DEBUG] debug-file - java daemon socket close code:1000 reason:close by user
+[2026-01-15T10:43:16.233] [DEBUG] debug-file - java daemon socket received message:{"code":0,"message":"verify profile success"}
+[2026-01-15T10:43:16.244] [DEBUG] debug-file - java daemon socket close code:1000 reason:close by user
+[2026-01-15T10:43:17.107] [DEBUG] debug-file - java daemon socket received message:{"code":0,"message":"sign app success"}
+[2026-01-15T10:43:17.111] [DEBUG] debug-file - entry : default@SignHap cost memory 0.7431411743164062
+[2026-01-15T10:43:17.112] [DEBUG] debug-file - runTaskFromQueue task cost before running: 9 s 548 ms 
+[2026-01-15T10:43:17.113] [INFO] debug-file - Finished :entry:default@SignHap... after 2 s 478 ms 
+[2026-01-15T10:43:17.116] [DEBUG] debug-file - Executing task :entry:default@CollectDebugSymbol
+[2026-01-15T10:43:17.120] [DEBUG] debug-file - entry : default@CollectDebugSymbol cost memory 0.089630126953125
+[2026-01-15T10:43:17.121] [DEBUG] debug-file - runTaskFromQueue task cost before running: 9 s 557 ms 
+[2026-01-15T10:43:17.121] [INFO] debug-file - Finished :entry:default@CollectDebugSymbol... after 5 ms 
+[2026-01-15T10:43:17.122] [DEBUG] debug-file - Executing task :entry:assembleHap
+[2026-01-15T10:43:17.123] [DEBUG] debug-file - entry : assembleHap cost memory 0.01438140869140625
+[2026-01-15T10:43:17.124] [DEBUG] debug-file - runTaskFromQueue task cost before running: 9 s 560 ms 
+[2026-01-15T10:43:17.124] [INFO] debug-file - Finished :entry:assembleHap... after 2 ms 
+[2026-01-15T10:43:17.138] [INFO] debug-file - BUILD SUCCESSFUL in 9 s 573 ms 
+[2026-01-15T10:43:17.138] [DEBUG] debug-file - There is no need to refresh cache, since the incremental task entry:default@PreBuild is up-to-date.
+[2026-01-15T10:43:17.139] [DEBUG] debug-file - Update task entry:default@CreateModuleInfo output file:F:\zhoubingquan\VpnProxyServer\entry\build\default\generated\profile\default\ModuleInfo.ts cache.
+[2026-01-15T10:43:17.139] [DEBUG] debug-file - Incremental task entry:default@CreateModuleInfo post-execution cost:1 ms .
+[2026-01-15T10:43:17.139] [DEBUG] debug-file - There is no need to refresh cache, since the incremental task entry:default@GenerateMetadata is up-to-date.
+[2026-01-15T10:43:17.139] [DEBUG] debug-file - There is no need to refresh cache, since the incremental task entry:default@MergeProfile is up-to-date.
+[2026-01-15T10:43:17.139] [DEBUG] debug-file - There is no need to refresh cache, since the incremental task entry:default@CreateBuildProfile is up-to-date.
+[2026-01-15T10:43:17.139] [DEBUG] debug-file - Update task entry:default@GeneratePkgContextInfo output file:F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\loader\default\pkgContextInfo.json cache.
+[2026-01-15T10:43:17.140] [DEBUG] debug-file - Incremental task entry:default@GeneratePkgContextInfo post-execution cost:1 ms .
+[2026-01-15T10:43:17.140] [DEBUG] debug-file - Update task entry:default@ProcessIntegratedHsp output file:F:\zhoubingquan\VpnProxyServer\build\cache\default\integrated_hsp\integratedHspCache.json cache.
+[2026-01-15T10:43:17.140] [DEBUG] debug-file - Incremental task entry:default@ProcessIntegratedHsp post-execution cost:1 ms .
+[2026-01-15T10:43:17.140] [DEBUG] debug-file - There is no need to refresh cache, since the incremental task entry:default@MakePackInfo is up-to-date.
+[2026-01-15T10:43:17.140] [DEBUG] debug-file - Update task entry:default@SyscapTransform input file:F:\Huawei\DevEco Studio\sdk\default\openharmony\toolchains\syscap_tool.exe cache by regenerate.
+[2026-01-15T10:43:17.141] [DEBUG] debug-file - Update task entry:default@SyscapTransform input file:F:\Huawei\DevEco Studio\sdk\default\openharmony\ets\api\device-define cache by regenerate.
+[2026-01-15T10:43:17.149] [DEBUG] debug-file - Update task entry:default@SyscapTransform output file:F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\syscap\default\rpcid.sc cache.
+[2026-01-15T10:43:17.150] [DEBUG] debug-file - Incremental task entry:default@SyscapTransform post-execution cost:10 ms .
+[2026-01-15T10:43:17.150] [DEBUG] debug-file - There is no need to refresh cache, since the incremental task entry:default@ProcessProfile is up-to-date.
+[2026-01-15T10:43:17.150] [DEBUG] debug-file - There is no need to refresh cache, since the incremental task entry:default@ProcessRouterMap is up-to-date.
+[2026-01-15T10:43:17.151] [DEBUG] debug-file - There is no need to refresh cache, since the incremental task entry:default@ProcessShareConfig is up-to-date.
+[2026-01-15T10:43:17.151] [DEBUG] debug-file - Update task entry:default@ProcessStartupConfig output file:F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\startup\default\startup_config.json cache.
+[2026-01-15T10:43:17.151] [DEBUG] debug-file - Incremental task entry:default@ProcessStartupConfig post-execution cost:1 ms .
+[2026-01-15T10:43:17.151] [DEBUG] debug-file - There is no need to refresh cache, since the incremental task entry:default@ProcessResource is up-to-date.
+[2026-01-15T10:43:17.152] [DEBUG] debug-file - There is no need to refresh cache, since the incremental task entry:default@GenerateLoaderJson is up-to-date.
+[2026-01-15T10:43:17.152] [DEBUG] debug-file - There is no need to refresh cache, since the incremental task entry:default@CompileResource is up-to-date.
+[2026-01-15T10:43:17.152] [DEBUG] debug-file - There is no need to refresh cache, since the incremental task entry:default@CompileArkTS is up-to-date.
+[2026-01-15T10:43:17.154] [DEBUG] debug-file - Update task entry:default@BuildJS input file:F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\loader\default cache by regenerate.
+[2026-01-15T10:43:17.155] [DEBUG] debug-file - Update task entry:default@BuildJS input file:F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\res\default\resources\rawfile cache by regenerate.
+[2026-01-15T10:43:17.156] [DEBUG] debug-file - Update task entry:default@BuildJS input file:F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\res\default\ResourceTable.txt cache by regenerate.
+[2026-01-15T10:43:17.156] [DEBUG] debug-file - Update task entry:default@BuildJS input file:F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\res\default\ark_module.json cache by regenerate.
+[2026-01-15T10:43:17.157] [DEBUG] debug-file - Update task entry:default@BuildJS input file:F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\res\default\resources\base\profile cache by regenerate.
+[2026-01-15T10:43:17.164] [DEBUG] debug-file - Update task entry:default@BuildJS output file:F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\loader_out\default\js cache.
+[2026-01-15T10:43:17.164] [DEBUG] debug-file - Incremental task entry:default@BuildJS post-execution cost:13 ms .
+[2026-01-15T10:43:17.165] [DEBUG] debug-file - Update task entry:default@ProcessLibs input file:F:\zhoubingquan\VpnProxyServer\build-profile.json5 cache by regenerate.
+[2026-01-15T10:43:17.166] [DEBUG] debug-file - Update task entry:default@ProcessLibs input file:F:\zhoubingquan\VpnProxyServer\entry\build-profile.json5 cache by regenerate.
+[2026-01-15T10:43:17.166] [DEBUG] debug-file - Update task entry:default@ProcessLibs output file:F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\libs\default cache.
+[2026-01-15T10:43:17.169] [DEBUG] debug-file - Incremental task entry:default@ProcessLibs post-execution cost:5 ms .
+[2026-01-15T10:43:17.169] [DEBUG] debug-file - Update task entry:default@DoNativeStrip input file:F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\libs\default cache from map.
+[2026-01-15T10:43:17.169] [DEBUG] debug-file - Update task entry:default@DoNativeStrip output file:F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\stripped_native_libs\default cache.
+[2026-01-15T10:43:17.176] [DEBUG] debug-file - Incremental task entry:default@DoNativeStrip post-execution cost:7 ms .
+[2026-01-15T10:43:17.176] [DEBUG] debug-file - Update task entry:default@CacheNativeLibs input file:F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\stripped_native_libs\default cache from map.
+[2026-01-15T10:43:17.177] [DEBUG] debug-file - Update task entry:default@CacheNativeLibs input file:F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\libs\default cache by regenerate.
+[2026-01-15T10:43:17.180] [DEBUG] debug-file - Update task entry:default@CacheNativeLibs output file:F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\patch\default\base_native_libs.json cache.
+[2026-01-15T10:43:17.180] [DEBUG] debug-file - Incremental task entry:default@CacheNativeLibs post-execution cost:4 ms .
+[2026-01-15T10:43:17.180] [DEBUG] debug-file - There is no need to refresh cache, since the incremental task entry:default@GeneratePkgModuleJson is up-to-date.
+[2026-01-15T10:43:17.181] [DEBUG] debug-file - Incremental task entry:default@ProcessCompiledResources post-execution cost:1 ms .
+[2026-01-15T10:43:17.181] [DEBUG] debug-file - Update task entry:default@PackageHap input file:F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\stripped_native_libs\default cache from map.
+[2026-01-15T10:43:17.182] [DEBUG] debug-file - Update task entry:default@PackageHap input file:F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\res\default\module.json cache by regenerate.
+[2026-01-15T10:43:17.182] [DEBUG] debug-file - Update task entry:default@PackageHap input file:F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\res\default\resources cache by regenerate.
+[2026-01-15T10:43:17.196] [DEBUG] debug-file - Update task entry:default@PackageHap input file:F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\res\default\resources.index cache by regenerate.
+[2026-01-15T10:43:17.196] [DEBUG] debug-file - Update task entry:default@PackageHap input file:F:\zhoubingquan\VpnProxyServer\entry\build\default\outputs\default\pack.info cache by regenerate.
+[2026-01-15T10:43:17.197] [DEBUG] debug-file - Update task entry:default@PackageHap input file:F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\loader_out\default\ets cache by regenerate.
+[2026-01-15T10:43:17.205] [DEBUG] debug-file - Update task entry:default@PackageHap input file:F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\loader_out\default\ets\sourceMaps.map cache by regenerate.
+[2026-01-15T10:43:17.205] [DEBUG] debug-file - Update task entry:default@PackageHap input file:F:\zhoubingquan\VpnProxyServer\entry\build\default\generated\profile\default\BuildProfile.ets cache by regenerate.
+[2026-01-15T10:43:17.206] [DEBUG] debug-file - Update task entry:default@PackageHap output file:F:\zhoubingquan\VpnProxyServer\entry\build\default\outputs\default\entry-default-unsigned.hap cache.
+[2026-01-15T10:43:17.206] [DEBUG] debug-file - Update task entry:default@PackageHap output file:F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\source_map\default\sourceMaps.map cache.
+[2026-01-15T10:43:17.207] [DEBUG] debug-file - Update task entry:default@PackageHap output file:F:\zhoubingquan\VpnProxyServer\entry\build\default\outputs\default\mapping\sourceMaps.map cache.
+[2026-01-15T10:43:17.208] [DEBUG] debug-file - Incremental task entry:default@PackageHap post-execution cost:27 ms .
+[2026-01-15T10:43:17.208] [DEBUG] debug-file - Update task entry:default@SignHap input file:C:\Users\LeagSoft\.ohos\config\default_VpnProxyServer_3OY97C7DhfR-jqc5aua3vHRaPtcUoLk1-zsOXb_JqbA=.cer cache by regenerate.
+[2026-01-15T10:43:17.209] [DEBUG] debug-file - Update task entry:default@SignHap input file:C:\Users\LeagSoft\.ohos\config\default_VpnProxyServer_3OY97C7DhfR-jqc5aua3vHRaPtcUoLk1-zsOXb_JqbA=.p7b cache by regenerate.
+[2026-01-15T10:43:17.210] [DEBUG] debug-file - Update task entry:default@SignHap input file:C:\Users\LeagSoft\.ohos\config\default_VpnProxyServer_3OY97C7DhfR-jqc5aua3vHRaPtcUoLk1-zsOXb_JqbA=.p12 cache by regenerate.
+[2026-01-15T10:43:17.210] [DEBUG] debug-file - Update task entry:default@SignHap input file:F:\zhoubingquan\VpnProxyServer\entry\build\default\outputs\default\entry-default-unsigned.hap cache from map.
+[2026-01-15T10:43:17.211] [DEBUG] debug-file - Update task entry:default@SignHap output file:F:\zhoubingquan\VpnProxyServer\entry\build\default\outputs\default\entry-default-signed.hap cache.
+[2026-01-15T10:43:17.216] [DEBUG] debug-file - Incremental task entry:default@SignHap post-execution cost:8 ms .
+[2026-01-15T10:43:17.218] [DEBUG] debug-file - Update task entry:default@CollectDebugSymbol input file:F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\loader_out\default\ets\sourceMaps.map cache by regenerate.
+[2026-01-15T10:43:17.219] [DEBUG] debug-file - Update task entry:default@CollectDebugSymbol input file:F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\libs\default cache by regenerate.
+[2026-01-15T10:43:17.221] [DEBUG] debug-file - Update task entry:default@CollectDebugSymbol output file:F:\zhoubingquan\VpnProxyServer\entry\build\default\outputs\default\symbol cache.
+[2026-01-15T10:43:17.222] [DEBUG] debug-file - Incremental task entry:default@CollectDebugSymbol post-execution cost:6 ms .
+[2026-01-15T10:43:17.262] [DEBUG] debug-file - hvigor build process will be closed.
+[2026-01-15T10:43:17.262] [DEBUG] debug-file - java daemon socket close code:1000 reason:close by user
+[2026-01-15T10:43:17.276] [DEBUG] debug-file - session manager: send message to worker process.
+[2026-01-15T10:43:17.276] [DEBUG] debug-file - session manager: send message to worker process.
+[2026-01-15T10:43:17.276] [DEBUG] debug-file - watch worker: worker id should be larger than 0. Nothing will be sent to any worker thread.
+[2026-01-15T10:43:17.276] [DEBUG] debug-file - watch worker: worker id should be larger than 0. Nothing will be sent to any worker thread.
+[2026-01-15T10:44:02.483] [DEBUG] debug-file - session manager: set active socket. socketId=g1gjCPnay2STkagrAAAH
+[2026-01-15T10:44:02.515] [DEBUG] debug-file - watch worker: worker id should be larger than 0. Nothing will be sent to any worker thread.
+[2026-01-15T10:44:02.545] [DEBUG] debug-file - Hvigor init with startParameters:{
+  hvigorfileTypeCheck: false,
+  parallelExecution: true,
+  incrementalExecution: true,
+  printStackTrace: false,
+  daemon: true,
+  analyze: 0,
+  logLevel: Level { level: 20000, levelStr: 'INFO', colour: 'green' },
+  optimizationStrategy: 'memory',
+  hotCompile: undefined,
+  hotReloadBuild: undefined
+}
+[2026-01-15T10:44:02.568] [DEBUG] debug-file - Cache service initialization finished in 23 ms 
+[2026-01-15T10:44:02.573] [DEBUG] debug-file - hvigorfile, resolving F:\zhoubingquan\VpnProxyServer\hvigorfile.ts
+[2026-01-15T10:44:02.608] [DEBUG] debug-file - hvigorfile, require result:  { default: { plugins: [] } }
+[2026-01-15T10:44:02.608] [DEBUG] debug-file - hvigorfile, binding system plugins null
+[2026-01-15T10:44:02.661] [DEBUG] debug-file - Start initialize project's product build option map with build mode debug.
+[2026-01-15T10:44:02.661] [DEBUG] debug-file - Picking option from product 'default' with build mode 'debug'.
+[2026-01-15T10:44:02.662] [DEBUG] debug-file - Product 'default' build option initialized
+[2026-01-15T10:44:02.662] [DEBUG] debug-file - End initialize project's product build option map with build mode 'debug'.
+[2026-01-15T10:44:02.667] [DEBUG] debug-file - Obtain build option for product 'default'in this build.
+[2026-01-15T10:44:02.692] [DEBUG] debug-file - F:\zhoubingquan\VpnProxyServer\build\cache\default\remote_hsp\remoteHspCache.json not exists.
+[2026-01-15T10:44:02.711] [DEBUG] debug-file - Start recording SDK configuration permission data.
+[2026-01-15T10:44:02.811] [DEBUG] debug-file - Sdk init in 118 ms 
+[2026-01-15T10:44:02.848] [DEBUG] debug-file - Project task initialization takes 35 ms 
+[2026-01-15T10:44:02.848] [DEBUG] debug-file - hvigorfile, binding custom plugins []
+[2026-01-15T10:44:02.848] [DEBUG] debug-file - hvigorfile, no custom plugins were found in F:\zhoubingquan\VpnProxyServer\hvigorfile.ts
+[2026-01-15T10:44:02.848] [DEBUG] debug-file - hvigorfile, resolve finished F:\zhoubingquan\VpnProxyServer\hvigorfile.ts
+[2026-01-15T10:44:02.850] [DEBUG] debug-file - hvigorfile, resolving F:\zhoubingquan\VpnProxyServer\entry\hvigorfile.ts
+[2026-01-15T10:44:02.866] [DEBUG] debug-file - hvigorfile, require result:  { default: { plugins: [] } }
+[2026-01-15T10:44:02.867] [DEBUG] debug-file - hvigorfile, binding system plugins null
+[2026-01-15T10:44:02.877] [DEBUG] debug-file - failed to load cangjie to dynamically generate schemas: Error: Cannot find module '@ohos/cangjie-build-support/index'
+Require stack:
+- F:\Huawei\DevEco Studio\tools\hvigor\hvigor-ohos-plugin\src\plugin\factory\plugin-factory.js
+- F:\Huawei\DevEco Studio\tools\hvigor\hvigor-ohos-plugin\index.js
+- F:\zhoubingquan\VpnProxyServer\hvigorfile.ts
+- F:\Huawei\DevEco Studio\tools\hvigor\hvigor\src\base\internal\lifecycle\configuration.js
+- F:\Huawei\DevEco Studio\tools\hvigor\hvigor\src\base\boot\index.js
+- F:\Huawei\DevEco Studio\tools\hvigor\hvigor\src\base\daemon\cluster\worker-process-lifecycle.js
+- F:\Huawei\DevEco Studio\tools\hvigor\hvigor\src\base\daemon\process\daemon-process-boot-script.js
+[2026-01-15T10:44:02.885] [DEBUG] debug-file - Start initialize module-target build option map, moduleName=entry, buildMode=debug
+[2026-01-15T10:44:02.886] [DEBUG] debug-file - Target 'default' config initialized
+[2026-01-15T10:44:02.889] [DEBUG] debug-file - Target 'ohosTest' config initialized
+[2026-01-15T10:44:02.890] [DEBUG] debug-file - Module 'entry' target 'default' build option initialized
+[2026-01-15T10:44:02.890] [DEBUG] debug-file - Module 'entry' target 'ohosTest' build option initialized
+[2026-01-15T10:44:02.890] [DEBUG] debug-file - End initialize module-target build option map, moduleName=entry
+[2026-01-15T10:44:02.891] [DEBUG] debug-file - Start initialize module-target build option map, moduleName=entry, buildMode=release
+[2026-01-15T10:44:02.891] [DEBUG] debug-file - Target 'default' config initialized
+[2026-01-15T10:44:02.891] [DEBUG] debug-file - Target 'ohosTest' config initialized
+[2026-01-15T10:44:02.892] [DEBUG] debug-file - Module 'entry' target 'default' build option initialized
+[2026-01-15T10:44:02.892] [DEBUG] debug-file - Module 'entry' target 'ohosTest' build option initialized
+[2026-01-15T10:44:02.892] [DEBUG] debug-file - End initialize module-target build option map, moduleName=entry
+[2026-01-15T10:44:02.892] [DEBUG] debug-file - Start initialize module-target build option map, moduleName=entry, buildMode=debug
+[2026-01-15T10:44:02.892] [DEBUG] debug-file - Target 'default' config initialized
+[2026-01-15T10:44:02.892] [DEBUG] debug-file - Target 'ohosTest' config initialized
+[2026-01-15T10:44:02.893] [DEBUG] debug-file - Module 'entry' target 'default' build option initialized
+[2026-01-15T10:44:02.893] [DEBUG] debug-file - Module 'entry' target 'ohosTest' build option initialized
+[2026-01-15T10:44:02.893] [DEBUG] debug-file - End initialize module-target build option map, moduleName=entry
+[2026-01-15T10:44:02.893] [DEBUG] debug-file - Obtain build option for module 'entry' target 'default'in this build.
+[2026-01-15T10:44:02.903] [DEBUG] debug-file - Module entry task initialization takes 5 ms 
+[2026-01-15T10:44:02.904] [DEBUG] debug-file - hvigorfile, binding custom plugins []
+[2026-01-15T10:44:02.904] [DEBUG] debug-file - hvigorfile, no custom plugins were found in F:\zhoubingquan\VpnProxyServer\entry\hvigorfile.ts
+[2026-01-15T10:44:02.905] [DEBUG] debug-file - hvigorfile, resolve finished F:\zhoubingquan\VpnProxyServer\entry\hvigorfile.ts
+[2026-01-15T10:44:02.970] [DEBUG] debug-file - hvigorfile, resolve hvigorfile dependencies in 64 ms 
+[2026-01-15T10:44:02.971] [DEBUG] debug-file - project has submodules:entry
+[2026-01-15T10:44:02.975] [DEBUG] debug-file - start to load updatedOhPackageInfo to the disk
+[2026-01-15T10:44:02.998] [DEBUG] debug-file - load to the disk finished
+[2026-01-15T10:44:03.001] [DEBUG] debug-file - Start to initialize dependency information.
+[2026-01-15T10:44:03.031] [DEBUG] debug-file - Module VpnProxyServer Collected Dependency: 
+[2026-01-15T10:44:03.031] [DEBUG] debug-file - Module VpnProxyServer's total dependency: 0
+[2026-01-15T10:44:03.036] [DEBUG] debug-file - Start to initialize dependency information.
+[2026-01-15T10:44:03.046] [DEBUG] debug-file - Module entry Collected Dependency: 
+[2026-01-15T10:44:03.047] [DEBUG] debug-file - Module entry's total dependency: 0
+[2026-01-15T10:44:03.051] [DEBUG] debug-file - Configuration phase cost:483 ms 
+[2026-01-15T10:44:03.052] [DEBUG] debug-file - Configuration task cost before running: 520 ms 
+[2026-01-15T10:44:03.071] [DEBUG] debug-file - Executing task :entry:default@PreBuild
+[2026-01-15T10:44:03.075] [DEBUG] debug-file - Task 'entry:default@PreBuild' cost while wrapping incremental declarations: 1 ms 
+[2026-01-15T10:44:03.124] [DEBUG] debug-file - Incremental task entry:default@PreBuild pre-execution cost: 33 ms .
+[2026-01-15T10:44:03.125] [DEBUG] debug-file - entry : default@PreBuild cost memory -1.3997650146484375
+[2026-01-15T10:44:03.141] [INFO] debug-file - UP-TO-DATE :entry:default@PreBuild...  
+[2026-01-15T10:44:03.145] [DEBUG] debug-file - Executing task :entry:default@CreateModuleInfo
+[2026-01-15T10:44:03.146] [DEBUG] debug-file - Task 'entry:default@CreateModuleInfo' cost while wrapping incremental declarations: 1 ms 
+[2026-01-15T10:44:03.146] [DEBUG] debug-file - entry : default@CreateModuleInfo cost memory 0.04138946533203125
+[2026-01-15T10:44:03.147] [DEBUG] debug-file - runTaskFromQueue task cost before running: 614 ms 
+[2026-01-15T10:44:03.147] [INFO] debug-file - Finished :entry:default@CreateModuleInfo... after 2 ms 
+[2026-01-15T10:44:03.186] [DEBUG] debug-file - Executing task :entry:default@GenerateMetadata
+[2026-01-15T10:44:03.191] [DEBUG] debug-file - Task 'entry:default@GenerateMetadata' cost while wrapping incremental declarations: 4 ms 
+[2026-01-15T10:44:03.198] [DEBUG] debug-file - Incremental task entry:default@GenerateMetadata pre-execution cost: 6 ms .
+[2026-01-15T10:44:03.198] [DEBUG] debug-file - entry : default@GenerateMetadata cost memory 0.09490203857421875
+[2026-01-15T10:44:03.198] [INFO] debug-file - UP-TO-DATE :entry:default@GenerateMetadata...  
+[2026-01-15T10:44:03.201] [DEBUG] debug-file - Executing task :entry:default@ConfigureCmake
+[2026-01-15T10:44:03.211] [DEBUG] debug-file - entry : default@ConfigureCmake cost memory 0.03533172607421875
+[2026-01-15T10:44:03.211] [DEBUG] debug-file - runTaskFromQueue task cost before running: 679 ms 
+[2026-01-15T10:44:03.212] [INFO] debug-file - Finished :entry:default@ConfigureCmake... after 11 ms 
+[2026-01-15T10:44:03.218] [DEBUG] debug-file - Executing task :entry:default@MergeProfile
+[2026-01-15T10:44:03.219] [DEBUG] debug-file - Task 'entry:default@MergeProfile' cost while wrapping incremental declarations: 1 ms 
+[2026-01-15T10:44:03.240] [DEBUG] debug-file - Incremental task entry:default@MergeProfile pre-execution cost: 19 ms .
+[2026-01-15T10:44:03.240] [DEBUG] debug-file - entry : default@MergeProfile cost memory 0.14395904541015625
+[2026-01-15T10:44:03.251] [INFO] debug-file - UP-TO-DATE :entry:default@MergeProfile...  
+[2026-01-15T10:44:03.261] [DEBUG] debug-file - Executing task :entry:default@CreateBuildProfile
+[2026-01-15T10:44:03.264] [DEBUG] debug-file - Task 'entry:default@CreateBuildProfile' cost while wrapping incremental declarations: 3 ms 
+[2026-01-15T10:44:03.276] [DEBUG] debug-file - Incremental task entry:default@CreateBuildProfile pre-execution cost: 12 ms .
+[2026-01-15T10:44:03.276] [DEBUG] debug-file - entry : default@CreateBuildProfile cost memory 0.0992279052734375
+[2026-01-15T10:44:03.277] [INFO] debug-file - UP-TO-DATE :entry:default@CreateBuildProfile...  
+[2026-01-15T10:44:03.281] [DEBUG] debug-file - Executing task :entry:default@PreCheckSyscap
+[2026-01-15T10:44:03.282] [DEBUG] debug-file - entry : default@PreCheckSyscap cost memory 0.01633453369140625
+[2026-01-15T10:44:03.283] [DEBUG] debug-file - runTaskFromQueue task cost before running: 750 ms 
+[2026-01-15T10:44:03.285] [INFO] debug-file - Finished :entry:default@PreCheckSyscap... after 2 ms 
+[2026-01-15T10:44:03.292] [DEBUG] debug-file - Executing task :entry:default@GeneratePkgContextInfo
+[2026-01-15T10:44:03.312] [DEBUG] debug-file - Task 'entry:default@GeneratePkgContextInfo' cost while wrapping incremental declarations: 1 ms 
+[2026-01-15T10:44:03.315] [DEBUG] debug-file - entry : default@GeneratePkgContextInfo cost memory 0.190765380859375
+[2026-01-15T10:44:03.316] [DEBUG] debug-file - runTaskFromQueue task cost before running: 783 ms 
+[2026-01-15T10:44:03.316] [INFO] debug-file - Finished :entry:default@GeneratePkgContextInfo... after 24 ms 
+[2026-01-15T10:44:03.343] [DEBUG] debug-file - Executing task :entry:default@ProcessIntegratedHsp
+[2026-01-15T10:44:03.344] [DEBUG] debug-file - entry:default@ProcessIntegratedHsp is not up-to-date, since the output file 'F:\zhoubingquan\VpnProxyServer\build\cache\default\integrated_hsp\integratedHspCache.json' does not exist.
+[2026-01-15T10:44:03.344] [DEBUG] debug-file - Incremental task entry:default@ProcessIntegratedHsp pre-execution cost: 1 ms .
+[2026-01-15T10:44:03.345] [DEBUG] debug-file - entry : default@ProcessIntegratedHsp cost memory 0.06598663330078125
+[2026-01-15T10:44:03.345] [DEBUG] debug-file - runTaskFromQueue task cost before running: 813 ms 
+[2026-01-15T10:44:03.347] [INFO] debug-file - Finished :entry:default@ProcessIntegratedHsp... after 2 ms 
+[2026-01-15T10:44:03.365] [DEBUG] debug-file - Executing task :entry:default@BuildNativeWithCmake
+[2026-01-15T10:44:03.372] [DEBUG] debug-file - Use tool [Cmake]
+ [
+  'F:\\Huawei\\DevEco Studio\\sdk\\default\\openharmony\\native\\build-tools\\cmake\\bin\\cmake.exe',
+  '-HF:\\zhoubingquan\\VpnProxyServer\\entry\\src\\main\\cpp',
+  '-BF:\\zhoubingquan\\VpnProxyServer\\entry\\.cxx\\default\\default\\debug\\arm64-v8a',
+  '-DOHOS_ARCH=arm64-v8a',
+  '-DCMAKE_LIBRARY_OUTPUT_DIRECTORY=F:\\zhoubingquan\\VpnProxyServer\\entry\\build\\default\\intermediates\\cmake\\default\\obj\\arm64-v8a',
+  '-DCMAKE_BUILD_TYPE=Debug',
+  '-DOHOS_SDK_NATIVE=F:\\Huawei\\DevEco Studio\\sdk\\default\\openharmony\\native',
+  '-DCMAKE_SYSTEM_NAME=OHOS',
+  '-DCMAKE_OHOS_ARCH_ABI=arm64-v8a',
+  '-DCMAKE_EXPORT_COMPILE_COMMANDS=ON',
+  '-DCMAKE_TOOLCHAIN_FILE=F:\\Huawei\\DevEco Studio\\sdk\\default\\hms\\native\\build\\cmake\\hmos.toolchain.cmake',
+  '-GNinja',
+  '-DCMAKE_MAKE_PROGRAM=F:\\Huawei\\DevEco Studio\\sdk\\default\\openharmony\\native\\build-tools\\cmake\\bin\\ninja.exe',
+  '-DCMAKE_FIND_ROOT_PATH=F:\\zhoubingquan\\VpnProxyServer\\entry\\.cxx\\default\\default\\debug\\hvigor\\arm64-v8a',
+  '-DPACKAGE_FIND_FILE=F:\\zhoubingquan\\VpnProxyServer\\entry\\.cxx\\default\\default\\debug\\hvigor\\arm64-v8a\\summary.cmake',
+  '--no-warn-unused-cli',
+  '-DHMOS_SDK_NATIVE=F:\\Huawei\\DevEco Studio\\sdk\\default\\hms\\native'
+]
+[2026-01-15T10:44:03.543] [DEBUG] debug-file - CMake configuration was up-to-date
+[2026-01-15T10:44:03.572] [DEBUG] debug-file - entry : default@BuildNativeWithCmake cost memory 0.4990234375
+[2026-01-15T10:44:03.572] [DEBUG] debug-file - runTaskFromQueue task cost before running: 1 s 40 ms 
+[2026-01-15T10:44:03.573] [INFO] debug-file - Finished :entry:default@BuildNativeWithCmake... after 208 ms 
+[2026-01-15T10:44:03.584] [DEBUG] debug-file - Executing task :entry:default@MakePackInfo
+[2026-01-15T10:44:03.607] [DEBUG] debug-file - Incremental task entry:default@MakePackInfo pre-execution cost: 21 ms .
+[2026-01-15T10:44:03.608] [DEBUG] debug-file - entry : default@MakePackInfo cost memory 0.13547515869140625
+[2026-01-15T10:44:03.612] [INFO] debug-file - UP-TO-DATE :entry:default@MakePackInfo...  
+[2026-01-15T10:44:03.622] [DEBUG] debug-file - Executing task :entry:default@SyscapTransform
+[2026-01-15T10:44:03.623] [DEBUG] debug-file - File: 'F:\zhoubingquan\VpnProxyServer\entry\src\main\syscap.json' from 'sysCapJsonPath' is not exists, just ignore.
+[2026-01-15T10:44:03.627] [DEBUG] debug-file - Task 'entry:default@SyscapTransform' cost while wrapping incremental declarations: 5 ms 
+[2026-01-15T10:44:03.649] [DEBUG] debug-file - entry:default@SyscapTransform is not up-to-date, since the output file 'F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\syscap\default\rpcid.sc' does not exist.
+[2026-01-15T10:44:03.649] [DEBUG] debug-file - Incremental task entry:default@SyscapTransform pre-execution cost: 19 ms .
+[2026-01-15T10:44:03.650] [DEBUG] debug-file - entry : default@SyscapTransform cost memory 0.150421142578125
+[2026-01-15T10:44:03.650] [DEBUG] debug-file - runTaskFromQueue task cost before running: 1 s 117 ms 
+[2026-01-15T10:44:03.650] [INFO] debug-file - Finished :entry:default@SyscapTransform... after 29 ms 
+[2026-01-15T10:44:03.667] [DEBUG] debug-file - Executing task :entry:default@ProcessProfile
+[2026-01-15T10:44:03.681] [DEBUG] debug-file - Task 'entry:default@ProcessProfile' cost while wrapping incremental declarations: 1 ms 
+[2026-01-15T10:44:03.690] [DEBUG] debug-file - Incremental task entry:default@ProcessProfile pre-execution cost: 8 ms .
+[2026-01-15T10:44:03.690] [DEBUG] debug-file - entry : default@ProcessProfile cost memory 0.1576080322265625
+[2026-01-15T10:44:03.692] [INFO] debug-file - UP-TO-DATE :entry:default@ProcessProfile...  
+[2026-01-15T10:44:03.698] [DEBUG] debug-file - Executing task :entry:default@ProcessRouterMap
+[2026-01-15T10:44:03.722] [DEBUG] debug-file - Incremental task entry:default@ProcessRouterMap pre-execution cost: 18 ms .
+[2026-01-15T10:44:03.725] [DEBUG] debug-file - entry : default@ProcessRouterMap cost memory -1.5210113525390625
+[2026-01-15T10:44:03.728] [INFO] debug-file - UP-TO-DATE :entry:default@ProcessRouterMap...  
+[2026-01-15T10:44:03.733] [DEBUG] debug-file - Executing task :entry:default@ProcessShareConfig
+[2026-01-15T10:44:03.759] [DEBUG] debug-file - Incremental task entry:default@ProcessShareConfig pre-execution cost: 17 ms .
+[2026-01-15T10:44:03.759] [DEBUG] debug-file - entry : default@ProcessShareConfig cost memory 0.1082916259765625
+[2026-01-15T10:44:03.763] [INFO] debug-file - UP-TO-DATE :entry:default@ProcessShareConfig...  
+[2026-01-15T10:44:03.770] [DEBUG] debug-file - Executing task :entry:default@ProcessStartupConfig
+[2026-01-15T10:44:03.771] [DEBUG] debug-file - Task 'entry:default@ProcessStartupConfig' cost while wrapping incremental declarations: 1 ms 
+[2026-01-15T10:44:03.772] [DEBUG] debug-file - entry:default@ProcessStartupConfig is not up-to-date, since the output file 'F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\startup\default\startup_config.json' does not exist.
+[2026-01-15T10:44:03.773] [DEBUG] debug-file - Incremental task entry:default@ProcessStartupConfig pre-execution cost: 1 ms .
+[2026-01-15T10:44:03.773] [DEBUG] debug-file - entry : default@ProcessStartupConfig cost memory 0.09856414794921875
+[2026-01-15T10:44:03.773] [DEBUG] debug-file - runTaskFromQueue task cost before running: 1 s 241 ms 
+[2026-01-15T10:44:03.774] [INFO] debug-file - Finished :entry:default@ProcessStartupConfig... after 3 ms 
+[2026-01-15T10:44:03.783] [DEBUG] debug-file - Executing task :entry:default@BuildNativeWithNinja
+[2026-01-15T10:44:03.788] [DEBUG] debug-file - Use tool [Ninja]
+ [
+  'F:\\Huawei\\DevEco Studio\\sdk\\default\\openharmony\\native\\build-tools\\cmake\\bin\\ninja.exe',
+  '-C',
+  'F:\\zhoubingquan\\VpnProxyServer\\entry\\.cxx\\default\\default\\debug\\arm64-v8a'
+]
+[2026-01-15T10:44:03.791] [DEBUG] debug-file - default@BuildNativeWithNinja work[5] is submitted.
+[2026-01-15T10:44:03.793] [DEBUG] debug-file - default@BuildNativeWithNinja work[5] is pushed to ready queue.
+[2026-01-15T10:44:03.796] [DEBUG] debug-file - default@BuildNativeWithNinja work[5] is not dispatched.
+[2026-01-15T10:44:03.835] [DEBUG] debug-file - OHOS_STL is c++_shared
+[2026-01-15T10:44:03.836] [DEBUG] debug-file - Copy STL libc++_shared.so to F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\cmake\default\obj\arm64-v8a due to OHOS_STL is 'c++_shared'
+[2026-01-15T10:44:03.840] [DEBUG] debug-file - entry : default@BuildNativeWithNinja cost memory 1.0427474975585938
+[2026-01-15T10:44:03.850] [DEBUG] debug-file - restool module names: entry; moduleName=entry, taskName=default@ProcessResource
+[2026-01-15T10:44:03.853] [DEBUG] debug-file - Executing task :entry:default@ProcessResource
+[2026-01-15T10:44:03.854] [DEBUG] debug-file - Task 'entry:default@ProcessResource' cost while wrapping incremental declarations: 1 ms 
+[2026-01-15T10:44:03.865] [DEBUG] debug-file - Incremental task entry:default@ProcessResource pre-execution cost: 7 ms .
+[2026-01-15T10:44:03.865] [DEBUG] debug-file - entry : default@ProcessResource cost memory -1.58380126953125
+[2026-01-15T10:44:03.878] [INFO] debug-file - UP-TO-DATE :entry:default@ProcessResource...  
+[2026-01-15T10:44:03.889] [DEBUG] debug-file - Executing task :entry:default@GenerateLoaderJson
+[2026-01-15T10:44:03.889] [DEBUG] debug-file - Task 'entry:default@GenerateLoaderJson' cost while wrapping incremental declarations: 1 ms 
+[2026-01-15T10:44:03.931] [DEBUG] debug-file - Incremental task entry:default@GenerateLoaderJson pre-execution cost: 27 ms .
+[2026-01-15T10:44:03.931] [DEBUG] debug-file - entry : default@GenerateLoaderJson cost memory 0.431304931640625
+[2026-01-15T10:44:03.953] [INFO] debug-file - UP-TO-DATE :entry:default@GenerateLoaderJson...  
+[2026-01-15T10:44:03.961] [DEBUG] debug-file - restool module names: entry; moduleName=entry, taskName=default@CompileResource
+[2026-01-15T10:44:03.965] [DEBUG] debug-file - Executing task :entry:default@CompileResource
+[2026-01-15T10:44:04.160] [DEBUG] debug-file - Incremental task entry:default@CompileResource pre-execution cost: 189 ms .
+[2026-01-15T10:44:04.161] [DEBUG] debug-file - entry : default@CompileResource cost memory 0.6187744140625
+[2026-01-15T10:44:04.176] [INFO] debug-file - UP-TO-DATE :entry:default@CompileResource...  
+[2026-01-15T10:44:04.187] [DEBUG] debug-file - Executing task :entry:default@CompileArkTS
+[2026-01-15T10:44:04.188] [DEBUG] debug-file - obfuscationOptions: undefined
+[2026-01-15T10:44:04.198] [DEBUG] debug-file - Task 'entry:default@CompileArkTS' cost while wrapping incremental declarations: 1 ms 
+[2026-01-15T10:44:04.283] [DEBUG] debug-file - Incremental task entry:default@CompileArkTS pre-execution cost: 70 ms .
+[2026-01-15T10:44:04.284] [DEBUG] debug-file - entry : default@CompileArkTS cost memory -1.22137451171875
+[2026-01-15T10:44:04.290] [INFO] debug-file - UP-TO-DATE :entry:default@CompileArkTS...  
+[2026-01-15T10:44:04.292] [DEBUG] debug-file - Executing task :entry:default@BuildJS
+[2026-01-15T10:44:04.293] [DEBUG] debug-file - Task 'entry:default@BuildJS' cost while wrapping incremental declarations: 1 ms 
+[2026-01-15T10:44:04.305] [DEBUG] debug-file - entry : default@BuildJS cost memory 0.14580535888671875
+[2026-01-15T10:44:04.306] [DEBUG] debug-file - runTaskFromQueue task cost before running: 1 s 773 ms 
+[2026-01-15T10:44:04.306] [INFO] debug-file - Finished :entry:default@BuildJS... after 14 ms 
+[2026-01-15T10:44:04.412] [DEBUG] debug-file - A work dispatched to worker[11] failed because unable to get work from ready queue.
+[2026-01-15T10:44:04.413] [DEBUG] debug-file - default@BuildNativeWithNinja work[5] has been dispatched to worker[10].
+[2026-01-15T10:44:04.717] [DEBUG] debug-file - ninja: Entering directory `F:\zhoubingquan\VpnProxyServer\entry\.cxx\default\default\debug\arm64-v8a'
+ninja: no work to do.
+
+[2026-01-15T10:44:04.721] [DEBUG] debug-file - worker[10] has one work done.
+[2026-01-15T10:44:04.742] [DEBUG] debug-file - default@BuildNativeWithNinja work[5] done.
+[2026-01-15T10:44:04.743] [INFO] debug-file - Finished :entry:default@BuildNativeWithNinja... after 365 ms 
+[2026-01-15T10:44:04.746] [DEBUG] debug-file - Executing task :entry:default@ProcessLibs
+[2026-01-15T10:44:04.768] [DEBUG] debug-file - Check content hash for F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\cmake\default\obj\arm64-v8a\libvpn_server.so
+[2026-01-15T10:44:04.814] [DEBUG] debug-file - Check content hash for F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\cmake\default\obj\arm64-v8a\libc++_shared.so
+[2026-01-15T10:44:04.855] [DEBUG] debug-file - Incremental task entry:default@ProcessLibs pre-execution cost: 15 ms .
+[2026-01-15T10:44:04.857] [DEBUG] debug-file - entry : default@ProcessLibs cost memory -0.6085052490234375
+[2026-01-15T10:44:04.862] [INFO] debug-file - UP-TO-DATE :entry:default@ProcessLibs...  
+[2026-01-15T10:44:04.866] [DEBUG] debug-file - Executing task :entry:default@DoNativeStrip
+[2026-01-15T10:44:04.866] [DEBUG] debug-file - Task 'entry:default@DoNativeStrip' cost while wrapping incremental declarations: 1 ms 
+[2026-01-15T10:44:04.878] [DEBUG] debug-file - Incremental task entry:default@DoNativeStrip pre-execution cost: 11 ms .
+[2026-01-15T10:44:04.878] [DEBUG] debug-file - entry : default@DoNativeStrip cost memory 0.13735198974609375
+[2026-01-15T10:44:04.878] [INFO] debug-file - UP-TO-DATE :entry:default@DoNativeStrip...  
+[2026-01-15T10:44:04.882] [DEBUG] debug-file - Executing task :entry:default@CacheNativeLibs
+[2026-01-15T10:44:04.885] [DEBUG] debug-file - Task 'entry:default@CacheNativeLibs' cost while wrapping incremental declarations: 3 ms 
+[2026-01-15T10:44:04.894] [DEBUG] debug-file - Incremental task entry:default@CacheNativeLibs pre-execution cost: 8 ms .
+[2026-01-15T10:44:04.894] [DEBUG] debug-file - entry : default@CacheNativeLibs cost memory 0.151519775390625
+[2026-01-15T10:44:04.894] [INFO] debug-file - UP-TO-DATE :entry:default@CacheNativeLibs...  
+[2026-01-15T10:44:04.901] [DEBUG] debug-file - Executing task :entry:default@GeneratePkgModuleJson
+[2026-01-15T10:44:04.902] [DEBUG] debug-file - File: 'F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\preload\default\preload.json' from 'preloadSoJsonPath' is not exists, just ignore.
+[2026-01-15T10:44:04.902] [DEBUG] debug-file - Error occurs while handling @Input 'shouldDeduplicateHar': The "data" argument must be of type string or an instance of Buffer, TypedArray, or DataView. Received undefined
+[2026-01-15T10:44:04.902] [DEBUG] debug-file - Task 'entry:default@GeneratePkgModuleJson' cost while wrapping incremental declarations: 1 ms 
+[2026-01-15T10:44:04.904] [DEBUG] debug-file - Incremental task entry:default@GeneratePkgModuleJson pre-execution cost: 2 ms .
+[2026-01-15T10:44:04.904] [DEBUG] debug-file - entry : default@GeneratePkgModuleJson cost memory 0.11052703857421875
+[2026-01-15T10:44:04.904] [INFO] debug-file - UP-TO-DATE :entry:default@GeneratePkgModuleJson...  
+[2026-01-15T10:44:04.905] [DEBUG] debug-file - Executing task :entry:default@ProcessCompiledResources
+[2026-01-15T10:44:04.906] [DEBUG] debug-file - File: 'F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\preload\default\preload.json' from 'preloadSoJsonPath' is not exists, just ignore.
+[2026-01-15T10:44:04.906] [DEBUG] debug-file - Task 'entry:default@ProcessCompiledResources' cost while wrapping incremental declarations: 1 ms 
+[2026-01-15T10:44:04.906] [DEBUG] debug-file - entry : default@ProcessCompiledResources cost memory 0.06298828125
+[2026-01-15T10:44:04.906] [DEBUG] debug-file - runTaskFromQueue task cost before running: 2 s 374 ms 
+[2026-01-15T10:44:04.906] [INFO] debug-file - Finished :entry:default@ProcessCompiledResources... after 1 ms 
+[2026-01-15T10:44:04.913] [DEBUG] debug-file - Executing task :entry:default@PackageHap
+[2026-01-15T10:44:04.958] [DEBUG] debug-file - Incremental task entry:default@PackageHap pre-execution cost: 43 ms .
+[2026-01-15T10:44:04.959] [DEBUG] debug-file - entry : default@PackageHap cost memory -5.776664733886719
+[2026-01-15T10:44:04.960] [INFO] debug-file - UP-TO-DATE :entry:default@PackageHap...  
+[2026-01-15T10:44:04.962] [DEBUG] debug-file - Executing task :entry:default@PackingCheck
+[2026-01-15T10:44:04.985] [DEBUG] debug-file - entry : default@PackingCheck cost memory 0.6172103881835938
+[2026-01-15T10:44:04.985] [DEBUG] debug-file - runTaskFromQueue task cost before running: 2 s 452 ms 
+[2026-01-15T10:44:04.985] [INFO] debug-file - Finished :entry:default@PackingCheck... after 24 ms 
+[2026-01-15T10:44:04.987] [DEBUG] debug-file - Executing task :entry:default@SignHap
+[2026-01-15T10:44:04.996] [DEBUG] debug-file - Incremental task entry:default@SignHap pre-execution cost: 9 ms .
+[2026-01-15T10:44:04.996] [DEBUG] debug-file - entry : default@SignHap cost memory 0.10617828369140625
+[2026-01-15T10:44:04.997] [INFO] debug-file - UP-TO-DATE :entry:default@SignHap...  
+[2026-01-15T10:44:04.999] [DEBUG] debug-file - Executing task :entry:default@CollectDebugSymbol
+[2026-01-15T10:44:05.008] [DEBUG] debug-file - entry : default@CollectDebugSymbol cost memory 0.0926513671875
+[2026-01-15T10:44:05.008] [DEBUG] debug-file - runTaskFromQueue task cost before running: 2 s 476 ms 
+[2026-01-15T10:44:05.009] [INFO] debug-file - Finished :entry:default@CollectDebugSymbol... after 9 ms 
+[2026-01-15T10:44:05.009] [DEBUG] debug-file - Executing task :entry:assembleHap
+[2026-01-15T10:44:05.009] [DEBUG] debug-file - entry : assembleHap cost memory 0.01428985595703125
+[2026-01-15T10:44:05.009] [DEBUG] debug-file - runTaskFromQueue task cost before running: 2 s 477 ms 
+[2026-01-15T10:44:05.010] [INFO] debug-file - Finished :entry:assembleHap... after 1 ms 
+[2026-01-15T10:44:05.027] [INFO] debug-file - BUILD SUCCESSFUL in 2 s 494 ms 
+[2026-01-15T10:44:05.027] [DEBUG] debug-file - There is no need to refresh cache, since the incremental task entry:default@PreBuild is up-to-date.
+[2026-01-15T10:44:05.027] [DEBUG] debug-file - Update task entry:default@CreateModuleInfo output file:F:\zhoubingquan\VpnProxyServer\entry\build\default\generated\profile\default\ModuleInfo.ts cache.
+[2026-01-15T10:44:05.028] [DEBUG] debug-file - Incremental task entry:default@CreateModuleInfo post-execution cost:1 ms .
+[2026-01-15T10:44:05.029] [DEBUG] debug-file - There is no need to refresh cache, since the incremental task entry:default@GenerateMetadata is up-to-date.
+[2026-01-15T10:44:05.029] [DEBUG] debug-file - There is no need to refresh cache, since the incremental task entry:default@MergeProfile is up-to-date.
+[2026-01-15T10:44:05.031] [DEBUG] debug-file - There is no need to refresh cache, since the incremental task entry:default@CreateBuildProfile is up-to-date.
+[2026-01-15T10:44:05.032] [DEBUG] debug-file - Update task entry:default@GeneratePkgContextInfo output file:F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\loader\default\pkgContextInfo.json cache.
+[2026-01-15T10:44:05.034] [DEBUG] debug-file - Incremental task entry:default@GeneratePkgContextInfo post-execution cost:4 ms .
+[2026-01-15T10:44:05.035] [DEBUG] debug-file - Update task entry:default@ProcessIntegratedHsp output file:F:\zhoubingquan\VpnProxyServer\build\cache\default\integrated_hsp\integratedHspCache.json cache.
+[2026-01-15T10:44:05.036] [DEBUG] debug-file - Incremental task entry:default@ProcessIntegratedHsp post-execution cost:2 ms .
+[2026-01-15T10:44:05.036] [DEBUG] debug-file - There is no need to refresh cache, since the incremental task entry:default@MakePackInfo is up-to-date.
+[2026-01-15T10:44:05.036] [DEBUG] debug-file - Update task entry:default@SyscapTransform input file:F:\Huawei\DevEco Studio\sdk\default\openharmony\toolchains\syscap_tool.exe cache by regenerate.
+[2026-01-15T10:44:05.038] [DEBUG] debug-file - Update task entry:default@SyscapTransform input file:F:\Huawei\DevEco Studio\sdk\default\openharmony\ets\api\device-define cache by regenerate.
+[2026-01-15T10:44:05.046] [DEBUG] debug-file - Update task entry:default@SyscapTransform output file:F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\syscap\default\rpcid.sc cache.
+[2026-01-15T10:44:05.047] [DEBUG] debug-file - Incremental task entry:default@SyscapTransform post-execution cost:10 ms .
+[2026-01-15T10:44:05.048] [DEBUG] debug-file - There is no need to refresh cache, since the incremental task entry:default@ProcessProfile is up-to-date.
+[2026-01-15T10:44:05.048] [DEBUG] debug-file - There is no need to refresh cache, since the incremental task entry:default@ProcessRouterMap is up-to-date.
+[2026-01-15T10:44:05.048] [DEBUG] debug-file - There is no need to refresh cache, since the incremental task entry:default@ProcessShareConfig is up-to-date.
+[2026-01-15T10:44:05.049] [DEBUG] debug-file - Update task entry:default@ProcessStartupConfig output file:F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\startup\default\startup_config.json cache.
+[2026-01-15T10:44:05.050] [DEBUG] debug-file - Incremental task entry:default@ProcessStartupConfig post-execution cost:2 ms .
+[2026-01-15T10:44:05.050] [DEBUG] debug-file - There is no need to refresh cache, since the incremental task entry:default@ProcessResource is up-to-date.
+[2026-01-15T10:44:05.050] [DEBUG] debug-file - There is no need to refresh cache, since the incremental task entry:default@GenerateLoaderJson is up-to-date.
+[2026-01-15T10:44:05.050] [DEBUG] debug-file - There is no need to refresh cache, since the incremental task entry:default@CompileResource is up-to-date.
+[2026-01-15T10:44:05.051] [DEBUG] debug-file - There is no need to refresh cache, since the incremental task entry:default@CompileArkTS is up-to-date.
+[2026-01-15T10:44:05.054] [DEBUG] debug-file - Update task entry:default@BuildJS input file:F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\loader\default cache by regenerate.
+[2026-01-15T10:44:05.062] [DEBUG] debug-file - Update task entry:default@BuildJS input file:F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\res\default\resources\rawfile cache by regenerate.
+[2026-01-15T10:44:05.064] [DEBUG] debug-file - Update task entry:default@BuildJS input file:F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\res\default\ResourceTable.txt cache by regenerate.
+[2026-01-15T10:44:05.066] [DEBUG] debug-file - Update task entry:default@BuildJS input file:F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\res\default\ark_module.json cache by regenerate.
+[2026-01-15T10:44:05.067] [DEBUG] debug-file - Update task entry:default@BuildJS input file:F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\res\default\resources\base\profile cache by regenerate.
+[2026-01-15T10:44:05.077] [DEBUG] debug-file - Update task entry:default@BuildJS output file:F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\loader_out\default\js cache.
+[2026-01-15T10:44:05.078] [DEBUG] debug-file - Incremental task entry:default@BuildJS post-execution cost:28 ms .
+[2026-01-15T10:44:05.078] [DEBUG] debug-file - There is no need to refresh cache, since the incremental task entry:default@ProcessLibs is up-to-date.
+[2026-01-15T10:44:05.078] [DEBUG] debug-file - There is no need to refresh cache, since the incremental task entry:default@DoNativeStrip is up-to-date.
+[2026-01-15T10:44:05.078] [DEBUG] debug-file - There is no need to refresh cache, since the incremental task entry:default@CacheNativeLibs is up-to-date.
+[2026-01-15T10:44:05.078] [DEBUG] debug-file - There is no need to refresh cache, since the incremental task entry:default@GeneratePkgModuleJson is up-to-date.
+[2026-01-15T10:44:05.078] [DEBUG] debug-file - Incremental task entry:default@ProcessCompiledResources post-execution cost:1 ms .
+[2026-01-15T10:44:05.079] [DEBUG] debug-file - There is no need to refresh cache, since the incremental task entry:default@PackageHap is up-to-date.
+[2026-01-15T10:44:05.079] [DEBUG] debug-file - There is no need to refresh cache, since the incremental task entry:default@SignHap is up-to-date.
+[2026-01-15T10:44:05.080] [DEBUG] debug-file - Update task entry:default@CollectDebugSymbol input file:F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\loader_out\default\ets\sourceMaps.map cache by regenerate.
+[2026-01-15T10:44:05.080] [DEBUG] debug-file - Update task entry:default@CollectDebugSymbol input file:F:\zhoubingquan\VpnProxyServer\entry\build\default\intermediates\libs\default cache by regenerate.
+[2026-01-15T10:44:05.085] [DEBUG] debug-file - Update task entry:default@CollectDebugSymbol output file:F:\zhoubingquan\VpnProxyServer\entry\build\default\outputs\default\symbol cache.
+[2026-01-15T10:44:05.085] [DEBUG] debug-file - Incremental task entry:default@CollectDebugSymbol post-execution cost:7 ms .
+[2026-01-15T10:44:05.120] [DEBUG] debug-file - hvigor build process will be closed.
+[2026-01-15T10:44:05.135] [DEBUG] debug-file - session manager: send message to worker process.
+[2026-01-15T10:44:05.138] [DEBUG] debug-file - session manager: send message to worker process.
+[2026-01-15T10:44:05.136] [DEBUG] debug-file - watch worker: worker id should be larger than 0. Nothing will be sent to any worker thread.
+[2026-01-15T10:44:05.139] [DEBUG] debug-file - watch worker: worker id should be larger than 0. Nothing will be sent to any worker thread.

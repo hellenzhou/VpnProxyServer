@@ -82,18 +82,22 @@ int PacketBuilder::BuildResponsePacket(uint8_t* buffer, int bufferSize,
         return -1;
     }
     
-    // 交换源和目标（响应包方向相反）
-    PacketInfo response = SwapSourceDest(originalRequest);
-    
     // 只支持IPv4
-    if (response.addressFamily != AF_INET) {
+    if (originalRequest.addressFamily != AF_INET) {
         PACKET_BUILDER_LOGE("Only IPv4 supported");
         return -1;
     }
     
+    // 🔧 修复：不使用SwapSourceDest，而是根据NAT映射正确设置
+    // 响应包应该是：
+    // 源IP = originalRequest.targetIP (真实服务器的IP，如baidu.com或DNS服务器)
+    // 源端口 = originalRequest.targetPort (真实服务器的端口，如53/80)
+    // 目标IP = originalRequest.sourceIP (客户端的VPN虚拟IP，如192.168.0.2)
+    // 目标端口 = originalRequest.sourcePort (客户端的端口，如54321)
+    
     // 构建IPv4头（20字节）
     int ipHeaderLen = 20;
-    int transportHeaderLen = (response.protocol == PROTOCOL_TCP) ? 20 : 8;
+    int transportHeaderLen = (originalRequest.protocol == PROTOCOL_TCP) ? 20 : 8;
     int totalLen = ipHeaderLen + transportHeaderLen + payloadSize;
     
     if (totalLen > bufferSize) {
@@ -113,18 +117,18 @@ int PacketBuilder::BuildResponsePacket(uint8_t* buffer, int bufferSize,
     buffer[6] = 0x40;  // Flags: Don't fragment
     buffer[7] = 0x00;
     buffer[8] = 0x40;  // TTL: 64
-    buffer[9] = response.protocol;  // Protocol
+    buffer[9] = originalRequest.protocol;  // Protocol
     buffer[10] = 0x00;  // Checksum (will calculate later)
     buffer[11] = 0x00;
     
-    // Source IP (response.targetIP -> original source)
+    // 🔧 修复：源IP = 真实服务器的IP (originalRequest.targetIP)
     struct in_addr srcAddr;
-    inet_pton(AF_INET, response.targetIP.c_str(), &srcAddr);
+    inet_pton(AF_INET, originalRequest.targetIP.c_str(), &srcAddr);
     memcpy(buffer + 12, &srcAddr, 4);
     
-    // Destination IP (response.sourceIP -> original target)
+    // 🔧 修复：目标IP = 客户端的VPN虚拟IP (originalRequest.sourceIP)
     struct in_addr dstAddr;
-    inet_pton(AF_INET, response.sourceIP.c_str(), &dstAddr);
+    inet_pton(AF_INET, originalRequest.sourceIP.c_str(), &dstAddr);
     memcpy(buffer + 16, &dstAddr, 4);
     
     // 计算IP校验和
@@ -134,12 +138,14 @@ int PacketBuilder::BuildResponsePacket(uint8_t* buffer, int bufferSize,
     
     uint8_t* transportHeader = buffer + ipHeaderLen;
     
-    if (response.protocol == PROTOCOL_TCP) {
-        // TCP头（简化版，20字节）
-        transportHeader[0] = (response.targetPort >> 8) & 0xFF;  // Source port
-        transportHeader[1] = response.targetPort & 0xFF;
-        transportHeader[2] = (response.sourcePort >> 8) & 0xFF;  // Dest port
-        transportHeader[3] = response.sourcePort & 0xFF;
+    if (originalRequest.protocol == PROTOCOL_TCP) {
+        // TCP头（简化版，20字节）- 暂不支持，见后续代码
+        // 🔧 修复：源端口 = 真实服务器的端口 (originalRequest.targetPort)
+        transportHeader[0] = (originalRequest.targetPort >> 8) & 0xFF;
+        transportHeader[1] = originalRequest.targetPort & 0xFF;
+        // 🔧 修复：目标端口 = 客户端的端口 (originalRequest.sourcePort)
+        transportHeader[2] = (originalRequest.sourcePort >> 8) & 0xFF;
+        transportHeader[3] = originalRequest.sourcePort & 0xFF;
         // Sequence number, ACK number等留空（需要根据实际TCP状态填充）
         memset(transportHeader + 4, 0, 8);
         transportHeader[12] = 0x50;  // Data offset: 5 (20 bytes)
@@ -159,12 +165,14 @@ int PacketBuilder::BuildResponsePacket(uint8_t* buffer, int bufferSize,
         transportHeader[16] = (tcpChecksum >> 8) & 0xFF;
         transportHeader[17] = tcpChecksum & 0xFF;
         
-    } else if (response.protocol == PROTOCOL_UDP) {
+    } else if (originalRequest.protocol == PROTOCOL_UDP) {
         // UDP头（8字节）
-        transportHeader[0] = (response.targetPort >> 8) & 0xFF;  // Source port
-        transportHeader[1] = response.targetPort & 0xFF;
-        transportHeader[2] = (response.sourcePort >> 8) & 0xFF;  // Dest port
-        transportHeader[3] = response.sourcePort & 0xFF;
+        // 🔧 修复：源端口 = 真实服务器的端口 (originalRequest.targetPort)
+        transportHeader[0] = (originalRequest.targetPort >> 8) & 0xFF;
+        transportHeader[1] = originalRequest.targetPort & 0xFF;
+        // 🔧 修复：目标端口 = 客户端的端口 (originalRequest.sourcePort)
+        transportHeader[2] = (originalRequest.sourcePort >> 8) & 0xFF;
+        transportHeader[3] = originalRequest.sourcePort & 0xFF;
         
         int udpLen = 8 + payloadSize;
         transportHeader[4] = (udpLen >> 8) & 0xFF;  // Length

@@ -70,6 +70,14 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
     inet_pton(AF_INET, packetInfo.targetIP.c_str(), &targetAddr.sin_addr);
     
     // 5. 根据协议转发
+    // 🔧 临时修复：暂时只支持UDP
+    if (packetInfo.protocol == PROTOCOL_TCP) {
+        LOG("⚠️ TCP暂不支持，跳过此包（仅支持UDP/DNS）");
+        NATTable::RemoveMapping(natKey);
+        close(sockFd);
+        return -1;
+    }
+    
     if (packetInfo.protocol == PROTOCOL_UDP) {
         // UDP：直接发送
         ssize_t sent = sendto(sockFd, payload, payloadSize, 0, 
@@ -86,33 +94,12 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
         std::thread([sockFd, originalPeer, packetInfo]() {
             HandleUdpResponseSimple(sockFd, originalPeer, packetInfo);
         }).detach();
-        
     } else {
-        // TCP：先连接再发送
-        LOG("🔌 TCP连接中...");
-        if (connect(sockFd, (struct sockaddr*)&targetAddr, sizeof(targetAddr)) < 0) {
-            LOG("❌ TCP连接失败: %s", strerror(errno));
-            NATTable::RemoveMapping(natKey);
-            close(sockFd);
-            return -1;
-        }
-        LOG("✅ TCP连接成功");
-        
-        if (payloadSize > 0) {
-            ssize_t sent = send(sockFd, payload, payloadSize, 0);
-            if (sent < 0) {
-                LOG("❌ TCP发送失败: %s", strerror(errno));
-                NATTable::RemoveMapping(natKey);
-                close(sockFd);
-                return -1;
-            }
-            LOG("✅ TCP发送成功: %zd字节", sent);
-        }
-        
-        // 启动响应线程
-        std::thread([sockFd, originalPeer, packetInfo]() {
-            HandleTcpResponseSimple(sockFd, originalPeer, packetInfo);
-        }).detach();
+        // 不应该到这里（TCP已经在上面被拦截）
+        LOG("❌ 未知协议: %d", packetInfo.protocol);
+        NATTable::RemoveMapping(natKey);
+        close(sockFd);
+        return -1;
     }
     
     return sockFd;
@@ -131,60 +118,86 @@ static void HandleUdpResponseSimple(int sockFd, sockaddr_in originalPeer, const 
     }
     LOG("✅ 找到NAT映射");
     
-    // 接收响应
-    uint8_t responsePayload[4096];
-    struct sockaddr_in responseAddr{};
-    socklen_t addrLen = sizeof(responseAddr);
-    
     // 设置超时
     struct timeval timeout = {5, 0};
     setsockopt(sockFd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
     
-    ssize_t received = recvfrom(sockFd, responsePayload, sizeof(responsePayload), 0,
-                                (struct sockaddr*)&responseAddr, &addrLen);
+    // 🔧 修复：接收多个UDP响应，不要在第一次响应后就关闭
+    int responseCount = 0;
+    const int MAX_UDP_RESPONSES = 10;  // 最多接收10个响应
+    bool hasResponse = false;
     
-    // 声明所有可能用到的变量
-    uint8_t ipPacket[4096 + 60];
-    int packetLen = 0;
-    ssize_t sent = 0;
-    
-    if (received <= 0) {
-        LOG("❌ UDP响应接收失败: %s", strerror(errno));
-        goto cleanup;
+    while (responseCount < MAX_UDP_RESPONSES) {
+        uint8_t responsePayload[4096];
+        struct sockaddr_in responseAddr{};
+        socklen_t addrLen = sizeof(responseAddr);
+        
+        ssize_t received = recvfrom(sockFd, responsePayload, sizeof(responsePayload), 0,
+                                    (struct sockaddr*)&responseAddr, &addrLen);
+        
+        if (received <= 0) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                LOG("⏱️ UDP响应超时，退出循环 (已接收%d个响应)", responseCount);
+            } else {
+                LOG("❌ UDP响应接收失败: %s", strerror(errno));
+            }
+            break;
+        }
+        
+        responseCount++;
+        hasResponse = true;
+        LOG("✅ 收到UDP响应 #%d: %zd字节", responseCount, received);
+        
+        // 封装成IP包
+        uint8_t ipPacket[4096 + 60];
+        int packetLen = PacketBuilder::BuildResponsePacket(
+            ipPacket, sizeof(ipPacket),
+            responsePayload, received,
+            conn.originalRequest
+        );
+        
+        if (packetLen < 0) {
+            LOG("❌ 构建响应包失败");
+            continue;
+        }
+        
+        LOG("✅ 构建IP包: %d字节", packetLen);
+        
+        // 发送给客户端
+        ssize_t sent = sendto(g_sockFd, ipPacket, packetLen, 0,
+                              (struct sockaddr*)&conn.clientPhysicalAddr, 
+                              sizeof(conn.clientPhysicalAddr));
+        
+        if (sent > 0) {
+            LOG("✅ 发送给客户端成功: %zd字节", sent);
+        } else {
+            LOG("❌ 发送给客户端失败: %s", strerror(errno));
+        }
+        
+        // 🔧 修复：更新活动时间，而不是删除映射
+        std::string natKey = NATTable::GenerateKey(conn.originalRequest);
+        NATTable::UpdateActivity(natKey);
     }
     
-    LOG("✅ 收到UDP响应: %zd字节", received);
-    
-    // 封装成IP包
-    packetLen = PacketBuilder::BuildResponsePacket(
-        ipPacket, sizeof(ipPacket),
-        responsePayload, received,
-        conn.originalRequest
-    );
-    
-    if (packetLen < 0) {
-        LOG("❌ 构建响应包失败");
-        goto cleanup;
-    }
-    
-    LOG("✅ 构建IP包: %d字节", packetLen);
-    
-    // 发送给客户端
-    sent = sendto(g_sockFd, ipPacket, packetLen, 0,
-                  (struct sockaddr*)&conn.clientPhysicalAddr, 
-                  sizeof(conn.clientPhysicalAddr));
-    
-    if (sent > 0) {
-        LOG("✅ 发送给客户端成功: %zd字节", sent);
+    // 🔧 修复：延迟删除映射，保留30秒让后续的UDP请求可以复用
+    if (hasResponse) {
+        LOG("🔒 UDP响应处理完成，保留映射30秒");
+        
+        // 在后台线程中延迟清理
+        std::thread([sockFd, conn]() {
+            std::this_thread::sleep_for(std::chrono::seconds(30));
+            std::string natKey = NATTable::GenerateKey(conn.originalRequest);
+            NATTable::RemoveMapping(natKey);
+            close(sockFd);
+            LOG("🧹 30秒后清理UDP映射: %s", natKey.c_str());
+        }).detach();
     } else {
-        LOG("❌ 发送给客户端失败: %s", strerror(errno));
+        // 如果没有收到任何响应，立即清理
+        LOG("⚠️ 未收到任何UDP响应，立即清理");
+        std::string natKey = NATTable::GenerateKey(conn.originalRequest);
+        NATTable::RemoveMapping(natKey);
+        close(sockFd);
     }
-    
-cleanup:
-    std::string natKey = NATTable::GenerateKey(conn.originalRequest);
-    NATTable::RemoveMapping(natKey);
-    close(sockFd);
-    LOG("🔒 清理完成");
 }
 
 // ========== TCP响应处理（简化版）==========
