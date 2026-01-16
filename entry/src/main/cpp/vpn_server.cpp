@@ -1787,21 +1787,21 @@ napi_value TestDNSQuery(napi_env env, napi_callback_info info)
   VPN_SERVER_LOGI("📤 Sending DNS test packet to server (127.0.0.1:8888)...");
   
   // 创建测试socket
-  int testSock = socket(AF_INET, SOCK_DGRAM, 0);
-  if (testSock < 0) {
-    VPN_SERVER_LOGE("❌ Failed to create test socket: %{public}s", strerror(errno));
+  int dnsTestSock = socket(AF_INET, SOCK_DGRAM, 0);
+  if (dnsTestSock < 0) {
+    VPN_SERVER_LOGE("❌ Failed to create DNS test socket: %s", strerror(errno));
     napi_value result;
-    napi_create_string_utf8(env, "Failed to create test socket", NAPI_AUTO_LENGTH, &result);
+    napi_create_string_utf8(env, "❌ Failed to create DNS test socket", NAPI_AUTO_LENGTH, &result);
     return result;
   }
   
   // 发送测试包
-  int sent = sendto(testSock, ipPacket, totalLen, 0,
+  int sent = sendto(dnsTestSock, ipPacket, totalLen, 0,
                    reinterpret_cast<sockaddr*>(&testAddr), sizeof(testAddr));
   
   if (sent < 0) {
     VPN_SERVER_LOGE("❌ Failed to send test packet: %{public}s", strerror(errno));
-    close(testSock);
+    close(dnsTestSock);
     napi_value result;
     napi_create_string_utf8(env, "Failed to send test packet", NAPI_AUTO_LENGTH, &result);
     return result;
@@ -1809,27 +1809,27 @@ napi_value TestDNSQuery(napi_env env, napi_callback_info info)
   
   VPN_SERVER_LOGI("✅ Test packet sent: %{public}d bytes", sent);
   
-  // 设置接收超时（1秒，避免阻塞UI线程过久）
+  // 设置接收超时（500ms，避免阻塞UI线程）
   struct timeval timeout;
-  timeout.tv_sec = 1;
-  timeout.tv_usec = 0;
-  setsockopt(testSock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+  timeout.tv_sec = 0;
+  timeout.tv_usec = 500000;  // 500ms
+  setsockopt(dnsTestSock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
   
   // 接收响应
   uint8_t responseBuffer[2048];
   sockaddr_in fromAddr{};
   socklen_t fromLen = sizeof(fromAddr);
   
-  VPN_SERVER_LOGI("⏳ Waiting for DNS response (timeout: 1 second)...");
+  VPN_SERVER_LOGI("⏳ Waiting for DNS response (timeout: 500ms)...");
   
-  int received = recvfrom(testSock, responseBuffer, sizeof(responseBuffer), 0,
+  int received = recvfrom(dnsTestSock, responseBuffer, sizeof(responseBuffer), 0,
                          reinterpret_cast<sockaddr*>(&fromAddr), &fromLen);
   
-  close(testSock);
+  close(dnsTestSock);
   
   if (received < 0) {
     if (errno == EAGAIN || errno == EWOULDBLOCK) {
-      VPN_SERVER_LOGE("❌ DNS test TIMEOUT (1 second)");
+      VPN_SERVER_LOGE("❌ DNS test TIMEOUT (500ms)");
       VPN_SERVER_LOGE("   Root cause: Cannot reach 8.8.8.8 (Google DNS)");
       VPN_SERVER_LOGE("   Possible reasons:");
       VPN_SERVER_LOGE("   1. ❌ Firewall blocking UDP port 53 (DNS)");
@@ -1837,7 +1837,7 @@ napi_value TestDNSQuery(napi_env env, napi_callback_info info)
       VPN_SERVER_LOGE("   3. ❌ Network gateway/Internet connection down");
       VPN_SERVER_LOGE("   This is NOT a proxy server bug!");
       napi_value result;
-      napi_create_string_utf8(env, "❌ DNS Test FAILED (Timeout 1s)\n\n🔍 Root Cause: Cannot reach Google DNS (8.8.8.8)\n\n⚠️  This is NOT a proxy server bug!\n\nPossible reasons:\n  • Firewall blocking DNS port 53\n  • GFW blocking Google DNS\n  • Network/Internet down\n\n💡 Try:\n  • Use 114.114.114.114 (China DNS)\n  • Check firewall settings\n  • Verify internet connection", NAPI_AUTO_LENGTH, &result);
+      napi_create_string_utf8(env, "❌ DNS Test FAILED (Timeout 500ms)\n\n🔍 Root Cause: Cannot reach Google DNS (8.8.8.8)\n\n⚠️  This is NOT a proxy server bug!\n\nPossible reasons:\n  • Firewall blocking DNS port 53\n  • GFW blocking Google DNS\n  • Network/Internet down\n\n💡 Try:\n  • Use 114.114.114.114 (China DNS)\n  • Check firewall settings\n  • Verify internet connection", NAPI_AUTO_LENGTH, &result);
       return result;
     } else {
       VPN_SERVER_LOGE("❌ Failed to receive response: %{public}s (errno=%{public}d)", strerror(errno), errno);
