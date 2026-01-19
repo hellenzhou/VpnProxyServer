@@ -7,11 +7,11 @@
         "material": {
           "certpath": "C:\\Users\\LeagSoft\\.ohos\\config\\default_VpnProxyServer_3OY97C7DhfR-jqc5aua3vHRaPtcUoLk1-zsOXb_JqbA=.cer",
           "keyAlias": "debugKey",
-          "keyPassword": "00000019D80DE4CDAB0BA9DF06403BDF54E9546572DF165FCCBA6A39922C13D806A6DFA3BF347F8ECC",
+          "keyPassword": "0000001B05B2A431080414FFECE6D69A1CEF63F4300D1FB05555CA9092F548DD9DD34F116C3C9213CFA3D8",
           "profile": "C:\\Users\\LeagSoft\\.ohos\\config\\default_VpnProxyServer_3OY97C7DhfR-jqc5aua3vHRaPtcUoLk1-zsOXb_JqbA=.p7b",
           "signAlg": "SHA256withECDSA",
           "storeFile": "C:\\Users\\LeagSoft\\.ohos\\config\\default_VpnProxyServer_3OY97C7DhfR-jqc5aua3vHRaPtcUoLk1-zsOXb_JqbA=.p12",
-          "storePassword": "000000190DC9EDDEDD2A64F58CDBC62F0FA12861D0E4C415AE39B8E10A76BD8806C72C357DDACA0691"
+          "storePassword": "0000001BFC67DA12DB734785454751F4DD19F67FCAA462700595520AE4AA45BDF9DF2005723CE6236D013D"
         }
       }
     ],
