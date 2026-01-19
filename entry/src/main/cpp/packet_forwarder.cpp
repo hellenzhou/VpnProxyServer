@@ -16,6 +16,9 @@
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #include <sys/time.h>
+#include <map>
+#include <chrono>
+#include <mutex>
 
 #define MAKE_FILE_NAME (strrchr(__FILE__, '/') ? (strrchr(__FILE__, '/') + 1) : __FILE__)
 #define LOG(fmt, ...) \
@@ -24,6 +27,14 @@
 // 静态辅助函数声明
 static void HandleUdpResponseSimple(int sockFd, sockaddr_in originalPeer, const PacketInfo& packetInfo);
 static void HandleTcpResponseSimple(int sockFd, sockaddr_in originalPeer, const PacketInfo& packetInfo);
+
+// 🔧 数据包去重缓存（防止循环转发）
+static std::map<std::string, std::chrono::steady_clock::time_point> g_recentPackets;
+static std::mutex g_recentPacketsMutex;
+
+// 🔧 Socket复用缓存（避免频繁创建/销毁socket）
+static std::map<std::string, int> g_socketCache;
+static std::mutex g_socketCacheMutex;
 
 // ========== 主转发函数 ==========
 int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize, 
@@ -35,7 +46,45 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
         ProtocolHandler::GetProtocolName(packetInfo.protocol).c_str(),
         dataSize);
     
-    // 1. 提取payload
+    // 🔧 1. 防止路由循环：检测重复数据包
+    std::string packetHash;
+    {
+        // 使用数据包关键信息生成hash
+        char hashBuf[256];
+        snprintf(hashBuf, sizeof(hashBuf), "%s:%d->%s:%d:%d",
+                packetInfo.sourceIP.c_str(), packetInfo.sourcePort,
+                packetInfo.targetIP.c_str(), packetInfo.targetPort,
+                dataSize);
+        packetHash = std::string(hashBuf);
+        
+        std::lock_guard<std::mutex> lock(g_recentPacketsMutex);
+        auto now = std::chrono::steady_clock::now();
+        
+        // 清理过期的数据包记录（超过1秒）
+        for (auto it = g_recentPackets.begin(); it != g_recentPackets.end();) {
+            if (std::chrono::duration_cast<std::chrono::milliseconds>(now - it->second).count() > 1000) {
+                it = g_recentPackets.erase(it);
+            } else {
+                ++it;
+            }
+        }
+        
+        // 检查是否是重复数据包（100ms内的重复认为是循环）
+        auto it = g_recentPackets.find(packetHash);
+        if (it != g_recentPackets.end()) {
+            auto timeSinceLastSeen = std::chrono::duration_cast<std::chrono::milliseconds>(now - it->second).count();
+            if (timeSinceLastSeen < 100) {
+                LOG("⚠️ 检测到可能的路由循环！拒绝转发重复数据包 (间隔%lldms): %s",
+                    timeSinceLastSeen, packetHash.c_str());
+                return -1;
+            }
+        }
+        
+        // 记录本次数据包
+        g_recentPackets[packetHash] = now;
+    }
+    
+    // 2. 提取payload
     const uint8_t* payload = nullptr;
     int payloadSize = 0;
     if (!PacketBuilder::ExtractPayload(data, dataSize, packetInfo, &payload, &payloadSize)) {
@@ -50,15 +99,46 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
     
     LOG("✅ 提取payload: %d字节", payloadSize);
     
-    // 2. 创建socket
-    int sockFd = socket(AF_INET, (packetInfo.protocol == PROTOCOL_UDP) ? SOCK_DGRAM : SOCK_STREAM, 0);
-    if (sockFd < 0) {
-        LOG("❌ 创建socket失败: %s", strerror(errno));
-        return -1;
-    }
-    LOG("✅ 创建socket: fd=%d", sockFd);
+    // 🔧 3. Socket复用：检查是否已有可用socket
+    std::string socketKey = packetInfo.targetIP + ":" + std::to_string(packetInfo.targetPort);
+    int sockFd = -1;
+    bool isNewSocket = false;
     
-    // 3. 先创建NAT映射（重要！必须在启动响应线程之前）
+    {
+        std::lock_guard<std::mutex> lock(g_socketCacheMutex);
+        auto it = g_socketCache.find(socketKey);
+        if (it != g_socketCache.end()) {
+            sockFd = it->second;
+            // 验证socket是否仍然有效
+            int error = 0;
+            socklen_t len = sizeof(error);
+            if (getsockopt(sockFd, SOL_SOCKET, SO_ERROR, &error, &len) == 0 && error == 0) {
+                LOG("♻️ 复用已有socket: fd=%d, key=%s", sockFd, socketKey.c_str());
+            } else {
+                LOG("⚠️ 缓存的socket无效，将创建新socket");
+                close(sockFd);
+                g_socketCache.erase(it);
+                sockFd = -1;
+            }
+        }
+    }
+    
+    // 如果没有可用socket，创建新的
+    if (sockFd < 0) {
+        sockFd = socket(AF_INET, (packetInfo.protocol == PROTOCOL_UDP) ? SOCK_DGRAM : SOCK_STREAM, 0);
+        if (sockFd < 0) {
+            LOG("❌ 创建socket失败: %s", strerror(errno));
+            return -1;
+        }
+        isNewSocket = true;
+        
+        // 添加到缓存
+        std::lock_guard<std::mutex> lock(g_socketCacheMutex);
+        g_socketCache[socketKey] = sockFd;
+        LOG("✅ 创建新socket: fd=%d, key=%s", sockFd, socketKey.c_str());
+    }
+    
+    // 4. 先创建NAT映射（重要！必须在启动响应线程之前）
     std::string natKey = NATTable::GenerateKey(packetInfo);
     NATTable::CreateMapping(natKey, originalPeer, packetInfo, sockFd);
     LOG("✅ NAT映射已创建: %s", natKey.c_str());
@@ -83,51 +163,77 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
         ssize_t sent = sendto(sockFd, payload, payloadSize, 0, 
                              (struct sockaddr*)&targetAddr, sizeof(targetAddr));
         if (sent < 0) {
-            LOG("❌ UDP发送失败: %s", strerror(errno));
+            LOG("❌ UDP发送失败: socket=%d, errno=%d (%s), target=%s:%d, size=%d", 
+                sockFd, errno, strerror(errno), 
+                packetInfo.targetIP.c_str(), packetInfo.targetPort, payloadSize);
             NATTable::RemoveMapping(natKey);
-            close(sockFd);
+            // 🔧 只有新socket才关闭，复用的socket保留在缓存中
+            if (isNewSocket) {
+                std::lock_guard<std::mutex> lock(g_socketCacheMutex);
+                g_socketCache.erase(socketKey);
+                close(sockFd);
+            }
             return -1;
         }
-        LOG("✅ UDP发送成功: %zd字节", sent);
+        LOG("✅ UDP发送成功: socket=%d, %zd字节 -> %s:%d", 
+            sockFd, sent, packetInfo.targetIP.c_str(), packetInfo.targetPort);
         
-        // 启动响应线程
-        std::thread([sockFd, originalPeer, packetInfo]() {
-            HandleUdpResponseSimple(sockFd, originalPeer, packetInfo);
-        }).detach();
+        // 🔧 只有新socket才启动响应线程，复用socket的响应线程已在运行
+        if (isNewSocket) {
+            LOG("🚀 启动新的UDP响应线程 for socket %d", sockFd);
+            std::thread([sockFd, originalPeer, packetInfo, socketKey]() {
+                LOG("🔥🔥🔥 响应线程已进入 - socket=%d 🔥🔥🔥", sockFd);
+                HandleUdpResponseSimple(sockFd, originalPeer, packetInfo);
+                
+                // 响应线程结束时，从缓存中删除socket
+                std::lock_guard<std::mutex> lock(g_socketCacheMutex);
+                g_socketCache.erase(socketKey);
+                LOG("🔥🔥🔥 响应线程已退出 - socket=%d 🔥🔥🔥", sockFd);
+            }).detach();
+        } else {
+            LOG("♻️ 复用现有响应线程 for socket %d", sockFd);
+        }
     } else {
         // 不应该到这里（TCP已经在上面被拦截）
         LOG("❌ 未知协议: %d", packetInfo.protocol);
         NATTable::RemoveMapping(natKey);
-        close(sockFd);
+        if (isNewSocket) {
+            std::lock_guard<std::mutex> lock(g_socketCacheMutex);
+            g_socketCache.erase(socketKey);
+            close(sockFd);
+        }
         return -1;
     }
     
     return sockFd;
 }
 
-// ========== UDP响应处理（简化版）==========
+// ========== UDP响应处理（改进版：持续监听）==========
 static void HandleUdpResponseSimple(int sockFd, sockaddr_in originalPeer, const PacketInfo& packetInfo) {
-    LOG("📥 UDP响应线程启动: socket=%d", sockFd);
+    LOG("📥📥📥 UDP响应线程启动: socket=%d, 目标=%s:%d 📥📥📥", 
+        sockFd, packetInfo.targetIP.c_str(), packetInfo.targetPort);
     
-    // 查找NAT映射
-    NATConnection conn;
-    if (!NATTable::FindMappingBySocket(sockFd, conn)) {
-        LOG("❌ 找不到NAT映射，退出");
-        close(sockFd);
-        return;
+    // 设置短超时（200ms），这样可以快速检查是否有响应
+    struct timeval timeout = {0, 200000};  // 200ms
+    int ret = setsockopt(sockFd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+    if (ret < 0) {
+        LOG("❌ 设置socket超时失败: %s", strerror(errno));
     }
-    LOG("✅ 找到NAT映射");
     
-    // 设置超时
-    struct timeval timeout = {5, 0};
-    setsockopt(sockFd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+    int consecutiveTimeouts = 0;
+    const int MAX_CONSECUTIVE_TIMEOUTS = 50;  // 50次超时 = 10秒无活动后退出
+    int totalResponses = 0;
     
-    // 🔧 修复：接收多个UDP响应，不要在第一次响应后就关闭
-    int responseCount = 0;
-    const int MAX_UDP_RESPONSES = 10;  // 最多接收10个响应
-    bool hasResponse = false;
-    
-    while (responseCount < MAX_UDP_RESPONSES) {
+    // 🔧 持续监听响应，直到长时间无活动
+    LOG("🔄 开始持续监听UDP响应... socket=%d", sockFd);
+    while (consecutiveTimeouts < MAX_CONSECUTIVE_TIMEOUTS) {
+        // 每次循环都重新查找NAT映射（可能已被更新）
+        NATConnection conn;
+        if (!NATTable::FindMappingBySocket(sockFd, conn)) {
+            LOG("❌ NAT映射已被删除，退出响应线程 socket=%d", sockFd);
+            break;
+        }
+        
         uint8_t responsePayload[4096];
         struct sockaddr_in responseAddr{};
         socklen_t addrLen = sizeof(responseAddr);
@@ -137,16 +243,23 @@ static void HandleUdpResponseSimple(int sockFd, sockaddr_in originalPeer, const 
         
         if (received <= 0) {
             if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                LOG("⏱️ UDP响应超时，退出循环 (已接收%d个响应)", responseCount);
+                consecutiveTimeouts++;
+                // 第1次、第5次和每隔25次打印一次状态（避免日志爆炸）
+                if (consecutiveTimeouts == 1 || consecutiveTimeouts == 5 || consecutiveTimeouts % 25 == 0) {
+                    LOG("⏱️ UDP响应线程等待中... socket=%d (已收%d个响应, 空闲%.1f秒)",
+                        sockFd, totalResponses, consecutiveTimeouts * 0.2);
+                }
+                continue;
             } else {
-                LOG("❌ UDP响应接收失败: %s", strerror(errno));
+                LOG("❌ UDP响应接收失败: socket=%d, errno=%d (%s)", sockFd, errno, strerror(errno));
+                break;
             }
-            break;
         }
         
-        responseCount++;
-        hasResponse = true;
-        LOG("✅ 收到UDP响应 #%d: %zd字节", responseCount, received);
+        // 收到响应，重置超时计数
+        consecutiveTimeouts = 0;
+        totalResponses++;
+        LOG("✅✅✅ 收到UDP响应 #%d: socket=%d, %zd字节 ✅✅✅", totalResponses, sockFd, received);
         
         // 封装成IP包
         uint8_t ipPacket[4096 + 60];
@@ -161,8 +274,6 @@ static void HandleUdpResponseSimple(int sockFd, sockaddr_in originalPeer, const 
             continue;
         }
         
-        LOG("✅ 构建IP包: %d字节", packetLen);
-        
         // 发送给客户端
         ssize_t sent = sendto(g_sockFd, ipPacket, packetLen, 0,
                               (struct sockaddr*)&conn.clientPhysicalAddr, 
@@ -174,30 +285,17 @@ static void HandleUdpResponseSimple(int sockFd, sockaddr_in originalPeer, const 
             LOG("❌ 发送给客户端失败: %s", strerror(errno));
         }
         
-        // 🔧 修复：更新活动时间，而不是删除映射
+        // 更新活动时间
         std::string natKey = NATTable::GenerateKey(conn.originalRequest);
         NATTable::UpdateActivity(natKey);
     }
     
-    // 🔧 修复：延迟删除映射，保留30秒让后续的UDP请求可以复用
-    if (hasResponse) {
-        LOG("🔒 UDP响应处理完成，保留映射30秒");
-        
-        // 在后台线程中延迟清理
-        std::thread([sockFd, conn]() {
-            std::this_thread::sleep_for(std::chrono::seconds(30));
-            std::string natKey = NATTable::GenerateKey(conn.originalRequest);
-            NATTable::RemoveMapping(natKey);
-            close(sockFd);
-            LOG("🧹 30秒后清理UDP映射: %s", natKey.c_str());
-        }).detach();
-    } else {
-        // 如果没有收到任何响应，立即清理
-        LOG("⚠️ 未收到任何UDP响应，立即清理");
-        std::string natKey = NATTable::GenerateKey(conn.originalRequest);
-        NATTable::RemoveMapping(natKey);
-        close(sockFd);
-    }
+    // 清理
+    LOG("🔒 UDP响应线程退出: 总共接收%d个响应", totalResponses);
+    std::string natKey = NATTable::GenerateKey(packetInfo);
+    NATTable::RemoveMapping(natKey);
+    close(sockFd);
+    LOG("🧹 清理完成: socket=%d", sockFd);
 }
 
 // ========== TCP响应处理（简化版）==========
