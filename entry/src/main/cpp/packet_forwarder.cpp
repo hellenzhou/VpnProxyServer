@@ -16,6 +16,9 @@
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #include <sys/time.h>
+#include <sys/select.h>
+#include <netinet/tcp.h>
+#include <ctime>
 #include <map>
 #include <chrono>
 #include <mutex>
@@ -49,12 +52,16 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
     // 🔧 1. 防止路由循环：检测重复数据包
     std::string packetHash;
     {
-        // 使用数据包关键信息生成hash
+        // 使用数据包关键信息生成hash（包含payload的前8字节以区分不同内容）
         char hashBuf[256];
-        snprintf(hashBuf, sizeof(hashBuf), "%s:%d->%s:%d:%d",
+        uint64_t payloadPrefix = 0;
+        if (dataSize >= 8) {
+            memcpy(&payloadPrefix, data, 8);
+        }
+        snprintf(hashBuf, sizeof(hashBuf), "%s:%d->%s:%d:%d:%llx",
                 packetInfo.sourceIP.c_str(), packetInfo.sourcePort,
                 packetInfo.targetIP.c_str(), packetInfo.targetPort,
-                dataSize);
+                dataSize, (unsigned long long)payloadPrefix);
         packetHash = std::string(hashBuf);
         
         std::lock_guard<std::mutex> lock(g_recentPacketsMutex);
@@ -69,11 +76,12 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
             }
         }
         
-        // 检查是否是重复数据包（100ms内的重复认为是循环）
+        // 检查是否是重复数据包（10ms内的重复认为是循环）
+        // 注意：降低到10ms以允许快速的连续DNS查询
         auto it = g_recentPackets.find(packetHash);
         if (it != g_recentPackets.end()) {
             auto timeSinceLastSeen = std::chrono::duration_cast<std::chrono::milliseconds>(now - it->second).count();
-            if (timeSinceLastSeen < 100) {
+            if (timeSinceLastSeen < 10) {
                 LOG("⚠️ 检测到可能的路由循环！拒绝转发重复数据包 (间隔%lldms): %s",
                     timeSinceLastSeen, packetHash.c_str());
                 return -1;
@@ -143,29 +151,112 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
     NATTable::CreateMapping(natKey, originalPeer, packetInfo, sockFd);
     LOG("✅ NAT映射已创建: %s", natKey.c_str());
     
-    // 4. 配置目标地址
+    // 4. 🔧 DNS重定向：如果是DNS查询且目标是223.5.5.5，重定向到8.8.8.8
+    std::string actualTargetIP = packetInfo.targetIP;
+    if (packetInfo.targetPort == 53 && packetInfo.targetIP == "223.5.5.5") {
+        actualTargetIP = "8.8.8.8";
+        LOG("🔄 DNS重定向: %s:%d -> %s:%d", packetInfo.targetIP.c_str(), packetInfo.targetPort, actualTargetIP.c_str(), packetInfo.targetPort);
+    }
+    
+    // 5. 配置目标地址
     struct sockaddr_in targetAddr{};
     targetAddr.sin_family = AF_INET;
     targetAddr.sin_port = htons(packetInfo.targetPort);
-    inet_pton(AF_INET, packetInfo.targetIP.c_str(), &targetAddr.sin_addr);
+    inet_pton(AF_INET, actualTargetIP.c_str(), &targetAddr.sin_addr);
     
     // 5. 根据协议转发
-    // 🔧 临时修复：暂时只支持UDP
     if (packetInfo.protocol == PROTOCOL_TCP) {
-        LOG("⚠️ TCP暂不支持，跳过此包（仅支持UDP/DNS）");
-        NATTable::RemoveMapping(natKey);
-        close(sockFd);
-        return -1;
+        // 🔧 新增：TCP转发支持
+        LOG("🔗 处理TCP连接: %s:%d", actualTargetIP.c_str(), packetInfo.targetPort);
+        
+        // 连接到目标服务器
+        int connectResult = connect(sockFd, (struct sockaddr*)&targetAddr, sizeof(targetAddr));
+        if (connectResult < 0) {
+            LOG("❌ TCP连接失败: socket=%d, errno=%d (%s), target=%s:%d", 
+                sockFd, errno, strerror(errno), 
+                actualTargetIP.c_str(), packetInfo.targetPort);
+            NATTable::RemoveMapping(natKey);
+            if (isNewSocket) {
+                std::lock_guard<std::mutex> lock(g_socketCacheMutex);
+                g_socketCache.erase(socketKey);
+                close(sockFd);
+            }
+            return -1;
+        }
+        
+        LOG("✅ TCP连接成功: socket=%d -> %s:%d", 
+            sockFd, actualTargetIP.c_str(), packetInfo.targetPort);
+        
+        // 发送TCP数据
+        ssize_t sent = send(sockFd, payload, payloadSize, 0);
+        if (sent < 0) {
+            LOG("❌ TCP发送失败: socket=%d, errno=%d (%s)", 
+                sockFd, errno, strerror(errno));
+            NATTable::RemoveMapping(natKey);
+            if (isNewSocket) {
+                std::lock_guard<std::mutex> lock(g_socketCacheMutex);
+                g_socketCache.erase(socketKey);
+                close(sockFd);
+            }
+            return -1;
+        }
+        
+        LOG("✅ TCP发送成功: socket=%d, %zd字节 -> %s:%d", 
+            sockFd, sent, actualTargetIP.c_str(), packetInfo.targetPort);
+        
+        // 🔧 启动TCP响应线程
+        if (isNewSocket) {
+            LOG("🚀 启动新的TCP响应线程 for socket %d", sockFd);
+            std::thread([sockFd, originalPeer, packetInfo, socketKey]() {
+                LOG("🔥🔥🔥 TCP响应线程已进入 - socket=%d 🔥🔥🔥", sockFd);
+                HandleTcpResponseSimple(sockFd, originalPeer, packetInfo);
+                
+                // 响应线程结束时，从缓存中删除socket
+                std::lock_guard<std::mutex> lock(g_socketCacheMutex);
+                g_socketCache.erase(socketKey);
+                LOG("🔥🔥🔥 TCP响应线程已退出 - socket=%d 🔥🔥🔥", sockFd);
+            }).detach();
+        } else {
+            LOG("♻️ 复用现有TCP响应线程 for socket %d", sockFd);
+        }
+        
+        return sockFd;
     }
     
     if (packetInfo.protocol == PROTOCOL_UDP) {
-        // UDP：直接发送
-        ssize_t sent = sendto(sockFd, payload, payloadSize, 0, 
-                             (struct sockaddr*)&targetAddr, sizeof(targetAddr));
+        // 🔧 优化：UDP发送重试机制
+        ssize_t sent = -1;
+        int retryCount = 0;
+        const int maxRetries = 3;
+        
+        while (sent < 0 && retryCount < maxRetries) {
+            sent = sendto(sockFd, payload, payloadSize, 0, 
+                         (struct sockaddr*)&targetAddr, sizeof(targetAddr));
+            
+            if (sent < 0) {
+                retryCount++;
+                LOG("⚠️ UDP发送失败，重试 %d/%d: socket=%d, errno=%d (%s)", 
+                    retryCount, maxRetries, sockFd, errno, strerror(errno));
+                
+                if (retryCount < maxRetries) {
+                    // 短暂延迟后重试
+                    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                    
+                    // 🔧 检查socket状态
+                    int error = 0;
+                    socklen_t len = sizeof(error);
+                    if (getsockopt(sockFd, SOL_SOCKET, SO_ERROR, &error, &len) == 0 && error != 0) {
+                        LOG("❌ Socket错误，停止重试: %s", strerror(error));
+                        break;
+                    }
+                }
+            }
+        }
+        
         if (sent < 0) {
-            LOG("❌ UDP发送失败: socket=%d, errno=%d (%s), target=%s:%d, size=%d", 
+            LOG("❌ UDP发送最终失败: socket=%d, errno=%d (%s), target=%s:%d, size=%d, 重试次数=%d", 
                 sockFd, errno, strerror(errno), 
-                packetInfo.targetIP.c_str(), packetInfo.targetPort, payloadSize);
+                actualTargetIP.c_str(), packetInfo.targetPort, payloadSize, retryCount);
             NATTable::RemoveMapping(natKey);
             // 🔧 只有新socket才关闭，复用的socket保留在缓存中
             if (isNewSocket) {
@@ -175,10 +266,11 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
             }
             return -1;
         }
-        LOG("✅ UDP发送成功: socket=%d, %zd字节 -> %s:%d", 
-            sockFd, sent, packetInfo.targetIP.c_str(), packetInfo.targetPort);
         
-        // 🔧 只有新socket才启动响应线程，复用socket的响应线程已在运行
+        LOG("✅ UDP发送成功: socket=%d, %zd字节 -> %s:%d (重试次数=%d)", 
+            sockFd, sent, actualTargetIP.c_str(), packetInfo.targetPort, retryCount);
+        
+        // 🔧 优化：确保每个socket都有响应线程
         if (isNewSocket) {
             LOG("🚀 启动新的UDP响应线程 for socket %d", sockFd);
             std::thread([sockFd, originalPeer, packetInfo, socketKey]() {
@@ -191,7 +283,28 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
                 LOG("🔥🔥🔥 响应线程已退出 - socket=%d 🔥🔥🔥", sockFd);
             }).detach();
         } else {
+            // 🔧 修复：复用socket时也要确保响应线程存在
             LOG("♻️ 复用现有响应线程 for socket %d", sockFd);
+            // 验证响应线程是否还在运行，如果不在则重新启动
+            static std::map<int, std::thread::id> socketThreadMap;
+            static std::mutex threadMapMutex;
+            
+            std::lock_guard<std::mutex> threadLock(threadMapMutex);
+            if (socketThreadMap.find(sockFd) == socketThreadMap.end()) {
+                LOG("⚠️ 检测到响应线程丢失，重新启动 for socket %d", sockFd);
+                std::thread([sockFd, originalPeer, packetInfo, socketKey]() {
+                    socketThreadMap[sockFd] = std::this_thread::get_id();
+                    LOG("🔄 重启响应线程 - socket=%d", sockFd);
+                    HandleUdpResponseSimple(sockFd, originalPeer, packetInfo);
+                    
+                    // 清理线程映射
+                    std::lock_guard<std::mutex> lock(threadMapMutex);
+                    socketThreadMap.erase(sockFd);
+                    std::lock_guard<std::mutex> cacheLock(g_socketCacheMutex);
+                    g_socketCache.erase(socketKey);
+                    LOG("🔄 重启响应线程退出 - socket=%d", sockFd);
+                }).detach();
+            }
         }
     } else {
         // 不应该到这里（TCP已经在上面被拦截）
@@ -208,25 +321,52 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
     return sockFd;
 }
 
-// ========== UDP响应处理（改进版：持续监听）==========
+// ========== UDP响应处理（稳健版：持续监听）==========
 static void HandleUdpResponseSimple(int sockFd, sockaddr_in originalPeer, const PacketInfo& packetInfo) {
     LOG("📥📥📥 UDP响应线程启动: socket=%d, 目标=%s:%d 📥📥📥", 
         sockFd, packetInfo.targetIP.c_str(), packetInfo.targetPort);
     
-    // 设置短超时（200ms），这样可以快速检查是否有响应
-    struct timeval timeout = {0, 200000};  // 200ms
+    // 🔧 优化：根据协议类型设置不同的超时策略
+    struct timeval timeout;
+    if (packetInfo.targetPort == 53) {
+        // DNS查询：短超时，快速响应
+        timeout = {0, 100000};  // 100ms
+    } else {
+        // 其他UDP：较长超时
+        timeout = {0, 500000};  // 500ms
+    }
+    
     int ret = setsockopt(sockFd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
     if (ret < 0) {
         LOG("❌ 设置socket超时失败: %s", strerror(errno));
+    } else {
+        LOG("✅ socket超时设置成功: %ldms", timeout.tv_usec / 1000);
     }
     
+    // 🔧 优化：动态调整超时限制
     int consecutiveTimeouts = 0;
-    const int MAX_CONSECUTIVE_TIMEOUTS = 50;  // 50次超时 = 10秒无活动后退出
+    int maxTimeouts = (packetInfo.targetPort == 53) ? 30 : 20;  // DNS: 3秒, 其他: 2秒
     int totalResponses = 0;
+    int lastActivityTime = time(nullptr);
     
-    // 🔧 持续监听响应，直到长时间无活动
-    LOG("🔄 开始持续监听UDP响应... socket=%d", sockFd);
-    while (consecutiveTimeouts < MAX_CONSECUTIVE_TIMEOUTS) {
+    // 🔧 优化：添加socket状态检查
+    int lastErrorCheck = time(nullptr);
+    
+    LOG("🔄 开始持续监听UDP响应... socket=%d, 超时限制=%d", sockFd, maxTimeouts);
+    while (consecutiveTimeouts < maxTimeouts) {
+        // 🔧 每5秒检查一次socket状态
+        int currentTime = time(nullptr);
+        if (currentTime - lastErrorCheck >= 5) {
+            lastErrorCheck = currentTime;
+            
+            int error = 0;
+            socklen_t len = sizeof(error);
+            if (getsockopt(sockFd, SOL_SOCKET, SO_ERROR, &error, &len) == 0 && error != 0) {
+                LOG("❌ Socket错误检测: %s，退出响应线程", strerror(error));
+                break;
+            }
+        }
+        
         // 每次循环都重新查找NAT映射（可能已被更新）
         NATConnection conn;
         if (!NATTable::FindMappingBySocket(sockFd, conn)) {
@@ -238,16 +378,20 @@ static void HandleUdpResponseSimple(int sockFd, sockaddr_in originalPeer, const 
         struct sockaddr_in responseAddr{};
         socklen_t addrLen = sizeof(responseAddr);
         
+        // 🔧 调试：记录接收尝试
+        LOG("🔍 尝试接收UDP响应... socket=%d", sockFd);
         ssize_t received = recvfrom(sockFd, responsePayload, sizeof(responsePayload), 0,
                                     (struct sockaddr*)&responseAddr, &addrLen);
         
         if (received <= 0) {
             if (errno == EAGAIN || errno == EWOULDBLOCK) {
                 consecutiveTimeouts++;
-                // 第1次、第5次和每隔25次打印一次状态（避免日志爆炸）
-                if (consecutiveTimeouts == 1 || consecutiveTimeouts == 5 || consecutiveTimeouts % 25 == 0) {
+                lastActivityTime = currentTime;
+                
+                // 🔧 优化：减少日志频率，避免日志爆炸
+                if (consecutiveTimeouts == 1 || consecutiveTimeouts == 5 || consecutiveTimeouts % 10 == 0) {
                     LOG("⏱️ UDP响应线程等待中... socket=%d (已收%d个响应, 空闲%.1f秒)",
-                        sockFd, totalResponses, consecutiveTimeouts * 0.2);
+                        sockFd, totalResponses, consecutiveTimeouts * 0.1);
                 }
                 continue;
             } else {
@@ -261,33 +405,56 @@ static void HandleUdpResponseSimple(int sockFd, sockaddr_in originalPeer, const 
         totalResponses++;
         LOG("✅✅✅ 收到UDP响应 #%d: socket=%d, %zd字节 ✅✅✅", totalResponses, sockFd, received);
         
-        // 封装成IP包
-        uint8_t ipPacket[4096 + 60];
-        int packetLen = PacketBuilder::BuildResponsePacket(
-            ipPacket, sizeof(ipPacket),
-            responsePayload, received,
-            conn.originalRequest
-        );
-        
-        if (packetLen < 0) {
-            LOG("❌ 构建响应包失败");
+        // 🔧 验证响应来源
+        char responseIP[INET_ADDRSTRLEN];
+        inet_ntop(AF_INET, &responseAddr.sin_addr, responseIP, INET_ADDRSTRLEN);
+        if (strcmp(responseIP, packetInfo.targetIP.c_str()) != 0) {
+            LOG("⚠️ 响应来源不匹配: 期望%s，实际%s", packetInfo.targetIP.c_str(), responseIP);
             continue;
         }
         
-        // 发送给客户端
-        ssize_t sent = sendto(g_sockFd, ipPacket, packetLen, 0,
-                              (struct sockaddr*)&conn.clientPhysicalAddr, 
-                              sizeof(conn.clientPhysicalAddr));
+        LOG("✅✅✅ 收到UDP响应: socket=%d, %zd字节, 来源=%s:%d", 
+            sockFd, received, responseIP, ntohs(responseAddr.sin_port));
         
-        if (sent > 0) {
-            LOG("✅ 发送给客户端成功: %zd字节", sent);
-        } else {
-            LOG("❌ 发送给客户端失败: %s", strerror(errno));
+        // 🔧 优化：添加响应内容摘要（仅DNS）
+        if (packetInfo.targetPort == 53 && received >= 12) {
+            // DNS响应前12字节包含头部信息
+            uint16_t dnsId = (responsePayload[0] << 8) | responsePayload[1];
+            uint8_t flags = responsePayload[2];
+            uint8_t rcode = flags & 0x0F;
+            uint16_t answerCount = (responsePayload[6] << 8) | responsePayload[7];
+            
+            LOG("🔍 DNS响应详情: ID=%d, 标志=0x%02X, RCODE=%d, 答案数=%d", 
+                dnsId, flags, rcode, answerCount);
         }
         
-        // 更新活动时间
-        std::string natKey = NATTable::GenerateKey(conn.originalRequest);
-        NATTable::UpdateActivity(natKey);
+        // 🔧 优化：重试发送给客户端
+        int sendRetries = 3;
+        bool sendSuccess = false;
+        
+        while (sendRetries > 0 && !sendSuccess) {
+            ssize_t sent = sendto(g_sockFd, responsePayload, received, 0,
+                                (struct sockaddr*)&originalPeer, sizeof(originalPeer));
+            
+            if (sent == received) {
+                LOG("✅ 响应已发送给客户端: %zd字节", sent);
+                sendSuccess = true;
+            } else {
+                sendRetries--;
+                if (sendRetries > 0) {
+                    LOG("⚠️ 发送响应失败，重试中... 剩余次数=%d", sendRetries);
+                    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                } else {
+                    LOG("❌ 发送给客户端失败: %s", strerror(errno));
+                }
+            }
+        }
+        
+        if (sendSuccess) {
+            // 更新活动时间
+            std::string natKey = NATTable::GenerateKey(packetInfo);
+            NATTable::UpdateActivity(natKey);
+        }
     }
     
     // 清理
@@ -298,38 +465,54 @@ static void HandleUdpResponseSimple(int sockFd, sockaddr_in originalPeer, const 
     LOG("🧹 清理完成: socket=%d", sockFd);
 }
 
-// ========== TCP响应处理（简化版）==========
+// ========== TCP响应处理（增强版）==========
 static void HandleTcpResponseSimple(int sockFd, sockaddr_in originalPeer, const PacketInfo& packetInfo) {
-    LOG("📥 TCP响应线程启动: socket=%d", sockFd);
+    LOG("📥 TCP响应线程启动: socket=%d, 目标=%s:%d", sockFd, packetInfo.targetIP.c_str(), packetInfo.targetPort);
+    
+    // 🔧 优化：设置TCP socket选项
+    int nodelay = 1;
+    setsockopt(sockFd, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay));
+    
+    // 设置接收超时
+    struct timeval timeout = {30, 0};  // 30秒超时
+    setsockopt(sockFd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+    setsockopt(sockFd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
     
     // 查找NAT映射
     NATConnection conn;
     if (!NATTable::FindMappingBySocket(sockFd, conn)) {
-        LOG("❌ 找不到NAT映射，退出");
+        LOG("❌ 找不到NAT映射，退出TCP响应线程");
         close(sockFd);
         return;
     }
-    LOG("✅ 找到NAT映射");
-    
-    // 设置超时
-    struct timeval timeout = {30, 0};
-    setsockopt(sockFd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+    LOG("✅ 找到NAT映射: %s", conn.originalRequest.sourceIP.c_str());
     
     uint8_t responsePayload[4096];
+    int totalResponses = 0;
     
+    LOG("🔄 开始TCP数据转发... socket=%d", sockFd);
     while (true) {
         ssize_t received = recv(sockFd, responsePayload, sizeof(responsePayload), 0);
         
         if (received <= 0) {
             if (received == 0) {
-                LOG("🔚 TCP连接关闭");
+                LOG("🔚 TCP连接关闭: socket=%d", sockFd);
             } else {
-                LOG("❌ TCP响应接收失败: %s", strerror(errno));
+                LOG("❌ TCP响应接收失败: socket=%d, errno=%d (%s)", sockFd, errno, strerror(errno));
             }
             break;
         }
         
-        LOG("✅ 收到TCP响应: %zd字节", received);
+        totalResponses++;
+        LOG("✅ 收到TCP响应 #%d: socket=%d, %zd字节", totalResponses, sockFd, received);
+        
+        // 🔧 调试：记录TCP响应内容
+        if (received >= 20) {
+            // 检查是否是HTTP响应
+            if (strncmp((char*)responsePayload, "HTTP/", 5) == 0) {
+                LOG("🌐 检测到HTTP响应: %.20s...", responsePayload);
+            }
+        }
         
         // 封装成IP包
         uint8_t ipPacket[4096 + 60];
@@ -340,34 +523,50 @@ static void HandleTcpResponseSimple(int sockFd, sockaddr_in originalPeer, const 
         );
         
         if (packetLen < 0) {
-            LOG("❌ 构建响应包失败");
-            break;
+            LOG("❌ 构建TCP响应包失败");
+            continue;
         }
         
-        LOG("✅ 构建IP包: %d字节", packetLen);
+        LOG("✅ 构建TCP IP包: %d字节", packetLen);
         
-        // 发送给客户端
-        ssize_t sent = sendto(g_sockFd, ipPacket, packetLen, 0,
-                             (struct sockaddr*)&conn.clientPhysicalAddr,
-                             sizeof(conn.clientPhysicalAddr));
+        // 🔧 优化：TCP响应发送重试
+        int tcpRetryCount = 0;
+        const int maxTcpRetries = 3;
+        bool tcpSendSuccess = false;
         
-        if (sent > 0) {
-            LOG("✅ 发送给客户端成功: %zd字节", sent);
-        } else {
-            LOG("❌ 发送给客户端失败: %s", strerror(errno));
-            break;
+        while (!tcpSendSuccess && tcpRetryCount < maxTcpRetries) {
+            ssize_t sent = sendto(g_sockFd, ipPacket, packetLen, 0,
+                                 (struct sockaddr*)&conn.clientPhysicalAddr,
+                                 sizeof(conn.clientPhysicalAddr));
+            
+            if (sent == packetLen) {
+                LOG("✅ TCP响应发送成功: %zd字节", sent);
+                tcpSendSuccess = true;
+            } else {
+                tcpRetryCount++;
+                if (tcpRetryCount < maxTcpRetries) {
+                    LOG("⚠️ TCP响应发送失败，重试 %d/%d: errno=%d (%s)", 
+                        tcpRetryCount, maxTcpRetries, errno, strerror(errno));
+                    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                } else {
+                    LOG("❌ TCP响应发送最终失败: %s", strerror(errno));
+                }
+            }
         }
         
-        // 更新活动时间
-        std::string natKey = NATTable::GenerateKey(conn.originalRequest);
-        NATTable::UpdateActivity(natKey);
+        if (tcpSendSuccess) {
+            // 更新活动时间
+            std::string natKey = NATTable::GenerateKey(conn.originalRequest);
+            NATTable::UpdateActivity(natKey);
+        }
     }
     
     // 清理
-    std::string natKey = NATTable::GenerateKey(conn.originalRequest);
+    LOG("🔒 TCP响应线程退出: 总共处理%d个响应", totalResponses);
+    std::string natKey = NATTable::GenerateKey(packetInfo);
     NATTable::RemoveMapping(natKey);
     close(sockFd);
-    LOG("🔒 清理完成");
+    LOG("🧹 TCP清理完成: socket=%d", sockFd);
 }
 
 // ========== 辅助函数 ==========
