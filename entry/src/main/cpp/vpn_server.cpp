@@ -1189,37 +1189,86 @@ void WorkerLoop()
         continue;
       }
       
-      VPN_SERVER_LOGI("✅ Packet parsed: %{public}s:%{public}d (%{public}s, %{public}s)", 
-                      packetInfo.targetIP.c_str(), packetInfo.targetPort,
-                      ProtocolHandler::GetProtocolName(packetInfo.protocol).c_str(),
-                      ProtocolHandler::GetAddressFamilyName(packetInfo.addressFamily).c_str());
+      // 根据协议类型打印不同的日志
+      if (packetInfo.protocol == PROTOCOL_ICMPV6) {
+        VPN_SERVER_LOGI("✅ Packet parsed: %{public}s (%{public}s Type=%{public}d: %{public}s, %{public}s)", 
+                        packetInfo.targetIP.c_str(),
+                        ProtocolHandler::GetProtocolName(packetInfo.protocol).c_str(),
+                        packetInfo.icmpv6Type,
+                        ProtocolHandler::GetICMPv6TypeName(packetInfo.icmpv6Type).c_str(),
+                        ProtocolHandler::GetAddressFamilyName(packetInfo.addressFamily).c_str());
+      } else {
+        VPN_SERVER_LOGI("✅ Packet parsed: %{public}s:%{public}d (%{public}s, %{public}s)", 
+                        packetInfo.targetIP.c_str(), packetInfo.targetPort,
+                        ProtocolHandler::GetProtocolName(packetInfo.protocol).c_str(),
+                        ProtocolHandler::GetAddressFamilyName(packetInfo.addressFamily).c_str());
+      }
       VPN_SERVER_LOGI("🔍 [TUN IP检查] 数据包中的源IP（VPN虚拟IP）已在协议解析时记录，客户端物理IP: %{public}s:%{public}d", 
                       peerAddr.c_str(), peerPort);
       
       // 添加数据包到缓冲区（用于UI显示）
-      std::string targetInfo = packetInfo.targetIP + ":" + std::to_string(packetInfo.targetPort);
+      std::string targetInfo;
+      if (packetInfo.protocol == PROTOCOL_ICMPV6) {
+        targetInfo = packetInfo.targetIP + " (ICMPv6:" + ProtocolHandler::GetICMPv6TypeName(packetInfo.icmpv6Type) + ")";
+      } else {
+        targetInfo = packetInfo.targetIP + ":" + std::to_string(packetInfo.targetPort);
+      }
       AddDataPacket(hexData, clientKey + " -> " + targetInfo, packetType);
       
-      // 🔧 临时修复：暂时只支持UDP，跳过TCP包
+      // 🔧 临时修复：暂时只支持UDP和ICMPv6，跳过TCP包
       if (packetInfo.protocol == PROTOCOL_TCP) {
-        VPN_SERVER_LOGW("⚠️ TCP暂不支持，跳过此包（仅支持UDP/DNS）");
+        VPN_SERVER_LOGW("⚠️ TCP暂不支持，跳过此包（仅支持UDP/DNS和ICMPv6）");
         VPN_SERVER_LOGW("   客户端=%{public}s:%{public}d -> 目标=%{public}s:%{public}d", 
                         peerAddr.c_str(), peerPort, packetInfo.targetIP.c_str(), packetInfo.targetPort);
         continue;
       }
       
-      // 转发到真实服务器（仅UDP）
-      VPN_SERVER_LOGI("🔄 [服务端转发] 准备转发UDP数据包: 客户端=%{public}s:%{public}d -> 目标=%{public}s:%{public}d, 协议=%{public}s, 数据大小=%{public}d字节",
-                      peerAddr.c_str(), peerPort, packetInfo.targetIP.c_str(), packetInfo.targetPort,
-                      ProtocolHandler::GetProtocolName(packetInfo.protocol).c_str(), n);
+      // ICMPv6 特殊处理：某些 ICMPv6 消息不需要转发
+      if (packetInfo.protocol == PROTOCOL_ICMPV6) {
+        // Router Solicitation/Advertisement 和 Neighbor Solicitation/Advertisement 通常不需要转发
+        // 这些是本地链路层消息
+        if (packetInfo.icmpv6Type == ICMPV6_ROUTER_SOLICITATION ||
+            packetInfo.icmpv6Type == ICMPV6_ROUTER_ADVERTISEMENT ||
+            packetInfo.icmpv6Type == ICMPV6_NEIGHBOR_SOLICITATION ||
+            packetInfo.icmpv6Type == ICMPV6_NEIGHBOR_ADVERTISEMENT) {
+          VPN_SERVER_LOGI("ℹ️  ICMPv6 %{public}s 是本地链路消息，不需要转发", 
+                          ProtocolHandler::GetICMPv6TypeName(packetInfo.icmpv6Type).c_str());
+          continue;
+        }
+        VPN_SERVER_LOGI("🔄 [ICMPv6转发] ICMPv6 消息: Type=%{public}d (%{public}s) -> %{public}s", 
+                        packetInfo.icmpv6Type, 
+                        ProtocolHandler::GetICMPv6TypeName(packetInfo.icmpv6Type).c_str(),
+                        packetInfo.targetIP.c_str());
+      }
+      
+      // 转发到真实服务器（UDP和ICMPv6）
+      if (packetInfo.protocol == PROTOCOL_ICMPV6) {
+        VPN_SERVER_LOGI("🔄 [服务端转发] 准备转发ICMPv6数据包: 客户端=%{public}s:%{public}d -> 目标=%{public}s, Type=%{public}d (%{public}s), 数据大小=%{public}d字节",
+                        peerAddr.c_str(), peerPort, packetInfo.targetIP.c_str(), 
+                        packetInfo.icmpv6Type, ProtocolHandler::GetICMPv6TypeName(packetInfo.icmpv6Type).c_str(), n);
+      } else {
+        VPN_SERVER_LOGI("🔄 [服务端转发] 准备转发UDP数据包: 客户端=%{public}s:%{public}d -> 目标=%{public}s:%{public}d, 协议=%{public}s, 数据大小=%{public}d字节",
+                        peerAddr.c_str(), peerPort, packetInfo.targetIP.c_str(), packetInfo.targetPort,
+                        ProtocolHandler::GetProtocolName(packetInfo.protocol).c_str(), n);
+      }
       int realServerSock = PacketForwarder::ForwardPacket(buf, n, packetInfo, peer);
       if (realServerSock >= 0) {
-        // 🔧 修复：由于TCP已禁用，这里只会是UDP
-        VPN_SERVER_LOGI("✅ [服务端转发] UDP数据包已转发: 客户端=%{public}s:%{public}d -> 目标=%{public}s:%{public}d, socket=%{public}d",
-                        peerAddr.c_str(), peerPort, packetInfo.targetIP.c_str(), packetInfo.targetPort, realServerSock);
+        // 🔧 修复：由于TCP已禁用，这里只会是UDP或ICMPv6
+        if (packetInfo.protocol == PROTOCOL_ICMPV6) {
+          VPN_SERVER_LOGI("✅ [服务端转发] ICMPv6数据包已转发: 客户端=%{public}s:%{public}d -> 目标=%{public}s, Type=%{public}d, socket=%{public}d",
+                          peerAddr.c_str(), peerPort, packetInfo.targetIP.c_str(), packetInfo.icmpv6Type, realServerSock);
+        } else {
+          VPN_SERVER_LOGI("✅ [服务端转发] UDP数据包已转发: 客户端=%{public}s:%{public}d -> 目标=%{public}s:%{public}d, socket=%{public}d",
+                          peerAddr.c_str(), peerPort, packetInfo.targetIP.c_str(), packetInfo.targetPort, realServerSock);
+        }
       } else {
-        VPN_SERVER_LOGE("❌ [服务端转发] UDP数据包转发失败: 客户端=%{public}s:%{public}d -> 目标=%{public}s:%{public}d", 
-                        peerAddr.c_str(), peerPort, packetInfo.targetIP.c_str(), packetInfo.targetPort);
+        if (packetInfo.protocol == PROTOCOL_ICMPV6) {
+          VPN_SERVER_LOGE("❌ [服务端转发] ICMPv6数据包转发失败: 客户端=%{public}s:%{public}d -> 目标=%{public}s, Type=%{public}d", 
+                          peerAddr.c_str(), peerPort, packetInfo.targetIP.c_str(), packetInfo.icmpv6Type);
+        } else {
+          VPN_SERVER_LOGE("❌ [服务端转发] UDP数据包转发失败: 客户端=%{public}s:%{public}d -> 目标=%{public}s:%{public}d", 
+                          peerAddr.c_str(), peerPort, packetInfo.targetIP.c_str(), packetInfo.targetPort);
+        }
       }
     }
   }

@@ -34,8 +34,8 @@ PacketInfo ProtocolHandler::ParseIPPacket(const uint8_t* data, int dataSize) {
         info.protocol = data[9];
         info.addressFamily = AF_INET;
         
-        // 只处理TCP和UDP
-        if (info.protocol != PROTOCOL_TCP && info.protocol != PROTOCOL_UDP) {
+        // 只处理TCP、UDP和ICMPv6
+        if (info.protocol != PROTOCOL_TCP && info.protocol != PROTOCOL_UDP && info.protocol != PROTOCOL_ICMPV6) {
             PROTOCOL_LOGI("Unsupported protocol: %{public}d", info.protocol);
             return info;
         }
@@ -82,12 +82,12 @@ PacketInfo ProtocolHandler::ParseIPPacket(const uint8_t* data, int dataSize) {
         // IPv6头部固定40字节
         uint8_t nextHeader = data[6];
         
-        // 跳过扩展头，找到TCP/UDP头
+        // 跳过扩展头，找到TCP/UDP/ICMPv6头
         int payloadOffset = 40;
         int maxHops = 8;  // 最多处理8个扩展头，防止无限循环
         int hops = 0;
         
-        while (nextHeader != PROTOCOL_TCP && nextHeader != PROTOCOL_UDP && hops < maxHops) {
+        while (nextHeader != PROTOCOL_TCP && nextHeader != PROTOCOL_UDP && nextHeader != PROTOCOL_ICMPV6 && hops < maxHops) {
             switch (nextHeader) {
                 case 0:  // Hop-by-Hop Options
                 case 43: // Routing
@@ -111,10 +111,10 @@ PacketInfo ProtocolHandler::ParseIPPacket(const uint8_t* data, int dataSize) {
                     break;
                 }
                 default:
-                    // 其他协议（如ICMPv6=58, 或其他扩展/封装协议），不支持
-                    // 常见的值: 58=ICMPv6, 143=Ethernet-within-IP, 135=Mobility Header
-                    PROTOCOL_LOGI("IPv6 next header %{public}d not supported (only TCP=6, UDP=17, and common extension headers supported)", nextHeader);
-                    PROTOCOL_LOGI("🔍 Note: This packet will be dropped as VPN only forwards TCP/UDP traffic");
+                    // 其他协议（除了 TCP/UDP/ICMPv6 之外的扩展/封装协议），不支持
+                    // 常见的不支持值: 143=Ethernet-within-IP, 135=Mobility Header
+                    PROTOCOL_LOGI("IPv6 next header %{public}d not supported (only TCP=6, UDP=17, ICMPv6=58, and common extension headers supported)", nextHeader);
+                    PROTOCOL_LOGI("🔍 Note: This packet will be dropped as VPN only forwards TCP/UDP/ICMPv6 traffic");
                     return info;
             }
         }
@@ -124,8 +124,8 @@ PacketInfo ProtocolHandler::ParseIPPacket(const uint8_t* data, int dataSize) {
             return info;
         }
         
-        if (nextHeader != PROTOCOL_TCP && nextHeader != PROTOCOL_UDP) {
-            PROTOCOL_LOGI("IPv6 next header not TCP/UDP: %{public}d", nextHeader);
+        if (nextHeader != PROTOCOL_TCP && nextHeader != PROTOCOL_UDP && nextHeader != PROTOCOL_ICMPV6) {
+            PROTOCOL_LOGI("IPv6 next header not TCP/UDP/ICMPv6: %{public}d", nextHeader);
             return info;
         }
         
@@ -137,13 +137,19 @@ PacketInfo ProtocolHandler::ParseIPPacket(const uint8_t* data, int dataSize) {
         inet_ntop(AF_INET6, &data[24], dstIP, INET6_ADDRSTRLEN);
         info.targetIP = dstIP;
         
-        // 获取端口（TCP/UDP头部）
+        // 获取源IPv6地址（16字节，从偏移8开始）
+        char srcIP[INET6_ADDRSTRLEN];
+        inet_ntop(AF_INET6, &data[8], srcIP, INET6_ADDRSTRLEN);
+        info.sourceIP = srcIP;
+        
+        // 获取端口（TCP/UDP头部）或解析ICMPv6消息
         if (info.protocol == PROTOCOL_TCP) {
             if (dataSize < payloadOffset + 20) {
                 PROTOCOL_LOGI("IPv6 TCP packet too small: %{public}d bytes (need at least %{public}d)", 
                              dataSize, payloadOffset + 20);
                 return info;
             }
+            info.sourcePort = (data[payloadOffset + 0] << 8) | data[payloadOffset + 1];
             info.targetPort = (data[payloadOffset + 2] << 8) | data[payloadOffset + 3];
         } else if (info.protocol == PROTOCOL_UDP) {
             if (dataSize < payloadOffset + 8) {
@@ -151,12 +157,33 @@ PacketInfo ProtocolHandler::ParseIPPacket(const uint8_t* data, int dataSize) {
                              dataSize, payloadOffset + 8);
                 return info;
             }
+            info.sourcePort = (data[payloadOffset + 0] << 8) | data[payloadOffset + 1];
             info.targetPort = (data[payloadOffset + 2] << 8) | data[payloadOffset + 3];
+        } else if (info.protocol == PROTOCOL_ICMPV6) {
+            // ICMPv6 头部: Type(1) + Code(1) + Checksum(2) + ...
+            if (dataSize < payloadOffset + 4) {
+                PROTOCOL_LOGI("IPv6 ICMPv6 packet too small: %{public}d bytes (need at least %{public}d)", 
+                             dataSize, payloadOffset + 4);
+                return info;
+            }
+            info.icmpv6Type = data[payloadOffset + 0];
+            info.icmpv6Code = data[payloadOffset + 1];
+            // ICMPv6 没有端口概念，设置为 0
+            info.sourcePort = 0;
+            info.targetPort = 0;
+            PROTOCOL_LOGI("🔍 [ICMPv6] Parsed ICMPv6 message: Type=%{public}d (%{public}s), Code=%{public}d, Src=%{public}s, Dst=%{public}s", 
+                         info.icmpv6Type, GetICMPv6TypeName(info.icmpv6Type).c_str(), info.icmpv6Code,
+                         srcIP, dstIP);
         }
         
         info.isValid = true;
-        PROTOCOL_LOGI("Parsed IPv6 packet: %{public}s:%{public}d (protocol=%{public}d)", 
-                      info.targetIP.c_str(), info.targetPort, info.protocol);
+        if (info.protocol == PROTOCOL_ICMPV6) {
+            PROTOCOL_LOGI("Parsed IPv6 ICMPv6 packet: %{public}s (Type=%{public}d, %{public}s)", 
+                          info.targetIP.c_str(), info.icmpv6Type, GetICMPv6TypeName(info.icmpv6Type).c_str());
+        } else {
+            PROTOCOL_LOGI("Parsed IPv6 packet: %{public}s:%{public}d (protocol=%{public}d)", 
+                          info.targetIP.c_str(), info.targetPort, info.protocol);
+        }
         
     } else {
         PROTOCOL_LOGI("Unsupported IP version: %{public}d", version);
@@ -170,7 +197,17 @@ bool ProtocolHandler::ValidatePacket(const PacketInfo& info) {
         return false;
     }
     
-    if (info.targetIP.empty() || info.targetPort <= 0 || info.targetPort > 65535) {
+    if (info.targetIP.empty()) {
+        return false;
+    }
+    
+    // ICMPv6 没有端口的概念，不需要验证端口
+    if (info.protocol == PROTOCOL_ICMPV6) {
+        return true;
+    }
+    
+    // TCP/UDP 需要验证端口
+    if (info.targetPort <= 0 || info.targetPort > 65535) {
         return false;
     }
     
@@ -187,6 +224,8 @@ std::string ProtocolHandler::GetProtocolName(uint8_t protocol) {
             return "TCP";
         case PROTOCOL_UDP:
             return "UDP";
+        case PROTOCOL_ICMPV6:
+            return "ICMPv6";
         default:
             return "UNKNOWN";
     }
@@ -200,5 +239,32 @@ std::string ProtocolHandler::GetAddressFamilyName(int family) {
             return "IPv6";
         default:
             return "UNKNOWN";
+    }
+}
+
+std::string ProtocolHandler::GetICMPv6TypeName(uint8_t type) {
+    switch (type) {
+        case ICMPV6_DEST_UNREACHABLE:
+            return "Destination Unreachable";
+        case ICMPV6_PACKET_TOO_BIG:
+            return "Packet Too Big";
+        case ICMPV6_TIME_EXCEEDED:
+            return "Time Exceeded";
+        case ICMPV6_PARAM_PROBLEM:
+            return "Parameter Problem";
+        case ICMPV6_ECHO_REQUEST:
+            return "Echo Request (Ping)";
+        case ICMPV6_ECHO_REPLY:
+            return "Echo Reply (Pong)";
+        case ICMPV6_ROUTER_SOLICITATION:
+            return "Router Solicitation";
+        case ICMPV6_ROUTER_ADVERTISEMENT:
+            return "Router Advertisement";
+        case ICMPV6_NEIGHBOR_SOLICITATION:
+            return "Neighbor Solicitation";
+        case ICMPV6_NEIGHBOR_ADVERTISEMENT:
+            return "Neighbor Advertisement";
+        default:
+            return "Unknown Type " + std::to_string(type);
     }
 }

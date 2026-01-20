@@ -20,7 +20,7 @@
 #include <netinet/tcp.h>
 #include <ctime>
 #include <map>
-#include <chrono>
+#include <chrono>  // 仅用于 sleep_for
 #include <mutex>
 
 #define MAKE_FILE_NAME (strrchr(__FILE__, '/') ? (strrchr(__FILE__, '/') + 1) : __FILE__)
@@ -30,10 +30,6 @@
 // 静态辅助函数声明
 static void HandleUdpResponseSimple(int sockFd, sockaddr_in originalPeer, const PacketInfo& packetInfo);
 static void HandleTcpResponseSimple(int sockFd, sockaddr_in originalPeer, const PacketInfo& packetInfo);
-
-// 🔧 数据包去重缓存（防止循环转发）
-static std::map<std::string, std::chrono::steady_clock::time_point> g_recentPackets;
-static std::mutex g_recentPacketsMutex;
 
 // 🔧 Socket复用缓存（避免频繁创建/销毁socket）
 static std::map<std::string, int> g_socketCache;
@@ -49,48 +45,8 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
         ProtocolHandler::GetProtocolName(packetInfo.protocol).c_str(),
         dataSize);
     
-    // 🔧 1. 防止路由循环：检测重复数据包
-    std::string packetHash;
-    {
-        // 使用数据包关键信息生成hash（包含payload的前8字节以区分不同内容）
-        char hashBuf[256];
-        uint64_t payloadPrefix = 0;
-        if (dataSize >= 8) {
-            memcpy(&payloadPrefix, data, 8);
-        }
-        snprintf(hashBuf, sizeof(hashBuf), "%s:%d->%s:%d:%d:%llx",
-                packetInfo.sourceIP.c_str(), packetInfo.sourcePort,
-                packetInfo.targetIP.c_str(), packetInfo.targetPort,
-                dataSize, (unsigned long long)payloadPrefix);
-        packetHash = std::string(hashBuf);
-        
-        std::lock_guard<std::mutex> lock(g_recentPacketsMutex);
-        auto now = std::chrono::steady_clock::now();
-        
-        // 清理过期的数据包记录（超过1秒）
-        for (auto it = g_recentPackets.begin(); it != g_recentPackets.end();) {
-            if (std::chrono::duration_cast<std::chrono::milliseconds>(now - it->second).count() > 1000) {
-                it = g_recentPackets.erase(it);
-            } else {
-                ++it;
-            }
-        }
-        
-        // 检查是否是重复数据包（10ms内的重复认为是循环）
-        // 注意：降低到10ms以允许快速的连续DNS查询
-        auto it = g_recentPackets.find(packetHash);
-        if (it != g_recentPackets.end()) {
-            auto timeSinceLastSeen = std::chrono::duration_cast<std::chrono::milliseconds>(now - it->second).count();
-            if (timeSinceLastSeen < 10) {
-                LOG("⚠️ 检测到可能的路由循环！拒绝转发重复数据包 (间隔%lldms): %s",
-                    timeSinceLastSeen, packetHash.c_str());
-                return -1;
-            }
-        }
-        
-        // 记录本次数据包
-        g_recentPackets[packetHash] = now;
-    }
+    // ✅ 路由循环已通过 vpnConnection.protect(tunnelFd) 防止
+    // 无需额外的重复数据包检测，让所有合法请求正常转发
     
     // 2. 提取payload
     const uint8_t* payload = nullptr;
@@ -133,9 +89,27 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
     
     // 如果没有可用socket，创建新的
     if (sockFd < 0) {
-        sockFd = socket(AF_INET, (packetInfo.protocol == PROTOCOL_UDP) ? SOCK_DGRAM : SOCK_STREAM, 0);
+        // 根据协议选择socket类型和地址族
+        int addressFamily = packetInfo.addressFamily;
+        int sockType = SOCK_DGRAM;
+        int protocol = 0;
+        
+        if (packetInfo.protocol == PROTOCOL_ICMPV6) {
+            // ICMPv6 需要使用 RAW socket 和 IPv6
+            addressFamily = AF_INET6;
+            sockType = SOCK_RAW;
+            protocol = IPPROTO_ICMPV6;
+            LOG("🔧 创建ICMPv6 RAW socket");
+        } else if (packetInfo.protocol == PROTOCOL_UDP) {
+            sockType = SOCK_DGRAM;
+        } else if (packetInfo.protocol == PROTOCOL_TCP) {
+            sockType = SOCK_STREAM;
+        }
+        
+        sockFd = socket(addressFamily, sockType, protocol);
         if (sockFd < 0) {
-            LOG("❌ 创建socket失败: %s", strerror(errno));
+            LOG("❌ 创建socket失败: %s (family=%d, type=%d, proto=%d)", 
+                strerror(errno), addressFamily, sockType, protocol);
             return -1;
         }
         isNewSocket = true;
@@ -143,7 +117,7 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
         // 添加到缓存
         std::lock_guard<std::mutex> lock(g_socketCacheMutex);
         g_socketCache[socketKey] = sockFd;
-        LOG("✅ 创建新socket: fd=%d, key=%s", sockFd, socketKey.c_str());
+        LOG("✅ 创建新socket: fd=%d, key=%s, type=%d", sockFd, socketKey.c_str(), sockType);
     }
     
     // 4. 先创建NAT映射（重要！必须在启动响应线程之前）
@@ -158,11 +132,27 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
         LOG("🔄 DNS重定向: %s:%d -> %s:%d", packetInfo.targetIP.c_str(), packetInfo.targetPort, actualTargetIP.c_str(), packetInfo.targetPort);
     }
     
-    // 5. 配置目标地址
+    // 5. 配置目标地址（根据地址族）
     struct sockaddr_in targetAddr{};
-    targetAddr.sin_family = AF_INET;
-    targetAddr.sin_port = htons(packetInfo.targetPort);
-    inet_pton(AF_INET, actualTargetIP.c_str(), &targetAddr.sin_addr);
+    struct sockaddr_in6 targetAddr6{};
+    struct sockaddr* pTargetAddr = nullptr;
+    socklen_t targetAddrLen = 0;
+    
+    if (packetInfo.addressFamily == AF_INET6 || packetInfo.protocol == PROTOCOL_ICMPV6) {
+        // IPv6 地址
+        targetAddr6.sin6_family = AF_INET6;
+        targetAddr6.sin6_port = htons(packetInfo.targetPort);
+        inet_pton(AF_INET6, actualTargetIP.c_str(), &targetAddr6.sin6_addr);
+        pTargetAddr = (struct sockaddr*)&targetAddr6;
+        targetAddrLen = sizeof(targetAddr6);
+    } else {
+        // IPv4 地址
+        targetAddr.sin_family = AF_INET;
+        targetAddr.sin_port = htons(packetInfo.targetPort);
+        inet_pton(AF_INET, actualTargetIP.c_str(), &targetAddr.sin_addr);
+        pTargetAddr = (struct sockaddr*)&targetAddr;
+        targetAddrLen = sizeof(targetAddr);
+    }
     
     // 5. 根据协议转发
     if (packetInfo.protocol == PROTOCOL_TCP) {
@@ -170,7 +160,7 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
         LOG("🔗 处理TCP连接: %s:%d", actualTargetIP.c_str(), packetInfo.targetPort);
         
         // 连接到目标服务器
-        int connectResult = connect(sockFd, (struct sockaddr*)&targetAddr, sizeof(targetAddr));
+        int connectResult = connect(sockFd, pTargetAddr, targetAddrLen);
         if (connectResult < 0) {
             LOG("❌ TCP连接失败: socket=%d, errno=%d (%s), target=%s:%d", 
                 sockFd, errno, strerror(errno), 
@@ -231,7 +221,7 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
         
         while (sent < 0 && retryCount < maxRetries) {
             sent = sendto(sockFd, payload, payloadSize, 0, 
-                         (struct sockaddr*)&targetAddr, sizeof(targetAddr));
+                         pTargetAddr, targetAddrLen);
             
             if (sent < 0) {
                 retryCount++;
@@ -306,8 +296,49 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
                 }).detach();
             }
         }
+    } else if (packetInfo.protocol == PROTOCOL_ICMPV6) {
+        // ICMPv6 处理
+        LOG("🧊 处理ICMPv6消息: Type=%d -> %s", packetInfo.icmpv6Type, actualTargetIP.c_str());
+        
+        // 发送ICMPv6数据包（整个IP包，包含IPv6头和ICMPv6数据）
+        ssize_t sent = sendto(sockFd, data, dataSize, 0, pTargetAddr, targetAddrLen);
+        
+        if (sent < 0) {
+            LOG("❌ ICMPv6发送失败: socket=%d, errno=%d (%s), target=%s, type=%d", 
+                sockFd, errno, strerror(errno), actualTargetIP.c_str(), packetInfo.icmpv6Type);
+            NATTable::RemoveMapping(natKey);
+            if (isNewSocket) {
+                std::lock_guard<std::mutex> lock(g_socketCacheMutex);
+                g_socketCache.erase(socketKey);
+                close(sockFd);
+            }
+            return -1;
+        }
+        
+        LOG("✅ ICMPv6发送成功: socket=%d, %zd字节 -> %s, Type=%d", 
+            sockFd, sent, actualTargetIP.c_str(), packetInfo.icmpv6Type);
+        
+        // ICMPv6 通常不需要响应线程（除了 Echo Request/Reply）
+        // 但为了统一处理，我们还是启动一个
+        if (isNewSocket && (packetInfo.icmpv6Type == ICMPV6_ECHO_REQUEST || 
+                            packetInfo.icmpv6Type == ICMPV6_ECHO_REPLY)) {
+            LOG("🚀 启动ICMPv6响应线程 for socket %d", sockFd);
+            std::thread([sockFd, originalPeer, packetInfo, socketKey]() {
+                LOG("🔥 ICMPv6响应线程已进入 - socket=%d", sockFd);
+                // 使用类似 UDP 的响应处理
+                HandleUdpResponseSimple(sockFd, originalPeer, packetInfo);
+                
+                std::lock_guard<std::mutex> lock(g_socketCacheMutex);
+                g_socketCache.erase(socketKey);
+                LOG("🔥 ICMPv6响应线程已退出 - socket=%d", sockFd);
+            }).detach();
+        } else if (!isNewSocket) {
+            LOG("♻️ 复用现有ICMPv6响应线程 for socket %d", sockFd);
+        } else {
+            LOG("ℹ️  ICMPv6 Type=%d 不需要响应线程", packetInfo.icmpv6Type);
+        }
     } else {
-        // 不应该到这里（TCP已经在上面被拦截）
+        // 不应该到这里
         LOG("❌ 未知协议: %d", packetInfo.protocol);
         NATTable::RemoveMapping(natKey);
         if (isNewSocket) {
@@ -571,8 +602,19 @@ static void HandleTcpResponseSimple(int sockFd, sockaddr_in originalPeer, const 
 
 // ========== 辅助函数 ==========
 int PacketForwarder::CreateSocket(int addressFamily, uint8_t protocol) {
-    int sockType = (protocol == PROTOCOL_UDP) ? SOCK_DGRAM : SOCK_STREAM;
-    return socket(addressFamily, sockType, 0);
+    int sockType = SOCK_DGRAM;
+    int socketProtocol = 0;
+    
+    if (protocol == PROTOCOL_ICMPV6) {
+        sockType = SOCK_RAW;
+        socketProtocol = IPPROTO_ICMPV6;
+    } else if (protocol == PROTOCOL_UDP) {
+        sockType = SOCK_DGRAM;
+    } else if (protocol == PROTOCOL_TCP) {
+        sockType = SOCK_STREAM;
+    }
+    
+    return socket(addressFamily, sockType, socketProtocol);
 }
 
 // 兼容旧接口
