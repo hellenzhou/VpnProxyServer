@@ -7,6 +7,7 @@
 #include "vpn_server_globals.h"
 #include "packet_builder.h"
 #include "nat_table.h"
+#include "task_queue.h"
 #include <hilog/log.h>
 #include <thread>
 #include <unistd.h>
@@ -477,32 +478,20 @@ static void HandleUdpResponseSimple(int sockFd, sockaddr_in originalPeer, const 
                 dnsId, flags, rcode, answerCount);
         }
         
-        // 🔧 优化：重试发送给客户端
-        int sendRetries = 3;
-        bool sendSuccess = false;
-        
-        while (sendRetries > 0 && !sendSuccess) {
-            // 🐛 修复：检查tunnelFd是否仍然有效
-            if (tunnelFd < 0 || tunnelFd != g_sockFd) {
-                LOG("⚠️ TUN socket已关闭或更改，停止发送响应");
-                break;
-            }
-            
+        // 🔧 提交响应任务到队列（异步发送）
+        if (!TaskQueueManager::getInstance().submitResponseTask(
+                responsePayload, received, originalPeer, sockFd, packetInfo.protocol)) {
+            LOG("⚠️ 响应队列已满，直接发送");
+            // 队列满时降级为直接发送
             ssize_t sent = sendto(tunnelFd, responsePayload, received, 0,
                                 (struct sockaddr*)&originalPeer, sizeof(originalPeer));
-            
-            if (sent == received) {
-                LOG("✅ 响应已发送给客户端: %zd字节", sent);
-                sendSuccess = true;
+            if (sent > 0) {
+                LOG("✅ 响应已直接发送给客户端: %zd字节", sent);
             } else {
-                sendRetries--;
-                if (sendRetries > 0) {
-                    LOG("⚠️ 发送响应失败，重试中... 剩余次数=%d", sendRetries);
-                    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-                } else {
-                    LOG("❌ 发送给客户端失败: %s", strerror(errno));
-                }
+                LOG("❌ 发送给客户端失败: %s", strerror(errno));
             }
+        } else {
+            LOG("✅ 响应已提交到队列: %zd字节", received);
         }
         
         if (sendSuccess) {
@@ -598,35 +587,21 @@ static void HandleTcpResponseSimple(int sockFd, sockaddr_in originalPeer, const 
         
         LOG("✅ 构建TCP IP包: %d字节", packetLen);
         
-        // 🔧 优化：TCP响应发送重试
-        int tcpRetryCount = 0;
-        const int maxTcpRetries = 3;
-        bool tcpSendSuccess = false;
-        
-        while (!tcpSendSuccess && tcpRetryCount < maxTcpRetries) {
-            // 🐛 修复：检查tunnelFd是否仍然有效
-            if (tunnelFd < 0 || tunnelFd != g_sockFd) {
-                LOG("⚠️ TUN socket已关闭或更改，停止发送TCP响应");
-                break;
-            }
-            
+        // 🔧 提交TCP响应任务到队列（异步发送）
+        if (!TaskQueueManager::getInstance().submitResponseTask(
+                ipPacket, packetLen, conn.clientPhysicalAddr, sockFd, PROTOCOL_TCP)) {
+            LOG("⚠️ 响应队列已满，直接发送TCP响应");
+            // 队列满时降级为直接发送
             ssize_t sent = sendto(tunnelFd, ipPacket, packetLen, 0,
                                  (struct sockaddr*)&conn.clientPhysicalAddr,
                                  sizeof(conn.clientPhysicalAddr));
-            
-            if (sent == packetLen) {
-                LOG("✅ TCP响应发送成功: %zd字节", sent);
-                tcpSendSuccess = true;
+            if (sent > 0) {
+                LOG("✅ TCP响应已直接发送: %zd字节", sent);
             } else {
-                tcpRetryCount++;
-                if (tcpRetryCount < maxTcpRetries) {
-                    LOG("⚠️ TCP响应发送失败，重试 %d/%d: errno=%d (%s)", 
-                        tcpRetryCount, maxTcpRetries, errno, strerror(errno));
-                    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-                } else {
-                    LOG("❌ TCP响应发送最终失败: %s", strerror(errno));
-                }
+                LOG("❌ TCP响应发送失败: %s", strerror(errno));
             }
+        } else {
+            LOG("✅ TCP响应已提交到队列: %d字节", packetLen);
         }
         
         if (tcpSendSuccess) {

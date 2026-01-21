@@ -7,6 +7,7 @@
 extern std::atomic<bool> g_running;
 extern int g_sockFd;
 extern std::thread g_worker;
+extern std::thread g_udpRetransmitThread;
 
 // 统计变量
 extern std::atomic<uint64_t> g_packetsReceived;

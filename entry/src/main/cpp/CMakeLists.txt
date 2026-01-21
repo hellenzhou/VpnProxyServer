@@ -31,6 +31,9 @@ add_library(vpn_server SHARED
     nat_table.cpp
     simple_dns_cache.cpp
     network_diagnostics.cpp
+    task_queue.cpp
+    udp_retransmit.cpp
+    worker_thread_pool.cpp
 )
 
 target_link_libraries(vpn_server PUBLIC libace_napi.z.so libc++.a)

@@ -26,6 +26,9 @@
 #include "vpn_server_globals.h"
 #include "simple_dns_cache.h"
 #include "network_diagnostics.h"
+#include "task_queue.h"
+#include "worker_thread_pool.h"
+#include "udp_retransmit.h"
 
 #define MAKE_FILE_NAME (strrchr(__FILE__, '/') ? (strrchr(__FILE__, '/') + 1) : __FILE__)
 
@@ -44,6 +47,7 @@ constexpr int BUFFER_SIZE = 2048;
 std::atomic<bool> g_running{false};
 int g_sockFd = -1;
 std::thread g_worker;
+std::thread g_udpRetransmitThread;
 
 // Statistics
 std::atomic<uint64_t> g_packetsReceived{0};
@@ -1198,25 +1202,13 @@ void WorkerLoop()
                         packetInfo.targetIP.c_str());
       }
       
-      // 转发到真实服务器
-      int realServerSock = PacketForwarder::ForwardPacket(buf, n, packetInfo, peer);
-      if (realServerSock >= 0) {
-        if (packetInfo.protocol == PROTOCOL_ICMPV6) {
-          VPN_SERVER_LOGI("ZBQ [FWD✓] ICMPv6 -> %{public}s (sock=%{public}d)", 
-                          packetInfo.targetIP.c_str(), realServerSock);
-        } else {
-          VPN_SERVER_LOGI("ZBQ [FWD✓] %{public}s -> %{public}s:%{public}d (sock=%{public}d)", 
-                          ProtocolHandler::GetProtocolName(packetInfo.protocol).c_str(),
-                          packetInfo.targetIP.c_str(), packetInfo.targetPort, realServerSock);
-        }
+      // 🔧 提交转发任务到队列（异步处理）
+      if (!TaskQueueManager::getInstance().submitForwardTask(buf, n, packetInfo, peer)) {
+        VPN_SERVER_LOGE("ZBQ [FWD✗] Failed to submit task (queue full)");
       } else {
-        if (packetInfo.protocol == PROTOCOL_ICMPV6) {
-          VPN_SERVER_LOGE("ZBQ [FWD✗] ICMPv6 -> %{public}s FAILED", packetInfo.targetIP.c_str());
-        } else {
-          VPN_SERVER_LOGE("ZBQ [FWD✗] %{public}s -> %{public}s:%{public}d FAILED", 
-                          ProtocolHandler::GetProtocolName(packetInfo.protocol).c_str(),
-                          packetInfo.targetIP.c_str(), packetInfo.targetPort);
-        }
+        VPN_SERVER_LOGI("ZBQ [FWD→] %{public}s -> %{public}s:%{public}d (queued)", 
+                        ProtocolHandler::GetProtocolName(packetInfo.protocol).c_str(),
+                        packetInfo.targetIP.c_str(), packetInfo.targetPort);
       }
     }
   }
@@ -1265,6 +1257,19 @@ napi_value StartServer(napi_env env, napi_callback_info info)
   }
 
   VPN_SERVER_LOGI("ZBQ [START] VPN Server on port %{public}d", port);
+  
+  // 清理任务队列
+  TaskQueueManager::getInstance().clear();
+  
+  // 启动工作线程池
+  if (!WorkerThreadPool::getInstance().start(4, 2)) {
+    VPN_SERVER_LOGE("❌ Failed to start worker thread pool");
+  } else {
+    VPN_SERVER_LOGI("✅ Worker thread pool started: 4 forward workers, 2 response workers");
+  }
+  
+  // 清理UDP重传管理器
+  UdpRetransmitManager::getInstance().clear();
   
   // 清理DNS缓存
   SimpleDNSCache cache;
@@ -1327,6 +1332,23 @@ napi_value StartServer(napi_env env, napi_callback_info info)
   g_sockFd = fd;
   g_running.store(true);
   g_worker = std::thread(WorkerLoop);
+  
+  // 启动UDP重传定时器线程
+  g_udpRetransmitThread = std::thread([]() {
+    VPN_SERVER_LOGI("🔄 UDP retransmit timer thread started");
+    while (g_running.load()) {
+      // 🐛 修复：使用可中断的sleep，避免退出延迟
+      for (int i = 0; i < 10 && g_running.load(); ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+      }
+      
+      if (!g_running.load()) break;
+      
+      // 检查并重传超时的UDP包（1秒超时，最多重传3次）
+      UdpRetransmitManager::getInstance().checkAndRetransmit(1000, 3);
+    }
+    VPN_SERVER_LOGI("🔚 UDP retransmit timer thread stopped");
+  });
 
   VPN_SERVER_LOGI("🎯 PROXY SERVER STARTED - Ready to accept proxy client connections");
   VPN_SERVER_LOGI("📡 Listening on UDP port %{public}d for proxy tunnel traffic", port);
@@ -1379,7 +1401,19 @@ napi_value StopServer(napi_env env, napi_callback_info info)
   VPN_SERVER_LOGI("ZBQ [STOP] Stopping server...");
   g_running.store(false);
   
-  // 🐛 修复：先清理PacketForwarder的所有socket和线程
+  // 停止工作线程池
+  WorkerThreadPool::getInstance().stop();
+  VPN_SERVER_LOGI("✅ Worker thread pool stopped");
+  
+  // 清理任务队列
+  TaskQueueManager::getInstance().clear();
+  VPN_SERVER_LOGI("✅ Task queues cleared");
+  
+  // 清理UDP重传管理器
+  UdpRetransmitManager::getInstance().clear();
+  VPN_SERVER_LOGI("✅ UDP retransmit manager cleared");
+  
+  // 🐛 修复：清理PacketForwarder的所有socket和线程
   PacketForwarder::CleanupAll();
   
   // 关闭socket，这会中断recvfrom/select调用
@@ -1387,6 +1421,12 @@ napi_value StopServer(napi_env env, napi_callback_info info)
     close(g_sockFd);
     g_sockFd = -1;
     VPN_SERVER_LOGI("ZBQ [STOP] Socket closed");
+  }
+  
+  // 停止UDP重传线程
+  if (g_udpRetransmitThread.joinable()) {
+    g_udpRetransmitThread.join();
+    VPN_SERVER_LOGI("✅ UDP retransmit thread stopped");
   }
   
   // 由于socket已关闭且select有100ms超时，工作线程会在下一次循环时退出
