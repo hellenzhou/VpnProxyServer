@@ -29,6 +29,7 @@
 #include "task_queue.h"
 #include "worker_thread_pool.h"
 #include "udp_retransmit.h"
+#include "nat_table.h"  // NATTable
 
 #define MAKE_FILE_NAME (strrchr(__FILE__, '/') ? (strrchr(__FILE__, '/') + 1) : __FILE__)
 
@@ -46,6 +47,7 @@ constexpr int BUFFER_SIZE = 2048;
 // 全局变量定义
 std::atomic<bool> g_running{false};
 int g_sockFd = -1;
+std::mutex g_sockFdMutex;  // 🔧 保护 g_sockFd 的互斥锁
 std::thread g_worker;
 std::thread g_udpRetransmitThread;
 
@@ -55,6 +57,7 @@ std::atomic<uint64_t> g_packetsSent{0};
 std::atomic<uint64_t> g_bytesReceived{0};
 std::atomic<uint64_t> g_bytesSent{0};
 std::string g_lastActivity;
+std::mutex g_lastActivityMutex;  // 🔧 保护 g_lastActivity 的互斥锁
 std::mutex g_statsMutex;
 
 // Client tracking
@@ -1110,7 +1113,7 @@ void WorkerLoop()
     
     // Update last activity and client info (no logging to reduce output)
     {
-      std::lock_guard<std::mutex> lock(g_statsMutex);
+      std::lock_guard<std::mutex> lock(g_lastActivityMutex);  // 🔧 使用专用锁
       g_lastActivity = clientKey;
     }
     UpdateClientInfo(peerAddr, peerPort, n);
@@ -1221,10 +1224,16 @@ napi_value StartServer(napi_env env, napi_callback_info info)
   if (g_running.load()) {
     VPN_SERVER_LOGI("⚠️ Server already running, stopping old instance...");
     g_running.store(false);
-    if (g_sockFd >= 0) {
-      close(g_sockFd);
-      g_sockFd = -1;
+    
+    // 🔧 修复：使用锁保护 g_sockFd 的修改
+    {
+      std::lock_guard<std::mutex> lock(g_sockFdMutex);
+      if (g_sockFd >= 0) {
+        close(g_sockFd);
+        g_sockFd = -1;
+      }
     }
+    
     // 使用detach()而不是join()，避免阻塞UI线程
     // WorkerLoop会在检查g_running时发现为false，然后退出循环
     if (g_worker.joinable()) {
@@ -1232,19 +1241,30 @@ napi_value StartServer(napi_env env, napi_callback_info info)
       g_worker.detach();
     }
     // 给旧线程一点时间退出（非阻塞）
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
   }
 
   VPN_SERVER_LOGI("ZBQ [START] VPN Server on port %{public}d", port);
   
+  // 停止旧的工作线程池（如果存在）
+  if (WorkerThreadPool::getInstance().isRunning()) {
+    VPN_SERVER_LOGI("⚠️ Worker thread pool already running, stopping it...");
+    WorkerThreadPool::getInstance().stop();
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  }
+  
   // 清理任务队列
   TaskQueueManager::getInstance().clear();
+  VPN_SERVER_LOGI("✅ Task queues cleared");
   
   // 启动工作线程池
+  VPN_SERVER_LOGI("🚀 Starting worker thread pool with 4 forward and 2 response workers...");
   if (!WorkerThreadPool::getInstance().start(4, 2)) {
-    VPN_SERVER_LOGE("❌ Failed to start worker thread pool");
+    VPN_SERVER_LOGE("❌ Failed to start worker thread pool - THIS IS CRITICAL!");
+    VPN_SERVER_LOGE("❌ Worker thread pool state: isRunning=%d", WorkerThreadPool::getInstance().isRunning() ? 1 : 0);
   } else {
     VPN_SERVER_LOGI("✅ Worker thread pool started: 4 forward workers, 2 response workers");
+    VPN_SERVER_LOGI("✅ Worker thread pool state: isRunning=%d", WorkerThreadPool::getInstance().isRunning() ? 1 : 0);
   }
   
   // 清理UDP重传管理器
@@ -1253,6 +1273,10 @@ napi_value StartServer(napi_env env, napi_callback_info info)
   // 清理DNS缓存
   DNSCacheManager::clear();
   VPN_SERVER_LOGI("✅ DNS cache cleared");
+  
+  // 清理NAT表（重要！清理旧连接）
+  NATTable::Clear();
+  VPN_SERVER_LOGI("✅ NAT table cleared");
   
   int fd = socket(AF_INET, SOCK_DGRAM, 0);
   if (fd < 0) {
@@ -1308,7 +1332,12 @@ napi_value StartServer(napi_env env, napi_callback_info info)
   }
   VPN_SERVER_LOGI("✅ Socket set to non-blocking mode");
 
-  g_sockFd = fd;
+  // 🔧 修复：使用锁保护 g_sockFd 的修改
+  {
+    std::lock_guard<std::mutex> lock(g_sockFdMutex);
+    g_sockFd = fd;
+  }
+  
   g_running.store(true);
   g_worker = std::thread(WorkerLoop);
   
@@ -1395,6 +1424,10 @@ napi_value StopServer(napi_env env, napi_callback_info info)
   
   // 🐛 修复：清理PacketForwarder的所有socket和线程
   PacketForwarder::CleanupAll();
+  
+  // 🐛 修复：清理NAT表（重要！避免资源泄漏）
+  NATTable::Clear();
+  VPN_SERVER_LOGI("✅ NAT table cleared");
 
   // 🐛 修复：发送服务器停止广播，通知VPN客户端服务器已停止
   if (g_sockFd >= 0) {
@@ -1417,23 +1450,30 @@ napi_value StopServer(napi_env env, napi_callback_info info)
     }
   }
 
+  // 🔧 修复：使用锁保护 g_sockFd 的修改，防止竞态条件
   // 关闭socket，这会中断recvfrom/select调用
-  if (g_sockFd >= 0) {
-    close(g_sockFd);
-    g_sockFd = -1;
-    VPN_SERVER_LOGI("ZBQ [STOP] Socket closed");
+  {
+    std::lock_guard<std::mutex> lock(g_sockFdMutex);
+    if (g_sockFd >= 0) {
+      close(g_sockFd);
+      g_sockFd = -1;
+      VPN_SERVER_LOGI("ZBQ [STOP] Socket closed");
+    }
   }
   
-  // 停止UDP重传线程
+  // 🔧 修复：正确等待线程退出，避免资源泄漏
+  // 由于socket已关闭且select有100ms超时，工作线程会快速退出
+  if (g_worker.joinable()) {
+    VPN_SERVER_LOGI("⏳ Waiting for worker thread to exit...");
+    g_worker.join();  // 🔧 应该join而不是detach
+    VPN_SERVER_LOGI("✅ Worker thread stopped");
+  }
+  
+  // 停止UDP重传线程（g_running已经为false，重传线程会退出）
   if (g_udpRetransmitThread.joinable()) {
+    VPN_SERVER_LOGI("⏳ Waiting for UDP retransmit thread to exit...");
     g_udpRetransmitThread.join();
     VPN_SERVER_LOGI("✅ UDP retransmit thread stopped");
-  }
-  
-  // 由于socket已关闭且select有100ms超时，工作线程会在下一次循环时退出
-  if (g_worker.joinable()) {
-    VPN_SERVER_LOGI("ZBQ [STOP] Worker thread will exit");
-    g_worker.detach();
   }
   
   // Reset statistics
@@ -1442,7 +1482,7 @@ napi_value StopServer(napi_env env, napi_callback_info info)
   g_bytesReceived.store(0);
   g_bytesSent.store(0);
   {
-    std::lock_guard<std::mutex> lock(g_statsMutex);
+    std::lock_guard<std::mutex> lock(g_lastActivityMutex);  // 🔧 使用专用锁
     g_lastActivity.clear();
   }
   
@@ -1491,7 +1531,7 @@ napi_value GetStats(napi_env env, napi_callback_info info)
   // Last activity
   std::string lastActivity;
   {
-    std::lock_guard<std::mutex> lock(g_statsMutex);
+    std::lock_guard<std::mutex> lock(g_lastActivityMutex);  // 🔧 使用专用锁
     lastActivity = g_lastActivity.empty() ? "No activity" : g_lastActivity;
   }
   napi_value lastActivityStr;

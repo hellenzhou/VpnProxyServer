@@ -26,10 +26,20 @@
 #include <mutex>
 
 #define MAKE_FILE_NAME (strrchr(__FILE__, '/') ? (strrchr(__FILE__, '/') + 1) : __FILE__)
-// 🔇 减少转发器日志输出，避免影响性能
-// #define LOG(fmt, ...) \
-//   OH_LOG_Print(LOG_APP, LOG_INFO, 0x15b1, "VpnServer", "[%{public}s:%{public}d] " fmt, MAKE_FILE_NAME, __LINE__, ##__VA_ARGS__)
-#define LOG(fmt, ...) /* 转发器日志已禁用 */
+
+// 🔧 调试开关：启用转发器日志（默认启用，用于排查问题）
+// 生产环境可以设置为 0 减少日志
+#define ENABLE_FORWARDER_LOG 1
+
+#if ENABLE_FORWARDER_LOG
+  #define LOG(fmt, ...) \
+    OH_LOG_Print(LOG_APP, LOG_INFO, 0x15b1, "VpnServer", "ZBQ [Forwarder] [%{public}s:%{public}d] " fmt, MAKE_FILE_NAME, __LINE__, ##__VA_ARGS__)
+  #define LOG_ERROR(fmt, ...) \
+    OH_LOG_Print(LOG_APP, LOG_ERROR, 0x15b1, "VpnServer", "ZBQ [Forwarder] [%{public}s:%{public}d] ❌ " fmt, MAKE_FILE_NAME, __LINE__, ##__VA_ARGS__)
+#else
+  #define LOG(fmt, ...) /* 转发器日志已禁用 */
+  #define LOG_ERROR(fmt, ...) /* 转发器错误日志已禁用 */
+#endif
 
 // 静态辅助函数声明
 static void HandleUdpResponseSimple(int sockFd, sockaddr_in originalPeer, const PacketInfo& packetInfo);
@@ -51,7 +61,9 @@ static std::mutex g_dnsQueryCacheMutex;
 int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize, 
                                   const PacketInfo& packetInfo, 
                                   const sockaddr_in& originalPeer) {
-    LOG("📦 转发: %s:%d -> %s:%d (%s, %d字节)",
+    // 🔍 [流程1] 转发开始
+    LOG("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    LOG("📦 [开始转发] %s:%d -> %s:%d (%s, %d字节)",
         packetInfo.sourceIP.c_str(), packetInfo.sourcePort,
         packetInfo.targetIP.c_str(), packetInfo.targetPort,
         ProtocolHandler::GetProtocolName(packetInfo.protocol).c_str(),
@@ -60,20 +72,23 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
     // ✅ 路由循环已通过 vpnConnection.protect(tunnelFd) 防止
     // 无需额外的重复数据包检测，让所有合法请求正常转发
     
-    // 2. 提取payload
+    // 🔍 [流程2] 提取payload
     const uint8_t* payload = nullptr;
     int payloadSize = 0;
+    LOG("🔍 [步骤1] 开始提取payload (数据包大小: %d)", dataSize);
     if (!PacketBuilder::ExtractPayload(data, dataSize, packetInfo, &payload, &payloadSize)) {
-        LOG("❌ 提取payload失败");
+        LOG_ERROR("提取payload失败 - 数据包可能损坏或格式错误");
+        LOG_ERROR("   原因: 数据包大小=%d, 协议=%s", dataSize, 
+                  ProtocolHandler::GetProtocolName(packetInfo.protocol).c_str());
         return -1;
     }
     
     if (payloadSize <= 0) {
-        LOG("⚠️ payload为空，跳过");
+        LOG("⚠️ payload为空(size=%d)，跳过转发", payloadSize);
         return 0;
     }
     
-    LOG("✅ 提取payload: %d字节", payloadSize);
+    LOG("✅ [步骤1完成] 提取payload: %d字节", payloadSize);
     
     // 🔧 3. Socket复用：检查是否已有可用socket
     std::string socketKey = packetInfo.targetIP + ":" + std::to_string(packetInfo.targetPort);
@@ -100,37 +115,46 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
         }
     }
     
-    // 如果没有可用socket，创建新的
+    // 🔍 [流程3] 创建或复用socket
     if (sockFd < 0) {
+        LOG("🔍 [步骤2] 创建新socket...");
         // 根据协议选择socket类型和地址族
         int addressFamily = packetInfo.addressFamily;
         int sockType = SOCK_DGRAM;
         int protocol = 0;
         
         if (packetInfo.protocol == PROTOCOL_ICMPV6) {
-            // ICMPv6 需要使用 RAW socket 和 IPv6
             addressFamily = AF_INET6;
             sockType = SOCK_RAW;
             protocol = IPPROTO_ICMPV6;
-            LOG("🔧 创建ICMPv6 RAW socket");
+            LOG("   类型: ICMPv6 RAW socket");
         } else if (packetInfo.protocol == PROTOCOL_UDP) {
             sockType = SOCK_DGRAM;
+            LOG("   类型: UDP DGRAM socket");
         } else if (packetInfo.protocol == PROTOCOL_TCP) {
             sockType = SOCK_STREAM;
+            LOG("   类型: TCP STREAM socket");
         }
         
         sockFd = socket(addressFamily, sockType, protocol);
         if (sockFd < 0) {
-            LOG("❌ 创建socket失败: %s (family=%d, type=%d, proto=%d)", 
-                strerror(errno), addressFamily, sockType, protocol);
+            LOG_ERROR("创建socket失败!");
+            LOG_ERROR("   errno: %d (%s)", errno, strerror(errno));
+            LOG_ERROR("   family: %d, type: %d, protocol: %d", 
+                     addressFamily, sockType, protocol);
+            LOG_ERROR("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
             return -1;
         }
         isNewSocket = true;
         
         // 添加到缓存
-        std::lock_guard<std::mutex> lock(g_socketCacheMutex);
-        g_socketCache[socketKey] = sockFd;
-        LOG("✅ 创建新socket: fd=%d, key=%s, type=%d", sockFd, socketKey.c_str(), sockType);
+        {
+            std::lock_guard<std::mutex> lock(g_socketCacheMutex);
+            g_socketCache[socketKey] = sockFd;
+        }
+        LOG("✅ [步骤2完成] 创建socket成功: fd=%d, key=%s", sockFd, socketKey.c_str());
+    } else {
+        LOG("♻️ [步骤2跳过] 复用已有socket: fd=%d", sockFd);
     }
     
     // 4. 先创建NAT映射（重要！必须在启动响应线程之前）
@@ -290,7 +314,10 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
             }
         }
 
-        // 🔧 优化：UDP发送重试机制
+        // 🔍 [流程4] UDP发送数据
+        LOG("🔍 [步骤3] 发送UDP数据 %d字节 -> %s:%d", 
+            payloadSize, actualTargetIP.c_str(), packetInfo.targetPort);
+        
         ssize_t sent = -1;
         int retryCount = 0;
         const int maxRetries = 3;
@@ -301,18 +328,17 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
             
             if (sent < 0) {
                 retryCount++;
-                LOG("⚠️ UDP发送失败，重试 %d/%d: socket=%d, errno=%d (%s)", 
-                    retryCount, maxRetries, sockFd, errno, strerror(errno));
+                LOG("⚠️ UDP发送失败，重试 %d/%d: errno=%d (%s)", 
+                    retryCount, maxRetries, errno, strerror(errno));
                 
                 if (retryCount < maxRetries) {
-                    // 短暂延迟后重试
                     std::this_thread::sleep_for(std::chrono::milliseconds(10));
                     
-                    // 🔧 检查socket状态
+                    // 检查socket状态
                     int error = 0;
                     socklen_t len = sizeof(error);
                     if (getsockopt(sockFd, SOL_SOCKET, SO_ERROR, &error, &len) == 0 && error != 0) {
-                        LOG("❌ Socket错误，停止重试: %s", strerror(error));
+                        LOG_ERROR("Socket状态错误，停止重试: %s", strerror(error));
                         break;
                     }
                 }
@@ -320,11 +346,15 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
         }
         
         if (sent < 0) {
-            LOG("❌ UDP发送最终失败: socket=%d, errno=%d (%s), target=%s:%d, size=%d, 重试次数=%d", 
-                sockFd, errno, strerror(errno), 
-                actualTargetIP.c_str(), packetInfo.targetPort, payloadSize, retryCount);
+            LOG_ERROR("UDP发送最终失败!");
+            LOG_ERROR("   socket: %d", sockFd);
+            LOG_ERROR("   target: %s:%d", actualTargetIP.c_str(), packetInfo.targetPort);
+            LOG_ERROR("   size: %d字节", payloadSize);
+            LOG_ERROR("   errno: %d (%s)", errno, strerror(errno));
+            LOG_ERROR("   重试次数: %d", retryCount);
+            LOG_ERROR("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+            
             NATTable::RemoveMapping(natKey);
-            // 🔧 只有新socket才关闭，复用的socket保留在缓存中
             if (isNewSocket) {
                 std::lock_guard<std::mutex> lock(g_socketCacheMutex);
                 g_socketCache.erase(socketKey);
@@ -333,18 +363,20 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
             return -1;
         }
         
-        LOG("✅ UDP发送成功: socket=%d, %zd字节 -> %s:%d (重试次数=%d)", 
-            sockFd, sent, actualTargetIP.c_str(), packetInfo.targetPort, retryCount);
+        LOG("✅ [步骤3完成] UDP发送成功: %zd字节 -> %s:%d %s", 
+            sent, actualTargetIP.c_str(), packetInfo.targetPort,
+            retryCount > 0 ? ("(重试" + std::to_string(retryCount) + "次)").c_str() : "");
         
-        // 🔧 UDP响应：启动专用响应线程（UDP需要持续监听特定socket）
+        // 🔍 [流程5] 启动UDP响应线程
         if (isNewSocket) {
-            LOG("🚀 启动新的UDP响应线程 for socket %d (新socket)", sockFd);
+            LOG("🔍 [步骤4] 启动UDP响应线程 for socket %d", sockFd);
             std::thread([sockFd, originalPeer, packetInfo, socketKey]() {
                 {
                     std::lock_guard<std::mutex> lock(g_threadMapMutex);
                     g_socketThreadMap[sockFd] = std::this_thread::get_id();
                 }
-                LOG("🔥🔥🔥 UDP响应线程已进入 - socket=%d 🔥🔥🔥", sockFd);
+                LOG("🔥 [响应线程启动] socket=%d, 等待来自 %s:%d 的响应", 
+                    sockFd, packetInfo.targetIP.c_str(), packetInfo.targetPort);
                 HandleUdpResponseSimple(sockFd, originalPeer, packetInfo);
 
                 // 响应线程结束时，清理
@@ -356,21 +388,15 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
                     std::lock_guard<std::mutex> lock(g_socketCacheMutex);
                     g_socketCache.erase(socketKey);
                 }
-                LOG("🔥🔥🔥 UDP响应线程已退出 - socket=%d 🔥🔥🔥", sockFd);
+                LOG("🔚 [响应线程退出] socket=%d", sockFd);
             }).detach();
+            LOG("✅ [步骤4完成] 响应线程已启动");
         } else {
-            // 🔧 Socket复用时，检查响应线程状态
-            LOG("♻️ 复用UDP socket %d", sockFd);
-            {
-                std::lock_guard<std::mutex> lock(g_threadMapMutex);
-                auto it = g_socketThreadMap.find(sockFd);
-                if (it != g_socketThreadMap.end()) {
-                    LOG("✅ 响应线程仍在运行 for socket %d", sockFd);
-                } else {
-                    LOG("⚠️ 响应线程丢失 for socket %d，可能需要重启", sockFd);
-                }
-            }
+            LOG("♻️ [步骤4跳过] 复用socket，响应线程已存在");
         }
+        
+        LOG("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        LOG("✅ [转发完成] socket=%d 返回", sockFd);
     } else if (packetInfo.protocol == PROTOCOL_ICMPV6) {
         // ICMPv6 处理
         LOG("🧊 处理ICMPv6消息: Type=%d -> %s", packetInfo.icmpv6Type, actualTargetIP.c_str());
@@ -536,6 +562,21 @@ static void HandleUdpResponseSimple(int sockFd, sockaddr_in originalPeer, const 
         LOG("✅✅✅ 收到UDP响应: socket=%d, %zd字节, 来源=%s:%d", 
             sockFd, received, responseIP, ntohs(responseAddr.sin_port));
         
+        // 🔧 关键修复：构建完整的IP包（UDP响应需要IP/UDP头部！）
+        uint8_t ipPacket[4096 + 60];
+        int packetLen = PacketBuilder::BuildResponsePacket(
+            ipPacket, sizeof(ipPacket),
+            responsePayload, received,
+            conn.originalRequest
+        );
+        
+        if (packetLen < 0) {
+            LOG("❌ 构建UDP响应包失败");
+            continue;
+        }
+        
+        LOG("✅ 构建UDP IP包: %d字节 (payload: %zd字节)", packetLen, received);
+        
         // 🔧 优化：添加响应内容摘要（仅DNS）
         if (packetInfo.targetPort == 53 && received >= 12) {
             // DNS响应前12字节包含头部信息
@@ -592,22 +633,21 @@ static void HandleUdpResponseSimple(int sockFd, sockaddr_in originalPeer, const 
             LOG("📨 DNS响应已确认，更新重传状态");
         }
         
-        // 🔧 提交响应任务到队列（异步发送）
+        // 🔧 提交响应任务到队列（异步发送）- 发送完整的IP包！
         bool sendSuccess = false;
         if (!TaskQueueManager::getInstance().submitResponseTask(
-                responsePayload, received, originalPeer, sockFd, packetInfo.protocol)) {
-            LOG("⚠️ 响应队列已满，直接发送");
-            // 队列满时降级为直接发送
-            ssize_t sent = sendto(tunnelFd, responsePayload, received, 0,
-                                (struct sockaddr*)&originalPeer, sizeof(originalPeer));
-            if (sent > 0) {
-                LOG("✅ 响应已直接发送给客户端: %zd字节", sent);
-                sendSuccess = true;
-            } else {
-                LOG("❌ 发送给客户端失败: %s", strerror(errno));
-            }
+                ipPacket, packetLen, originalPeer, sockFd, packetInfo.protocol)) {
+            // 🔧 队列满时的正确处理：
+            // UDP响应可以丢弃（客户端会重试），不要阻塞响应线程
+            LOG("❌❌❌ 响应队列已满，丢弃UDP响应！系统过载警告！");
+            LOG("⚠️ 队列大小限制: %zu, 请考虑增大队列或优化性能", 
+                TaskQueueManager::getInstance().getResponseQueueSize());
+            
+            // 不要直接发送，避免占用响应线程资源
+            // UDP丢包是可接受的，客户端会重试DNS查询
+            sendSuccess = false;
         } else {
-            LOG("✅ UDP响应已提交到队列: %zd字节", received);
+            LOG("✅ UDP响应已提交到队列: %d字节 (完整IP包)", packetLen);
             sendSuccess = true;
         }
 
@@ -711,20 +751,20 @@ static void HandleTcpResponseSimple(int sockFd, sockaddr_in originalPeer, const 
         LOG("✅ 构建TCP IP包: %d字节", packetLen);
         
         // 🔧 提交TCP响应任务到队列（异步发送）
+        // TCP响应不能丢失，需要可靠传输
         bool tcpSendSuccess = false;
         if (!TaskQueueManager::getInstance().submitResponseTask(
                 ipPacket, packetLen, conn.clientPhysicalAddr, sockFd, PROTOCOL_TCP)) {
-            LOG("⚠️ 响应队列已满，直接发送TCP响应");
-            // 队列满时降级为直接发送
-            ssize_t sent = sendto(tunnelFd, ipPacket, packetLen, 0,
-                                 (struct sockaddr*)&conn.clientPhysicalAddr,
-                                 sizeof(conn.clientPhysicalAddr));
-            if (sent > 0) {
-                LOG("✅ TCP响应已直接发送: %zd字节", sent);
-                tcpSendSuccess = true;
-            } else {
-                LOG("❌ TCP响应发送失败: %s", strerror(errno));
-            }
+            // 🔧 TCP响应队列满是严重问题！
+            // TCP不能丢包，但直接发送也有风险（死锁、性能问题）
+            // 最好的策略：记录错误，关闭连接，让客户端重试
+            LOG("❌❌❌ 响应队列已满，无法发送TCP响应！系统严重过载！");
+            LOG("⚠️ TCP连接将被关闭，客户端需要重连");
+            
+            // 不要直接发送，避免死锁和资源竞争
+            // 让TCP连接断开，客户端会重新建立连接
+            tcpSendSuccess = false;
+            break;  // 退出响应循环，关闭连接
         } else {
             LOG("✅ TCP响应已提交到队列: %d字节", packetLen);
             tcpSendSuccess = true;
@@ -793,32 +833,73 @@ bool PacketForwarder::TestNetworkConnectivity() {
 
 // 清理所有缓存的socket和线程
 void PacketForwarder::CleanupAll() {
-    LOG("🧹 开始清理PacketForwarder资源...");
+    LOG("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    LOG("🧹 [资源清理] 开始清理PacketForwarder资源...");
     
     // 清理socket缓存
+    int socketCount = 0;
     {
         std::lock_guard<std::mutex> lock(g_socketCacheMutex);
+        socketCount = g_socketCache.size();
+        LOG("📊 [统计] Socket缓存数量: %d", socketCount);
         for (auto& pair : g_socketCache) {
-            LOG("🔒 关闭缓存socket: fd=%d, key=%s", pair.second, pair.first.c_str());
+            LOG("   🔒 关闭socket: fd=%d, key=%s", pair.second, pair.first.c_str());
             close(pair.second);
         }
         g_socketCache.clear();
-        LOG("✅ Socket缓存已清空");
+        LOG("✅ Socket缓存已清空 (关闭了%d个socket)", socketCount);
     }
     
     // 清理线程映射
+    int threadCount = 0;
     {
         std::lock_guard<std::mutex> lock(g_threadMapMutex);
+        threadCount = g_socketThreadMap.size();
+        LOG("📊 [统计] 活跃响应线程数: %d", threadCount);
         g_socketThreadMap.clear();
-        LOG("✅ 线程映射已清空");
+        LOG("✅ 线程映射已清空 (清理了%d个线程记录)", threadCount);
     }
 
     // 清理DNS查询缓存
+    int dnsCount = 0;
     {
         std::lock_guard<std::mutex> lock(g_dnsQueryCacheMutex);
+        dnsCount = g_dnsQueryCache.size();
+        LOG("📊 [统计] DNS查询缓存数量: %d", dnsCount);
         g_dnsQueryCache.clear();
-        LOG("✅ DNS查询缓存已清空");
+        LOG("✅ DNS查询缓存已清空 (清理了%d条DNS记录)", dnsCount);
     }
     
-    LOG("✅ PacketForwarder资源清理完成");
+    LOG("✅ [资源清理完成] Socket:%d, 线程:%d, DNS:%d", 
+        socketCount, threadCount, dnsCount);
+    LOG("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+}
+
+// 获取统计信息（用于调试）
+void PacketForwarder::LogStatistics() {
+    LOG("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    LOG("📊 [PacketForwarder统计]");
+    
+    {
+        std::lock_guard<std::mutex> lock(g_socketCacheMutex);
+        LOG("   Socket缓存: %zu个", g_socketCache.size());
+        if (!g_socketCache.empty()) {
+            for (const auto& pair : g_socketCache) {
+                LOG("      - fd:%d, key:%s", pair.second, pair.first.c_str());
+            }
+        }
+    }
+    
+    {
+        std::lock_guard<std::mutex> lock(g_threadMapMutex);
+        LOG("   响应线程: %zu个", g_socketThreadMap.size());
+    }
+    
+    {
+        std::lock_guard<std::mutex> lock(g_dnsQueryCacheMutex);
+        LOG("   DNS缓存: %zu条", g_dnsQueryCache.size());
+    }
+    
+    LOG("   NAT映射: %d个", NATTable::GetMappingCount());
+    LOG("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 }

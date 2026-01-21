@@ -108,8 +108,8 @@ public:
 
 private:
     TaskQueueManager() 
-        : forwardQueue_(5000),   // 转发队列最大5000个任务
-          responseQueue_(10000)  // 响应队列最大10000个任务
+        : forwardQueue_(10000),   // 转发队列最大10000个任务（提升容量）
+          responseQueue_(20000)   // 响应队列最大20000个任务（提升容量）
     {}
     
     ~TaskQueueManager() {

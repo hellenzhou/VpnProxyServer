@@ -152,10 +152,12 @@ public:
     
     // 重置队列（清空并允许重新使用）
     void reset() {
-        std::lock_guard<std::mutex> lock(mutex_);
-        std::queue<T> empty;
-        std::swap(queue_, empty);
-        shutdown_.store(false);  // 重置shutdown状态
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            std::queue<T> empty;
+            std::swap(queue_, empty);
+            shutdown_.store(false);  // 重置shutdown状态
+        }
         notFull_.notify_all();
         notEmpty_.notify_all();
     }

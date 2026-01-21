@@ -2,11 +2,19 @@
 #include <hilog/log.h>
 #include <cstring>
 
+// 🔧 调试开关：设置为 true 启用详细日志（每个任务都记录）
+// 生产环境请设置为 false 避免日志爆炸
+#define ENABLE_VERBOSE_TASK_LOG false
+
 #define MAKE_FILE_NAME (strrchr(__FILE__, '/') ? (strrchr(__FILE__, '/') + 1) : __FILE__)
 #define TASK_LOGI(fmt, ...) \
-  OH_LOG_Print(LOG_APP, LOG_INFO, 0x15b1, "TaskQueue", "[%{public}s:%{public}d] " fmt, MAKE_FILE_NAME, __LINE__, ##__VA_ARGS__)
+  OH_LOG_Print(LOG_APP, LOG_INFO, 0x15b1, "VpnServer", "ZBQ [Queue] [%{public}s:%{public}d] " fmt, MAKE_FILE_NAME, __LINE__, ##__VA_ARGS__)
 #define TASK_LOGE(fmt, ...) \
-  OH_LOG_Print(LOG_APP, LOG_ERROR, 0x15b1, "TaskQueue", "[%{public}s:%{public}d] " fmt, MAKE_FILE_NAME, __LINE__, ##__VA_ARGS__)
+  OH_LOG_Print(LOG_APP, LOG_ERROR, 0x15b1, "VpnServer", "ZBQ [Queue] [%{public}s:%{public}d] " fmt, MAKE_FILE_NAME, __LINE__, ##__VA_ARGS__)
+#define TASK_LOGV(fmt, ...) \
+  if (ENABLE_VERBOSE_TASK_LOG) { \
+    OH_LOG_Print(LOG_APP, LOG_INFO, 0x15b1, "VpnServer", "ZBQ [Queue] [%{public}s:%{public}d] " fmt, MAKE_FILE_NAME, __LINE__, ##__VA_ARGS__); \
+  }
 
 bool TaskQueueManager::submitForwardTask(const uint8_t* data, int dataSize,
                                         const PacketInfo& packetInfo,
@@ -60,7 +68,41 @@ bool TaskQueueManager::submitResponseTask(const uint8_t* data, int dataSize,
 }
 
 Optional<Task> TaskQueueManager::popForwardTask(std::chrono::milliseconds timeout) {
-    return forwardQueue_.popWithTimeout(timeout);
+    static int popCount = 0;
+    static int lastLogCount = 0;
+    auto result = forwardQueue_.popWithTimeout(timeout);
+    
+    if (result.has_value()) {
+        popCount++;
+        
+        // 🔧 详细日志模式：每个任务都记录（调试用）
+        TASK_LOGV("📤 [VERBOSE] popForwardTask #%d, queue: %zu", popCount, forwardQueue_.size());
+        
+        // 🔧 智能日志策略：
+        // 1. 前10次：每次都记录（启动诊断）
+        // 2. 10-100次：每10次记录一次（早期监控）
+        // 3. 100-1000次：每100次记录一次（正常运行）
+        // 4. 1000次以后：每1000次记录一次（稳定状态）
+        bool shouldLog = false;
+        
+        if (popCount <= 10) {
+            shouldLog = true;  // 前10次全记录
+        } else if (popCount <= 100) {
+            shouldLog = (popCount % 10 == 0);  // 每10次
+        } else if (popCount <= 1000) {
+            shouldLog = (popCount % 100 == 0);  // 每100次
+        } else {
+            shouldLog = (popCount % 1000 == 0);  // 每1000次
+        }
+        
+        if (shouldLog) {
+            TASK_LOGI("📤 popForwardTask #%d (+%d since last log), queue size: %zu", 
+                      popCount, popCount - lastLogCount, forwardQueue_.size());
+            lastLogCount = popCount;
+        }
+    }
+    
+    return result;
 }
 
 Optional<Task> TaskQueueManager::popResponseTask(std::chrono::milliseconds timeout) {
@@ -74,8 +116,9 @@ void TaskQueueManager::shutdown() {
 }
 
 void TaskQueueManager::clear() {
-    // 🐛 修复：clear()前检查队列是否已shutdown，避免在shutdown后clear导致死锁
-    TASK_LOGI("🧹 Clearing all task queues...");
-    forwardQueue_.clear();
-    responseQueue_.clear();
+    // 🐛 修复：清空队列并重置shutdown状态，允许队列重新使用
+    TASK_LOGI("🧹 Clearing all task queues and resetting shutdown state...");
+    forwardQueue_.reset();   // 使用reset而不是clear，重置shutdown标志
+    responseQueue_.reset();  // 使用reset而不是clear，重置shutdown标志
+    TASK_LOGI("✅ Task queues cleared and ready for reuse");
 }

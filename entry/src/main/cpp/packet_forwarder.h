@@ -43,6 +43,9 @@ public:
     
     // 清理所有缓存的socket和线程
     static void CleanupAll();
+    
+    // 输出统计信息（用于调试）
+    static void LogStatistics();
 };
 
 // ========== DNS连通性测试函数 ==========
