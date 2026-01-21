@@ -26,8 +26,10 @@
 #include <mutex>
 
 #define MAKE_FILE_NAME (strrchr(__FILE__, '/') ? (strrchr(__FILE__, '/') + 1) : __FILE__)
-#define LOG(fmt, ...) \
-  OH_LOG_Print(LOG_APP, LOG_INFO, 0x15b1, "VpnServer", "[%{public}s:%{public}d] " fmt, MAKE_FILE_NAME, __LINE__, ##__VA_ARGS__)
+// 🔇 减少转发器日志输出，避免影响性能
+// #define LOG(fmt, ...) \
+//   OH_LOG_Print(LOG_APP, LOG_INFO, 0x15b1, "VpnServer", "[%{public}s:%{public}d] " fmt, MAKE_FILE_NAME, __LINE__, ##__VA_ARGS__)
+#define LOG(fmt, ...) /* 转发器日志已禁用 */
 
 // 静态辅助函数声明
 static void HandleUdpResponseSimple(int sockFd, sockaddr_in originalPeer, const PacketInfo& packetInfo);
@@ -576,7 +578,7 @@ static void HandleUdpResponseSimple(int sockFd, sockaddr_in originalPeer, const 
                                                          originalQuery.data(), originalQuery.size(),
                                                          responsePayload, received);
 
-                        LOG("💾 DNS响应已缓存: %s (qtype=%d, %d字节)",
+                        LOG("💾 DNS响应已缓存: %s (qtype=%d, %zd字节)",
                             domain.c_str(), qtype, received);
                     }
                 } else {

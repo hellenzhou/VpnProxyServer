@@ -24,7 +24,7 @@
 #include "protocol_handler.h"
 #include "packet_forwarder.h"
 #include "vpn_server_globals.h"
-#include "simple_dns_cache.h"
+#include "simple_dns_cache.h"  // DNSCacheManager
 #include "network_diagnostics.h"
 #include "task_queue.h"
 #include "worker_thread_pool.h"
@@ -1108,41 +1108,19 @@ void WorkerLoop()
     
     VPN_SERVER_LOGI("ZBQ [RX] %{public}d bytes from %{public}s", n, clientKey.c_str());
     
-    // Update last activity
+    // Update last activity and client info (no logging to reduce output)
     {
       std::lock_guard<std::mutex> lock(g_statsMutex);
       g_lastActivity = clientKey;
     }
-    
-    // Update client info
     UpdateClientInfo(peerAddr, peerPort, n);
-    
-    // Add data to buffer (dataStr already created above)
-    
-    // 检查是否是DNS查询（减少日志频率）
-    static uint32_t dnsQueryCount = 0;
-    bool isDNSQuery = false;
-    if (n >= 28 && (buf[0] & 0xF0) == 0x40) { // IPv4数据包
-        uint8_t protocol = buf[9];
-        if (protocol == 17) { // UDP协议
-            int ipHeaderLen = (buf[0] & 0x0F) * 4;
-            if (n >= ipHeaderLen + 8) {
-                int udpHeaderLen = 8;
-                int udpOffset = ipHeaderLen + udpHeaderLen;
-                if (n >= udpOffset + 2) {
-                    int dstPort = (buf[udpOffset + 2] << 8) | buf[udpOffset + 3];
-                    isDNSQuery = (dstPort == 53);
-                }
-            }
-        }
-    }
 
-    // DNS查询日志：每100个查询记录一次，避免日志爆炸
-    if (isDNSQuery) {
-        dnsQueryCount++;
-        if (dnsQueryCount % 100 == 0) {
-            VPN_SERVER_LOGI("📊 DNS查询统计: 已处理%{public}u个查询", dnsQueryCount);
-        }
+    // 统计信息：每100个包记录一次，避免日志过多
+    static uint32_t packetCount = 0;
+    packetCount++;
+    if (packetCount % 100 == 0) {
+        VPN_SERVER_LOGI("📊 处理统计: %{public}u个数据包 (%{public}llu字节发送, %{public}llu字节接收)",
+                        packetCount, g_bytesSent.load(), g_bytesReceived.load());
     }
     
     // 检查是否是心跳包
@@ -1169,20 +1147,12 @@ void WorkerLoop()
       PacketInfo packetInfo = ProtocolHandler::ParseIPPacket(buf, n);
       
       if (!packetInfo.isValid) {
-        VPN_SERVER_LOGW("⚠️ Cannot parse packet, discarding. Size=%{public}d", n);
-        // 即使无法解析，也添加到缓冲区（用于UI显示）
+        // 静默丢弃无法解析的数据包，只在调试时需要日志
         AddDataPacket(hexData, clientKey, packetType);
         continue;
       }
-      
-      if (packetInfo.protocol == PROTOCOL_ICMPV6) {
-        VPN_SERVER_LOGI("ZBQ [PARSE] ICMPv6 -> %{public}s Type=%{public}d", 
-                        packetInfo.targetIP.c_str(), packetInfo.icmpv6Type);
-      } else {
-        VPN_SERVER_LOGI("ZBQ [PARSE] %{public}s -> %{public}s:%{public}d", 
-                        ProtocolHandler::GetProtocolName(packetInfo.protocol).c_str(),
-                        packetInfo.targetIP.c_str(), packetInfo.targetPort);
-      }
+
+      // 解析成功，静默处理避免日志过多
       
       // 添加数据包到缓冲区（用于UI显示）
       std::string targetInfo;
@@ -1281,7 +1251,7 @@ napi_value StartServer(napi_env env, napi_callback_info info)
   UdpRetransmitManager::getInstance().clear();
   
   // 清理DNS缓存
-  SimpleDNSCache cache;
+  DNSCacheManager::clear();
   VPN_SERVER_LOGI("✅ DNS cache cleared");
   
   int fd = socket(AF_INET, SOCK_DGRAM, 0);

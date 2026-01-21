@@ -125,8 +125,8 @@ int UdpRetransmitManager::checkAndRetransmit(int timeoutMs, int maxRetries) {
     
     // 统计日志：每分钟记录一次或有重要事件时记录
     static auto lastStatsLog = std::chrono::steady_clock::now();
-    auto now = std::chrono::steady_clock::now();
-    auto elapsed = std::chrono::duration_cast<std::chrono::minutes>(now - lastStatsLog).count();
+    auto currentTime = std::chrono::steady_clock::now();
+    auto elapsed = std::chrono::duration_cast<std::chrono::minutes>(currentTime - lastStatsLog).count();
 
     if (elapsed >= 1 || retransmitCount >= 10 || !toRemove.empty()) {
         if (totalRetransmits_ > 0 || totalDropped_ > 0) {
