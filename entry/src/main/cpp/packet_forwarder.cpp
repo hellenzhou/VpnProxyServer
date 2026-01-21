@@ -35,6 +35,10 @@ static void HandleTcpResponseSimple(int sockFd, sockaddr_in originalPeer, const 
 static std::map<std::string, int> g_socketCache;
 static std::mutex g_socketCacheMutex;
 
+// 🔧 线程追踪（避免重复创建响应线程）
+static std::map<int, std::thread::id> g_socketThreadMap;
+static std::mutex g_threadMapMutex;
+
 // ========== 主转发函数 ==========
 int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize, 
                                   const PacketInfo& packetInfo, 
@@ -198,16 +202,26 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
         if (isNewSocket) {
             LOG("🚀 启动新的TCP响应线程 for socket %d", sockFd);
             std::thread([sockFd, originalPeer, packetInfo, socketKey]() {
+                {
+                    std::lock_guard<std::mutex> lock(g_threadMapMutex);
+                    g_socketThreadMap[sockFd] = std::this_thread::get_id();
+                }
                 LOG("🔥🔥🔥 TCP响应线程已进入 - socket=%d 🔥🔥🔥", sockFd);
                 HandleTcpResponseSimple(sockFd, originalPeer, packetInfo);
                 
-                // 响应线程结束时，从缓存中删除socket
-                std::lock_guard<std::mutex> lock(g_socketCacheMutex);
-                g_socketCache.erase(socketKey);
+                // 响应线程结束时，清理
+                {
+                    std::lock_guard<std::mutex> lock(g_threadMapMutex);
+                    g_socketThreadMap.erase(sockFd);
+                }
+                {
+                    std::lock_guard<std::mutex> lock(g_socketCacheMutex);
+                    g_socketCache.erase(socketKey);
+                }
                 LOG("🔥🔥🔥 TCP响应线程已退出 - socket=%d 🔥🔥🔥", sockFd);
             }).detach();
         } else {
-            LOG("♻️ 复用现有TCP响应线程 for socket %d", sockFd);
+            LOG("♻️ 复用TCP socket %d (响应线程应该正在运行)", sockFd);
         }
         
         return sockFd;
@@ -264,37 +278,27 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
         if (isNewSocket) {
             LOG("🚀 启动新的UDP响应线程 for socket %d", sockFd);
             std::thread([sockFd, originalPeer, packetInfo, socketKey]() {
+                {
+                    std::lock_guard<std::mutex> lock(g_threadMapMutex);
+                    g_socketThreadMap[sockFd] = std::this_thread::get_id();
+                }
                 LOG("🔥🔥🔥 响应线程已进入 - socket=%d 🔥🔥🔥", sockFd);
                 HandleUdpResponseSimple(sockFd, originalPeer, packetInfo);
                 
-                // 响应线程结束时，从缓存中删除socket
-                std::lock_guard<std::mutex> lock(g_socketCacheMutex);
-                g_socketCache.erase(socketKey);
+                // 响应线程结束时，清理
+                {
+                    std::lock_guard<std::mutex> lock(g_threadMapMutex);
+                    g_socketThreadMap.erase(sockFd);
+                }
+                {
+                    std::lock_guard<std::mutex> lock(g_socketCacheMutex);
+                    g_socketCache.erase(socketKey);
+                }
                 LOG("🔥🔥🔥 响应线程已退出 - socket=%d 🔥🔥🔥", sockFd);
             }).detach();
         } else {
-            // 🔧 修复：复用socket时也要确保响应线程存在
-            LOG("♻️ 复用现有响应线程 for socket %d", sockFd);
-            // 验证响应线程是否还在运行，如果不在则重新启动
-            static std::map<int, std::thread::id> socketThreadMap;
-            static std::mutex threadMapMutex;
-            
-            std::lock_guard<std::mutex> threadLock(threadMapMutex);
-            if (socketThreadMap.find(sockFd) == socketThreadMap.end()) {
-                LOG("⚠️ 检测到响应线程丢失，重新启动 for socket %d", sockFd);
-                std::thread([sockFd, originalPeer, packetInfo, socketKey]() {
-                    socketThreadMap[sockFd] = std::this_thread::get_id();
-                    LOG("🔄 重启响应线程 - socket=%d", sockFd);
-                    HandleUdpResponseSimple(sockFd, originalPeer, packetInfo);
-                    
-                    // 清理线程映射
-                    std::lock_guard<std::mutex> lock(threadMapMutex);
-                    socketThreadMap.erase(sockFd);
-                    std::lock_guard<std::mutex> cacheLock(g_socketCacheMutex);
-                    g_socketCache.erase(socketKey);
-                    LOG("🔄 重启响应线程退出 - socket=%d", sockFd);
-                }).detach();
-            }
+            // 🔧 Socket复用时，响应线程应该还在运行
+            LOG("♻️ 复用socket %d (响应线程应该正在运行)", sockFd);
         }
     } else if (packetInfo.protocol == PROTOCOL_ICMPV6) {
         // ICMPv6 处理
@@ -357,6 +361,14 @@ static void HandleUdpResponseSimple(int sockFd, sockaddr_in originalPeer, const 
     LOG("📥📥📥 UDP响应线程启动: socket=%d, 目标=%s:%d 📥📥📥", 
         sockFd, packetInfo.targetIP.c_str(), packetInfo.targetPort);
     
+    // 🐛 修复：保存g_sockFd副本，避免服务器停止时使用无效socket
+    int tunnelFd = g_sockFd;
+    if (tunnelFd < 0) {
+        LOG("❌ TUN socket无效，退出响应线程");
+        close(sockFd);
+        return;
+    }
+    
     // 🔧 优化：根据协议类型设置不同的超时策略
     struct timeval timeout;
     if (packetInfo.targetPort == 53) {
@@ -385,6 +397,12 @@ static void HandleUdpResponseSimple(int sockFd, sockaddr_in originalPeer, const 
     
     LOG("🔄 开始持续监听UDP响应... socket=%d, 超时限制=%d", sockFd, maxTimeouts);
     while (consecutiveTimeouts < maxTimeouts) {
+        // 🐛 修复：快速检查服务器是否正在停止
+        if (!g_running.load() || tunnelFd != g_sockFd) {
+            LOG("⚠️ 服务器正在停止，退出响应线程 socket=%d", sockFd);
+            break;
+        }
+        
         // 🔧 每5秒检查一次socket状态
         int currentTime = time(nullptr);
         if (currentTime - lastErrorCheck >= 5) {
@@ -464,7 +482,13 @@ static void HandleUdpResponseSimple(int sockFd, sockaddr_in originalPeer, const 
         bool sendSuccess = false;
         
         while (sendRetries > 0 && !sendSuccess) {
-            ssize_t sent = sendto(g_sockFd, responsePayload, received, 0,
+            // 🐛 修复：检查tunnelFd是否仍然有效
+            if (tunnelFd < 0 || tunnelFd != g_sockFd) {
+                LOG("⚠️ TUN socket已关闭或更改，停止发送响应");
+                break;
+            }
+            
+            ssize_t sent = sendto(tunnelFd, responsePayload, received, 0,
                                 (struct sockaddr*)&originalPeer, sizeof(originalPeer));
             
             if (sent == received) {
@@ -500,6 +524,14 @@ static void HandleUdpResponseSimple(int sockFd, sockaddr_in originalPeer, const 
 static void HandleTcpResponseSimple(int sockFd, sockaddr_in originalPeer, const PacketInfo& packetInfo) {
     LOG("📥 TCP响应线程启动: socket=%d, 目标=%s:%d", sockFd, packetInfo.targetIP.c_str(), packetInfo.targetPort);
     
+    // 🐛 修复：保存g_sockFd副本，避免服务器停止时使用无效socket
+    int tunnelFd = g_sockFd;
+    if (tunnelFd < 0) {
+        LOG("❌ TUN socket无效，退出响应线程");
+        close(sockFd);
+        return;
+    }
+    
     // 🔧 优化：设置TCP socket选项
     int nodelay = 1;
     setsockopt(sockFd, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay));
@@ -523,6 +555,12 @@ static void HandleTcpResponseSimple(int sockFd, sockaddr_in originalPeer, const 
     
     LOG("🔄 开始TCP数据转发... socket=%d", sockFd);
     while (true) {
+        // 🐛 修复：快速检查服务器是否正在停止
+        if (!g_running.load() || tunnelFd != g_sockFd) {
+            LOG("⚠️ 服务器正在停止，退出TCP响应线程 socket=%d", sockFd);
+            break;
+        }
+        
         ssize_t received = recv(sockFd, responsePayload, sizeof(responsePayload), 0);
         
         if (received <= 0) {
@@ -566,7 +604,13 @@ static void HandleTcpResponseSimple(int sockFd, sockaddr_in originalPeer, const 
         bool tcpSendSuccess = false;
         
         while (!tcpSendSuccess && tcpRetryCount < maxTcpRetries) {
-            ssize_t sent = sendto(g_sockFd, ipPacket, packetLen, 0,
+            // 🐛 修复：检查tunnelFd是否仍然有效
+            if (tunnelFd < 0 || tunnelFd != g_sockFd) {
+                LOG("⚠️ TUN socket已关闭或更改，停止发送TCP响应");
+                break;
+            }
+            
+            ssize_t sent = sendto(tunnelFd, ipPacket, packetLen, 0,
                                  (struct sockaddr*)&conn.clientPhysicalAddr,
                                  sizeof(conn.clientPhysicalAddr));
             
@@ -644,4 +688,29 @@ bool PacketForwarder::IsDNSQuery(const std::string& targetIP, int targetPort) {
 
 bool PacketForwarder::TestNetworkConnectivity() {
     return true;
+}
+
+// 清理所有缓存的socket和线程
+void PacketForwarder::CleanupAll() {
+    LOG("🧹 开始清理PacketForwarder资源...");
+    
+    // 清理socket缓存
+    {
+        std::lock_guard<std::mutex> lock(g_socketCacheMutex);
+        for (auto& pair : g_socketCache) {
+            LOG("🔒 关闭缓存socket: fd=%d, key=%s", pair.second, pair.first.c_str());
+            close(pair.second);
+        }
+        g_socketCache.clear();
+        LOG("✅ Socket缓存已清空");
+    }
+    
+    // 清理线程映射
+    {
+        std::lock_guard<std::mutex> lock(g_threadMapMutex);
+        g_socketThreadMap.clear();
+        LOG("✅ 线程映射已清空");
+    }
+    
+    LOG("✅ PacketForwarder资源清理完成");
 }

@@ -40,6 +40,9 @@ private:
 public:
     // 测试网络连接
     static bool TestNetworkConnectivity();
+    
+    // 清理所有缓存的socket和线程
+    static void CleanupAll();
 };
 
 // ========== DNS连通性测试函数 ==========

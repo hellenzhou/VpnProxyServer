@@ -1379,6 +1379,9 @@ napi_value StopServer(napi_env env, napi_callback_info info)
   VPN_SERVER_LOGI("ZBQ [STOP] Stopping server...");
   g_running.store(false);
   
+  // 🐛 修复：先清理PacketForwarder的所有socket和线程
+  PacketForwarder::CleanupAll();
+  
   // 关闭socket，这会中断recvfrom/select调用
   if (g_sockFd >= 0) {
     close(g_sockFd);
