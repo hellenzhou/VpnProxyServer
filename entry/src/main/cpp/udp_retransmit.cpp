@@ -103,9 +103,12 @@ int UdpRetransmitManager::checkAndRetransmit(int timeoutMs, int maxRetries) {
                     char targetIP[INET_ADDRSTRLEN];
                     inet_ntop(AF_INET, &info.targetAddr.sin_addr, targetIP, sizeof(targetIP));
 
-                    RETRANS_LOGI("🔄 Retransmitted UDP packet: id=%{public}u, target=%{public}s:%{public}d, retry=%{public}d/%{public}d",
-                                info.packetId, targetIP, ntohs(info.targetAddr.sin_port),
-                                info.retryCount, maxRetries);
+                    // 减少重传日志频率，每10次记录一次
+                    if ((retransmitCount + 1) % 10 == 0) {
+                        RETRANS_LOGI("🔄 UDP重传: id=%{public}u -> %{public}s:%{public}d (%{public}d/%{public}d)",
+                                    info.packetId, targetIP, ntohs(info.targetAddr.sin_port),
+                                    info.retryCount, maxRetries);
+                    }
                 } else {
                     RETRANS_LOGE("❌ Failed to retransmit: id=%{public}u, errno=%{public}d (%{public}s)",
                                 info.packetId, errno, strerror(errno));
@@ -120,11 +123,19 @@ int UdpRetransmitManager::checkAndRetransmit(int timeoutMs, int maxRetries) {
         pendingPackets_.erase(id);
     }
     
-    if (retransmitCount > 0 || !toRemove.empty()) {
-        RETRANS_LOGI("📊 Retransmit stats: sent=%{public}d, dropped=%{public}zu, pending=%{public}zu, total_retrans=%{public}llu, total_dropped=%{public}llu",
-                    retransmitCount, toRemove.size(), pendingPackets_.size(),
-                    static_cast<unsigned long long>(totalRetransmits_),
-                    static_cast<unsigned long long>(totalDropped_));
+    // 统计日志：每分钟记录一次或有重要事件时记录
+    static auto lastStatsLog = std::chrono::steady_clock::now();
+    auto now = std::chrono::steady_clock::now();
+    auto elapsed = std::chrono::duration_cast<std::chrono::minutes>(now - lastStatsLog).count();
+
+    if (elapsed >= 1 || retransmitCount >= 10 || !toRemove.empty()) {
+        if (totalRetransmits_ > 0 || totalDropped_ > 0) {
+            RETRANS_LOGI("📊 UDP重传统计: 待处理%{public}zu, 累计重传%{public}llu, 丢弃%{public}llu",
+                        pendingPackets_.size(),
+                        static_cast<unsigned long long>(totalRetransmits_),
+                        static_cast<unsigned long long>(totalDropped_));
+        }
+        lastStatsLog = now;
     }
     
     return retransmitCount;

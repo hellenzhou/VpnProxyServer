@@ -77,8 +77,14 @@ void WorkerThreadPool::stop() {
 
 void WorkerThreadPool::forwardWorkerThread() {
     auto& taskQueue = TaskQueueManager::getInstance();
+    int iteration = 0;
+    int processedTasks = 0;
+
+    WORKER_LOGI("🚀 Forward worker started");
 
     while (running_.load()) {
+        iteration++;
+
         // 从队列获取任务（100ms超时）
         auto taskOpt = taskQueue.popForwardTask(std::chrono::milliseconds(100));
 
@@ -94,7 +100,13 @@ void WorkerThreadPool::forwardWorkerThread() {
         }
 
         ForwardTask& fwdTask = task.forwardTask;
-        
+        processedTasks++;
+
+        // 只记录重要的转发事件，避免日志过多
+        if (processedTasks % 100 == 0) {
+            WORKER_LOGI("📊 Forward worker processed %{public}d tasks", processedTasks);
+        }
+
         // 转发数据包
         int sockFd = PacketForwarder::ForwardPacket(
             fwdTask.data,
@@ -102,47 +114,46 @@ void WorkerThreadPool::forwardWorkerThread() {
             fwdTask.packetInfo,
             fwdTask.clientAddr
         );
-        
+
         if (sockFd >= 0) {
             forwardTasksProcessed_.fetch_add(1);
-            
-            // UDP包记录到重传管理器
-            if (fwdTask.packetInfo.protocol == PROTOCOL_UDP && 
-                fwdTask.packetInfo.targetPort == 53) {  // 只对DNS查询启用重传
-                
+
+            // UDP包记录到重传管理器（只对DNS查询）
+            if (fwdTask.packetInfo.protocol == PROTOCOL_UDP &&
+                fwdTask.packetInfo.targetPort == 53) {
+
                 uint16_t packetId = UdpRetransmitManager::generatePacketId();
-                
+
                 // 提取payload
                 const uint8_t* payload = nullptr;
                 int payloadSize = 0;
-                // 🐛 修复：添加错误处理，ExtractPayload可能失败
-                if (PacketBuilder::ExtractPayload(fwdTask.data, fwdTask.dataSize, 
+                if (PacketBuilder::ExtractPayload(fwdTask.data, fwdTask.dataSize,
                                                  fwdTask.packetInfo, &payload, &payloadSize)) {
                     if (payload && payloadSize > 0) {
                         sockaddr_in targetAddr{};
                         targetAddr.sin_family = AF_INET;
                         targetAddr.sin_port = htons(fwdTask.packetInfo.targetPort);
-                        
+
                         if (inet_pton(AF_INET, fwdTask.packetInfo.targetIP.c_str(), &targetAddr.sin_addr) > 0) {
                             UdpRetransmitManager::getInstance().recordSentPacket(
                                 packetId, payload, payloadSize, targetAddr, sockFd);
-                        } else {
-                            WORKER_LOGE("❌ Invalid IP address for retransmit: %{public}s", 
-                                       fwdTask.packetInfo.targetIP.c_str());
                         }
                     }
-                } else {
-                    WORKER_LOGE("❌ Failed to extract payload for retransmit");
                 }
             }
         } else {
             forwardTasksFailed_.fetch_add(1);
         }
     }
+
+    WORKER_LOGI("🔚 Forward worker stopped (processed %{public}d tasks)", processedTasks);
 }
 
 void WorkerThreadPool::responseWorkerThread() {
     auto& taskQueue = TaskQueueManager::getInstance();
+    int processedTasks = 0;
+
+    WORKER_LOGI("🚀 Response worker started");
 
     while (running_.load()) {
         // 从队列获取任务（100ms超时）
@@ -160,26 +171,33 @@ void WorkerThreadPool::responseWorkerThread() {
         }
 
         ResponseTask& respTask = task.responseTask;
-        
+        processedTasks++;
+
+        // 只记录重要的响应事件，避免日志过多
+        if (processedTasks % 100 == 0) {
+            WORKER_LOGI("📊 Response worker processed %{public}d tasks", processedTasks);
+        }
+
         // 🐛 修复：保存g_sockFd副本，避免并发修改导致的问题
         int tunnelFd = g_sockFd;
-        
+
         // 发送响应给客户端
         if (tunnelFd >= 0 && g_running.load()) {
             ssize_t sent = sendto(tunnelFd, respTask.data, respTask.dataSize, 0,
                                  (struct sockaddr*)&respTask.clientAddr,
                                  sizeof(respTask.clientAddr));
-            
+
             if (sent > 0) {
                 responseTasksProcessed_.fetch_add(1);
-                
+                WORKER_LOGI("✅ Response sent successfully: %{public}zd bytes", sent);
+
                 // 计算延迟
                 auto now = std::chrono::steady_clock::now();
                 auto latency = std::chrono::duration_cast<std::chrono::milliseconds>(
                     now - respTask.timestamp).count();
-                
+
                 if (latency > 100) {
-                    WORKER_LOGI("⚠️ High response latency: %{public}lldms", 
+                    WORKER_LOGI("⚠️ High response latency: %{public}lldms",
                                static_cast<long long>(latency));
                 }
             } else {
@@ -189,8 +207,12 @@ void WorkerThreadPool::responseWorkerThread() {
             }
         } else {
             responseTasksFailed_.fetch_add(1);
+            WORKER_LOGE("❌ Cannot send response: tunnelFd=%{public}d, running=%{public}d",
+                       tunnelFd, g_running.load());
         }
     }
+
+    WORKER_LOGI("🔚 Response worker exiting main loop");
 }
 
 WorkerThreadPool::Stats WorkerThreadPool::getStats() const {

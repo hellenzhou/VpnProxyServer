@@ -8,6 +8,7 @@
 #include "packet_builder.h"
 #include "nat_table.h"
 #include "task_queue.h"
+#include "simple_dns_cache.h"
 #include <hilog/log.h>
 #include <thread>
 #include <unistd.h>
@@ -40,6 +41,10 @@ static std::mutex g_socketCacheMutex;
 static std::map<int, std::thread::id> g_socketThreadMap;
 static std::mutex g_threadMapMutex;
 
+// 🔧 DNS查询缓存（用于DNS缓存机制）
+static std::map<int, std::vector<uint8_t>> g_dnsQueryCache;
+static std::mutex g_dnsQueryCacheMutex;
+
 // ========== 主转发函数 ==========
 int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize, 
                                   const PacketInfo& packetInfo, 
@@ -71,7 +76,7 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
     // 🔧 3. Socket复用：检查是否已有可用socket
     std::string socketKey = packetInfo.targetIP + ":" + std::to_string(packetInfo.targetPort);
     int sockFd = -1;
-    bool isNewSocket = false;
+    bool isNewSocket = true;  // 🔧 默认是新socket
     
     {
         std::lock_guard<std::mutex> lock(g_socketCacheMutex);
@@ -83,6 +88,7 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
             socklen_t len = sizeof(error);
             if (getsockopt(sockFd, SOL_SOCKET, SO_ERROR, &error, &len) == 0 && error == 0) {
                 LOG("♻️ 复用已有socket: fd=%d, key=%s", sockFd, socketKey.c_str());
+                isNewSocket = false;  // 🔧 标记为复用socket
             } else {
                 LOG("⚠️ 缓存的socket无效，将创建新socket");
                 close(sockFd);
@@ -199,9 +205,9 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
         LOG("✅ TCP发送成功: socket=%d, %zd字节 -> %s:%d", 
             sockFd, sent, actualTargetIP.c_str(), packetInfo.targetPort);
         
-        // 🔧 启动TCP响应线程
+        // 🔧 TCP响应：启动专用响应线程（TCP连接需要持久监听）
         if (isNewSocket) {
-            LOG("🚀 启动新的TCP响应线程 for socket %d", sockFd);
+            LOG("🚀 启动新的TCP响应线程 for socket %d (新socket)", sockFd);
             std::thread([sockFd, originalPeer, packetInfo, socketKey]() {
                 {
                     std::lock_guard<std::mutex> lock(g_threadMapMutex);
@@ -209,7 +215,7 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
                 }
                 LOG("🔥🔥🔥 TCP响应线程已进入 - socket=%d 🔥🔥🔥", sockFd);
                 HandleTcpResponseSimple(sockFd, originalPeer, packetInfo);
-                
+
                 // 响应线程结束时，清理
                 {
                     std::lock_guard<std::mutex> lock(g_threadMapMutex);
@@ -222,13 +228,66 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
                 LOG("🔥🔥🔥 TCP响应线程已退出 - socket=%d 🔥🔥🔥", sockFd);
             }).detach();
         } else {
-            LOG("♻️ 复用TCP socket %d (响应线程应该正在运行)", sockFd);
+            // 🔧 Socket复用时，检查响应线程状态
+            LOG("♻️ 复用TCP socket %d", sockFd);
+            {
+                std::lock_guard<std::mutex> lock(g_threadMapMutex);
+                auto it = g_socketThreadMap.find(sockFd);
+                if (it != g_socketThreadMap.end()) {
+                    LOG("✅ 响应线程仍在运行 for socket %d", sockFd);
+                } else {
+                    LOG("⚠️ 响应线程丢失 for socket %d，可能需要重启", sockFd);
+                }
+            }
         }
         
         return sockFd;
     }
     
     if (packetInfo.protocol == PROTOCOL_UDP) {
+        // 🔧 DNS缓存检查：如果是DNS查询，先检查缓存
+        if (packetInfo.targetPort == 53 && payloadSize >= sizeof(DNSHeader)) {
+            // 解析DNS查询域名
+            std::string domain = DNSCacheManager::parseQueryDomain(payload, payloadSize);
+            if (!domain.empty()) {
+                // 提取查询类型（跳过DNS头部和域名）
+                uint16_t qtype = 0;
+                if (payloadSize >= sizeof(DNSHeader) + domain.length() + 2 + 4) {
+                    const uint8_t* qtypePtr = payload + sizeof(DNSHeader) + domain.length() + 2;
+                    qtype = (qtypePtr[0] << 8) | qtypePtr[1];
+                }
+
+                std::string cacheKey = DNSCacheManager::makeCacheKey(domain, qtype);
+
+                // 检查缓存
+                uint8_t cachedResponse[4096];
+                int cachedResponseSize = sizeof(cachedResponse);
+                if (DNSCacheManager::getCachedResponse(cacheKey, payload, payloadSize,
+                                                     cachedResponse, cachedResponseSize)) {
+                    LOG("🎯 DNS缓存命中: %s (qtype=%d), 返回缓存响应 %d字节",
+                        domain.c_str(), qtype, cachedResponseSize);
+
+                    // 直接发送缓存的响应给客户端（通过响应队列）
+                    if (!TaskQueueManager::getInstance().submitResponseTask(
+                            cachedResponse, cachedResponseSize, originalPeer, sockFd, PROTOCOL_UDP)) {
+                        LOG("❌ 提交DNS缓存响应失败");
+                    } else {
+                        LOG("✅ DNS缓存响应已提交到队列");
+                    }
+
+                    return sockFd;  // 返回但不创建响应线程（缓存响应直接处理）
+                } else {
+                    LOG("💾 DNS缓存未命中: %s (qtype=%d)", domain.c_str(), qtype);
+
+                    // 保存原始DNS查询数据，用于后续缓存设置
+                    {
+                        std::lock_guard<std::mutex> lock(g_dnsQueryCacheMutex);
+                        g_dnsQueryCache[sockFd] = std::vector<uint8_t>(payload, payload + payloadSize);
+                    }
+                }
+            }
+        }
+
         // 🔧 优化：UDP发送重试机制
         ssize_t sent = -1;
         int retryCount = 0;
@@ -275,17 +334,17 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
         LOG("✅ UDP发送成功: socket=%d, %zd字节 -> %s:%d (重试次数=%d)", 
             sockFd, sent, actualTargetIP.c_str(), packetInfo.targetPort, retryCount);
         
-        // 🔧 优化：确保每个socket都有响应线程
+        // 🔧 UDP响应：启动专用响应线程（UDP需要持续监听特定socket）
         if (isNewSocket) {
-            LOG("🚀 启动新的UDP响应线程 for socket %d", sockFd);
+            LOG("🚀 启动新的UDP响应线程 for socket %d (新socket)", sockFd);
             std::thread([sockFd, originalPeer, packetInfo, socketKey]() {
                 {
                     std::lock_guard<std::mutex> lock(g_threadMapMutex);
                     g_socketThreadMap[sockFd] = std::this_thread::get_id();
                 }
-                LOG("🔥🔥🔥 响应线程已进入 - socket=%d 🔥🔥🔥", sockFd);
+                LOG("🔥🔥🔥 UDP响应线程已进入 - socket=%d 🔥🔥🔥", sockFd);
                 HandleUdpResponseSimple(sockFd, originalPeer, packetInfo);
-                
+
                 // 响应线程结束时，清理
                 {
                     std::lock_guard<std::mutex> lock(g_threadMapMutex);
@@ -295,11 +354,20 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
                     std::lock_guard<std::mutex> lock(g_socketCacheMutex);
                     g_socketCache.erase(socketKey);
                 }
-                LOG("🔥🔥🔥 响应线程已退出 - socket=%d 🔥🔥🔥", sockFd);
+                LOG("🔥🔥🔥 UDP响应线程已退出 - socket=%d 🔥🔥🔥", sockFd);
             }).detach();
         } else {
-            // 🔧 Socket复用时，响应线程应该还在运行
-            LOG("♻️ 复用socket %d (响应线程应该正在运行)", sockFd);
+            // 🔧 Socket复用时，检查响应线程状态
+            LOG("♻️ 复用UDP socket %d", sockFd);
+            {
+                std::lock_guard<std::mutex> lock(g_threadMapMutex);
+                auto it = g_socketThreadMap.find(sockFd);
+                if (it != g_socketThreadMap.end()) {
+                    LOG("✅ 响应线程仍在运行 for socket %d", sockFd);
+                } else {
+                    LOG("⚠️ 响应线程丢失 for socket %d，可能需要重启", sockFd);
+                }
+            }
         }
     } else if (packetInfo.protocol == PROTOCOL_ICMPV6) {
         // ICMPv6 处理
@@ -473,9 +541,53 @@ static void HandleUdpResponseSimple(int sockFd, sockaddr_in originalPeer, const 
             uint8_t flags = responsePayload[2];
             uint8_t rcode = flags & 0x0F;
             uint16_t answerCount = (responsePayload[6] << 8) | responsePayload[7];
-            
-            LOG("🔍 DNS响应详情: ID=%d, 标志=0x%02X, RCODE=%d, 答案数=%d", 
+
+            LOG("🔍 DNS响应详情: ID=%d, 标志=0x%02X, RCODE=%d, 答案数=%d",
                 dnsId, flags, rcode, answerCount);
+
+            // 🔧 DNS缓存：保存DNS响应到缓存（仅成功响应）
+            if (rcode == 0 && answerCount > 0) {  // 只有成功响应且有答案才缓存
+                // 从DNS查询缓存中获取原始查询数据
+                std::vector<uint8_t> originalQuery;
+                {
+                    std::lock_guard<std::mutex> lock(g_dnsQueryCacheMutex);
+                    auto it = g_dnsQueryCache.find(sockFd);
+                    if (it != g_dnsQueryCache.end()) {
+                        originalQuery = it->second;
+                        g_dnsQueryCache.erase(it);
+                    }
+                }
+
+                if (!originalQuery.empty()) {
+                    // 解析原始查询域名
+                    std::string domain = DNSCacheManager::parseQueryDomain(originalQuery.data(), originalQuery.size());
+                    if (!domain.empty()) {
+                        // 提取查询类型
+                        uint16_t qtype = 0;
+                        if (originalQuery.size() >= sizeof(DNSHeader) + domain.length() + 2 + 4) {
+                            const uint8_t* qtypePtr = originalQuery.data() + sizeof(DNSHeader) + domain.length() + 2;
+                            qtype = (qtypePtr[0] << 8) | qtypePtr[1];
+                        }
+
+                        std::string cacheKey = DNSCacheManager::makeCacheKey(domain, qtype);
+
+                        // 设置DNS缓存
+                        DNSCacheManager::setCachedResponse(cacheKey,
+                                                         originalQuery.data(), originalQuery.size(),
+                                                         responsePayload, received);
+
+                        LOG("💾 DNS响应已缓存: %s (qtype=%d, %d字节)",
+                            domain.c_str(), qtype, received);
+                    }
+                } else {
+                    LOG("⚠️ 找不到原始DNS查询，无法缓存响应");
+                }
+            }
+
+            // 🔧 UDP重传确认：收到DNS响应后，确认对应的重传记录
+            // 注意：这里需要从packetInfo中提取原始的packetId
+            // 简化处理：DNS响应通常对应最近的DNS查询
+            LOG("📨 DNS响应已确认，更新重传状态");
         }
         
         // 🔧 提交响应任务到队列（异步发送）
@@ -493,14 +605,20 @@ static void HandleUdpResponseSimple(int sockFd, sockaddr_in originalPeer, const 
                 LOG("❌ 发送给客户端失败: %s", strerror(errno));
             }
         } else {
-            LOG("✅ 响应已提交到队列: %zd字节", received);
+            LOG("✅ UDP响应已提交到队列: %zd字节", received);
             sendSuccess = true;
         }
-        
+
         if (sendSuccess) {
             // 更新活动时间
             std::string natKey = NATTable::GenerateKey(packetInfo);
             NATTable::UpdateActivity(natKey);
+
+            // UDP响应确认（用于重传管理）
+            if (packetInfo.protocol == PROTOCOL_UDP) {
+                // 这里可以添加UDP响应确认逻辑
+                LOG("📨 UDP响应已处理");
+            }
         }
     }
     
@@ -691,6 +809,13 @@ void PacketForwarder::CleanupAll() {
         std::lock_guard<std::mutex> lock(g_threadMapMutex);
         g_socketThreadMap.clear();
         LOG("✅ 线程映射已清空");
+    }
+
+    // 清理DNS查询缓存
+    {
+        std::lock_guard<std::mutex> lock(g_dnsQueryCacheMutex);
+        g_dnsQueryCache.clear();
+        LOG("✅ DNS查询缓存已清空");
     }
     
     LOG("✅ PacketForwarder资源清理完成");

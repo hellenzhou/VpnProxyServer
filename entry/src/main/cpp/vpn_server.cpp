@@ -1075,9 +1075,14 @@ void WorkerLoop()
     }
     
     int n = recvfrom(g_sockFd, buf, sizeof(buf), 0, reinterpret_cast<sockaddr *>(&peer), &peerLen);
-    
+
     if (n < 0) {
-      VPN_SERVER_LOGE("ZBQ [ERROR] recvfrom failed: errno=%{public}d (%{public}s)", 
+      // 检查是否是因为服务器正在停止
+      if (!g_running.load()) {
+        VPN_SERVER_LOGI("ZBQ [STOP] recvfrom interrupted by server shutdown");
+        break;
+      }
+      VPN_SERVER_LOGE("ZBQ [ERROR] recvfrom failed: errno=%{public}d (%{public}s)",
                       errno, strerror(errno));
       VPN_SERVER_LOGI("ZBQ [STOP] Loop exit on error");
       break;
@@ -1114,7 +1119,8 @@ void WorkerLoop()
     
     // Add data to buffer (dataStr already created above)
     
-    // 检查是否是DNS查询
+    // 检查是否是DNS查询（减少日志频率）
+    static uint32_t dnsQueryCount = 0;
     bool isDNSQuery = false;
     if (n >= 28 && (buf[0] & 0xF0) == 0x40) { // IPv4数据包
         uint8_t protocol = buf[9];
@@ -1130,10 +1136,13 @@ void WorkerLoop()
             }
         }
     }
-    
-    // 如果是DNS查询，简单记录日志，继续正常处理
+
+    // DNS查询日志：每100个查询记录一次，避免日志爆炸
     if (isDNSQuery) {
-        VPN_SERVER_LOGI("🔍 [DNS] Processing DNS query for client: %{public}s", clientKey.c_str());
+        dnsQueryCount++;
+        if (dnsQueryCount % 100 == 0) {
+            VPN_SERVER_LOGI("📊 DNS查询统计: 已处理%{public}u个查询", dnsQueryCount);
+        }
     }
     
     // 检查是否是心跳包
@@ -1399,6 +1408,7 @@ napi_value StopServer(napi_env env, napi_callback_info info)
   }
 
   VPN_SERVER_LOGI("ZBQ [STOP] Stopping server...");
+  VPN_SERVER_LOGI("⚠️ 重要提醒：服务器停止后，请手动停止HarmonyOS的VPN连接以避免客户端继续发送数据包");
   g_running.store(false);
   
   // 停止工作线程池
@@ -1415,7 +1425,28 @@ napi_value StopServer(napi_env env, napi_callback_info info)
   
   // 🐛 修复：清理PacketForwarder的所有socket和线程
   PacketForwarder::CleanupAll();
-  
+
+  // 🐛 修复：发送服务器停止广播，通知VPN客户端服务器已停止
+  if (g_sockFd >= 0) {
+    // 发送特殊的停止消息，通知客户端服务器已停止
+    const char* stopMsg = "SERVER_STOPPED";
+    sockaddr_in broadcastAddr {};
+    broadcastAddr.sin_family = AF_INET;
+    broadcastAddr.sin_addr.s_addr = htonl(INADDR_BROADCAST);
+    broadcastAddr.sin_port = htons(8888);
+
+    // 设置socket为广播模式
+    int broadcastEnable = 1;
+    setsockopt(g_sockFd, SOL_SOCKET, SO_BROADCAST, &broadcastEnable, sizeof(broadcastEnable));
+
+    // 发送广播消息
+    ssize_t sent = sendto(g_sockFd, stopMsg, strlen(stopMsg), 0,
+                         (struct sockaddr*)&broadcastAddr, sizeof(broadcastAddr));
+    if (sent > 0) {
+      VPN_SERVER_LOGI("ZBQ [STOP] Server stopping broadcast sent to clients");
+    }
+  }
+
   // 关闭socket，这会中断recvfrom/select调用
   if (g_sockFd >= 0) {
     close(g_sockFd);
