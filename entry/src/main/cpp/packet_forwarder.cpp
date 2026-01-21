@@ -479,6 +479,7 @@ static void HandleUdpResponseSimple(int sockFd, sockaddr_in originalPeer, const 
         }
         
         // 🔧 提交响应任务到队列（异步发送）
+        bool sendSuccess = false;
         if (!TaskQueueManager::getInstance().submitResponseTask(
                 responsePayload, received, originalPeer, sockFd, packetInfo.protocol)) {
             LOG("⚠️ 响应队列已满，直接发送");
@@ -487,11 +488,13 @@ static void HandleUdpResponseSimple(int sockFd, sockaddr_in originalPeer, const 
                                 (struct sockaddr*)&originalPeer, sizeof(originalPeer));
             if (sent > 0) {
                 LOG("✅ 响应已直接发送给客户端: %zd字节", sent);
+                sendSuccess = true;
             } else {
                 LOG("❌ 发送给客户端失败: %s", strerror(errno));
             }
         } else {
             LOG("✅ 响应已提交到队列: %zd字节", received);
+            sendSuccess = true;
         }
         
         if (sendSuccess) {
@@ -588,6 +591,7 @@ static void HandleTcpResponseSimple(int sockFd, sockaddr_in originalPeer, const 
         LOG("✅ 构建TCP IP包: %d字节", packetLen);
         
         // 🔧 提交TCP响应任务到队列（异步发送）
+        bool tcpSendSuccess = false;
         if (!TaskQueueManager::getInstance().submitResponseTask(
                 ipPacket, packetLen, conn.clientPhysicalAddr, sockFd, PROTOCOL_TCP)) {
             LOG("⚠️ 响应队列已满，直接发送TCP响应");
@@ -597,11 +601,13 @@ static void HandleTcpResponseSimple(int sockFd, sockaddr_in originalPeer, const 
                                  sizeof(conn.clientPhysicalAddr));
             if (sent > 0) {
                 LOG("✅ TCP响应已直接发送: %zd字节", sent);
+                tcpSendSuccess = true;
             } else {
                 LOG("❌ TCP响应发送失败: %s", strerror(errno));
             }
         } else {
             LOG("✅ TCP响应已提交到队列: %d字节", packetLen);
+            tcpSendSuccess = true;
         }
         
         if (tcpSendSuccess) {

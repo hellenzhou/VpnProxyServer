@@ -2,6 +2,7 @@
 #include "packet_forwarder.h"
 #include "udp_retransmit.h"
 #include "vpn_server_globals.h"
+#include "packet_builder.h"  // 🔧 添加缺失的头文件
 #include <hilog/log.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
@@ -76,21 +77,22 @@ void WorkerThreadPool::stop() {
 
 void WorkerThreadPool::forwardWorkerThread() {
     auto& taskQueue = TaskQueueManager::getInstance();
-    
+
     while (running_.load()) {
         // 从队列获取任务（100ms超时）
         auto taskOpt = taskQueue.popForwardTask(std::chrono::milliseconds(100));
-        
+
         if (!taskOpt.has_value()) {
             continue;  // 超时或队列关闭
         }
-        
-        Task& task = taskOpt.value();
+
+        // 🐛 修复：复制Task对象而不是引用，避免生命周期问题
+        Task task = taskOpt.value();
         if (task.type != TaskType::FORWARD_REQUEST) {
             WORKER_LOGE("❌ Invalid task type in forward queue");
             continue;
         }
-        
+
         ForwardTask& fwdTask = task.forwardTask;
         
         // 转发数据包
@@ -141,21 +143,22 @@ void WorkerThreadPool::forwardWorkerThread() {
 
 void WorkerThreadPool::responseWorkerThread() {
     auto& taskQueue = TaskQueueManager::getInstance();
-    
+
     while (running_.load()) {
         // 从队列获取任务（100ms超时）
         auto taskOpt = taskQueue.popResponseTask(std::chrono::milliseconds(100));
-        
+
         if (!taskOpt.has_value()) {
             continue;  // 超时或队列关闭
         }
-        
-        Task& task = taskOpt.value();
+
+        // 🐛 修复：复制Task对象而不是引用，避免生命周期问题
+        Task task = taskOpt.value();
         if (task.type != TaskType::SEND_RESPONSE) {
             WORKER_LOGE("❌ Invalid task type in response queue");
             continue;
         }
-        
+
         ResponseTask& respTask = task.responseTask;
         
         // 🐛 修复：保存g_sockFd副本，避免并发修改导致的问题

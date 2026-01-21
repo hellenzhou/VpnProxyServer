@@ -3,8 +3,39 @@
 #include <queue>
 #include <mutex>
 #include <condition_variable>
-#include <optional>
 #include <chrono>
+#include <memory>
+
+// 🔧 简单的Optional实现（HarmonyOS可能不支持std::optional）
+template<typename T>
+class Optional {
+public:
+    Optional() : hasValue_(false) {}
+    Optional(const T& value) : hasValue_(true), value_(value) {}
+
+    bool has_value() const { return hasValue_; }
+
+    T& value() {
+        if (!hasValue_) {
+            // 🐛 修复：避免返回未初始化的值
+            throw std::runtime_error("Optional has no value");
+        }
+        return value_;
+    }
+
+    const T& value() const {
+        if (!hasValue_) {
+            throw std::runtime_error("Optional has no value");
+        }
+        return value_;
+    }
+
+    explicit operator bool() const { return hasValue_; }
+
+private:
+    bool hasValue_;
+    T value_;
+};
 
 /**
  * 线程安全队列 - 支持多生产者多消费者
@@ -50,7 +81,7 @@ public:
     }
     
     // 出队（阻塞直到有数据）
-    std::optional<T> pop() {
+    Optional<T> pop() {
         std::unique_lock<std::mutex> lock(mutex_);
         
         // 等待队列非空
@@ -59,33 +90,33 @@ public:
         });
         
         if (shutdown_ && queue_.empty()) {
-            return std::nullopt;
+            return Optional<T>();  // 空值
         }
         
         T item = queue_.front();
         queue_.pop();
         notFull_.notify_one();
-        return item;
+        return Optional<T>(item);
     }
     
     // 出队（带超时）
-    std::optional<T> popWithTimeout(std::chrono::milliseconds timeout) {
+    Optional<T> popWithTimeout(std::chrono::milliseconds timeout) {
         std::unique_lock<std::mutex> lock(mutex_);
         
         if (!notEmpty_.wait_for(lock, timeout, [this] {
             return !queue_.empty() || shutdown_;
         })) {
-            return std::nullopt;  // 超时
+            return Optional<T>();  // 超时，返回空值
         }
         
         if (shutdown_ && queue_.empty()) {
-            return std::nullopt;
+            return Optional<T>();  // 空值
         }
         
         T item = queue_.front();
         queue_.pop();
         notFull_.notify_one();
-        return item;
+        return Optional<T>(item);
     }
     
     // 获取队列大小

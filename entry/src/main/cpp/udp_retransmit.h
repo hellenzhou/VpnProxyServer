@@ -61,8 +61,8 @@ public:
     static uint16_t generatePacketId();
 
 private:
-    UdpRetransmitManager() 
-        : totalRetransmits_(0), totalDropped_(0), nextPacketId_(1) {}
+    UdpRetransmitManager()
+        : totalRetransmits_(0), totalDropped_(0) {}
     
     ~UdpRetransmitManager() = default;
     

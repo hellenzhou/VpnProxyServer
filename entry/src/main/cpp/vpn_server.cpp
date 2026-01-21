@@ -533,8 +533,8 @@ int ForwardToRealServer(const uint8_t* data, int dataSize, const std::string& ta
             return -1;
         }
 
-        // 记录当前时间戳
-        auto now = std::chrono::system_clock::now();
+        // 记录当前时间戳（使用steady_clock保持一致性）
+        auto now = std::chrono::steady_clock::now();
         auto timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
         VPN_SERVER_LOGI("Network request started at: %{public}lld", timestamp);
 

@@ -36,29 +36,18 @@ struct ResponseTask {
 };
 
 // 通用任务结构
+// 🐛 修复：避免使用union，使用单独成员变量避免数据污染
 struct Task {
     TaskType type;
-    union {
-        ForwardTask forwardTask;
-        ResponseTask responseTask;
-    };
-    
-    Task() : type(TaskType::FORWARD_REQUEST) {
-        new (&forwardTask) ForwardTask();
-    }
-    
-    explicit Task(TaskType t) : type(t) {
-        if (t == TaskType::FORWARD_REQUEST) {
-            new (&forwardTask) ForwardTask();
-        } else {
-            new (&responseTask) ResponseTask();
-        }
-    }
-    
-    ~Task() {
-        // Union不需要显式析构
-    }
-    
+    ForwardTask forwardTask;
+    ResponseTask responseTask;
+
+    Task() : type(TaskType::FORWARD_REQUEST) {}
+
+    explicit Task(TaskType t) : type(t) {}
+
+    ~Task() = default;
+
     // 拷贝构造
     Task(const Task& other) : type(other.type) {
         if (type == TaskType::FORWARD_REQUEST) {
@@ -67,16 +56,14 @@ struct Task {
             responseTask = other.responseTask;
         }
     }
-    
+
     // 赋值操作
     Task& operator=(const Task& other) {
         if (this != &other) {
-            // 🐛 修复：根据源类型正确赋值，避免类型不匹配
-            if (other.type == TaskType::FORWARD_REQUEST) {
-                type = TaskType::FORWARD_REQUEST;
+            type = other.type;
+            if (type == TaskType::FORWARD_REQUEST) {
                 forwardTask = other.forwardTask;
             } else {
-                type = TaskType::SEND_RESPONSE;
                 responseTask = other.responseTask;
             }
         }
@@ -104,10 +91,10 @@ public:
                            uint8_t protocol);
     
     // 获取转发任务
-    std::optional<Task> popForwardTask(std::chrono::milliseconds timeout);
+    Optional<Task> popForwardTask(std::chrono::milliseconds timeout);
     
     // 获取响应任务
-    std::optional<Task> popResponseTask(std::chrono::milliseconds timeout);
+    Optional<Task> popResponseTask(std::chrono::milliseconds timeout);
     
     // 获取队列统计
     size_t getForwardQueueSize() const { return forwardQueue_.size(); }

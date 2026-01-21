@@ -11,22 +11,24 @@
 bool TaskQueueManager::submitForwardTask(const uint8_t* data, int dataSize,
                                         const PacketInfo& packetInfo,
                                         const sockaddr_in& clientAddr) {
-    if (!data || dataSize <= 0 || dataSize > 2048) {
-        TASK_LOGE("❌ Invalid forward task: dataSize=%{public}d", dataSize);
+    // 🐛 修复：更严格的边界检查
+    if (!data || dataSize <= 0 || dataSize > sizeof(ForwardTask::data)) {
+        TASK_LOGE("❌ Invalid forward task: data=%p, dataSize=%{public}d (max=%{public}zu)",
+                 data, dataSize, sizeof(ForwardTask::data));
         return false;
     }
-    
+
     Task task(TaskType::FORWARD_REQUEST);
     std::memcpy(task.forwardTask.data, data, dataSize);
     task.forwardTask.dataSize = dataSize;
     task.forwardTask.packetInfo = packetInfo;
     task.forwardTask.clientAddr = clientAddr;
-    
+
     if (!forwardQueue_.tryPush(task)) {
         TASK_LOGE("⚠️ Forward queue full, dropping packet");
         return false;
     }
-    
+
     return true;
 }
 
@@ -34,11 +36,13 @@ bool TaskQueueManager::submitResponseTask(const uint8_t* data, int dataSize,
                                          const sockaddr_in& clientAddr,
                                          int forwardSocket,
                                          uint8_t protocol) {
-    if (!data || dataSize <= 0 || dataSize > 4096) {
-        TASK_LOGE("❌ Invalid response task: dataSize=%{public}d", dataSize);
+    // 🐛 修复：更严格的边界检查
+    if (!data || dataSize <= 0 || dataSize > sizeof(ResponseTask::data)) {
+        TASK_LOGE("❌ Invalid response task: data=%p, dataSize=%{public}d (max=%{public}zu)",
+                 data, dataSize, sizeof(ResponseTask::data));
         return false;
     }
-    
+
     Task task(TaskType::SEND_RESPONSE);
     std::memcpy(task.responseTask.data, data, dataSize);
     task.responseTask.dataSize = dataSize;
@@ -46,20 +50,20 @@ bool TaskQueueManager::submitResponseTask(const uint8_t* data, int dataSize,
     task.responseTask.forwardSocket = forwardSocket;
     task.responseTask.protocol = protocol;
     task.responseTask.timestamp = std::chrono::steady_clock::now();
-    
+
     if (!responseQueue_.tryPush(task)) {
         TASK_LOGE("⚠️ Response queue full, dropping response");
         return false;
     }
-    
+
     return true;
 }
 
-std::optional<Task> TaskQueueManager::popForwardTask(std::chrono::milliseconds timeout) {
+Optional<Task> TaskQueueManager::popForwardTask(std::chrono::milliseconds timeout) {
     return forwardQueue_.popWithTimeout(timeout);
 }
 
-std::optional<Task> TaskQueueManager::popResponseTask(std::chrono::milliseconds timeout) {
+Optional<Task> TaskQueueManager::popResponseTask(std::chrono::milliseconds timeout) {
     return responseQueue_.popWithTimeout(timeout);
 }
 

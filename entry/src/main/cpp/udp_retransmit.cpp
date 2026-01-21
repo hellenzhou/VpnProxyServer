@@ -60,45 +60,51 @@ void UdpRetransmitManager::confirmReceived(uint16_t packetId) {
 
 int UdpRetransmitManager::checkAndRetransmit(int timeoutMs, int maxRetries) {
     std::lock_guard<std::mutex> lock(mutex_);
-    
+
     auto now = std::chrono::steady_clock::now();
     int retransmitCount = 0;
+    const int maxRetransmitsPerCall = 5;  // 🐛 修复：每次调用最多重传5个包，避免重传风暴
     std::vector<uint16_t> toRemove;
-    
+
     for (auto& pair : pendingPackets_) {
+        // 🐛 修复：限制每次调用的重传数量
+        if (retransmitCount >= maxRetransmitsPerCall) {
+            break;  // 本次检查结束，避免重传风暴
+        }
+
         UdpPacketInfo& info = pair.second;
-        
+
         // 检查是否超时
         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
             now - info.sendTime).count();
-        
+
         if (elapsed >= timeoutMs) {
             if (info.retryCount >= maxRetries) {
                 // 达到最大重传次数，放弃
                 char targetIP[INET_ADDRSTRLEN];
                 inet_ntop(AF_INET, &info.targetAddr.sin_addr, targetIP, sizeof(targetIP));
-                
+
                 RETRANS_LOGE("❌ UDP packet dropped: id=%{public}u, target=%{public}s:%{public}d, retries=%{public}d",
                             info.packetId, targetIP, ntohs(info.targetAddr.sin_port), info.retryCount);
-                
+
                 toRemove.push_back(pair.first);
                 totalDropped_++;
             } else {
                 // 重传
                 ssize_t sent = sendto(info.forwardSocket, info.data, info.dataSize, 0,
                                      (struct sockaddr*)&info.targetAddr, sizeof(info.targetAddr));
-                
+
                 if (sent > 0) {
                     info.retryCount++;
                     info.sendTime = now;  // 更新发送时间
                     retransmitCount++;
                     totalRetransmits_++;
-                    
+
                     char targetIP[INET_ADDRSTRLEN];
                     inet_ntop(AF_INET, &info.targetAddr.sin_addr, targetIP, sizeof(targetIP));
-                    
+
                     RETRANS_LOGI("🔄 Retransmitted UDP packet: id=%{public}u, target=%{public}s:%{public}d, retry=%{public}d/%{public}d",
-                                info.packetId, targetIP, ntohs(info.targetAddr.sin_port), 
+                                info.packetId, targetIP, ntohs(info.targetAddr.sin_port),
                                 info.retryCount, maxRetries);
                 } else {
                     RETRANS_LOGE("❌ Failed to retransmit: id=%{public}u, errno=%{public}d (%{public}s)",
