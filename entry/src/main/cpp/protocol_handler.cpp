@@ -45,10 +45,7 @@ PacketInfo ProtocolHandler::ParseIPPacket(const uint8_t* data, int dataSize) {
         inet_ntop(AF_INET, &data[12], srcIP, INET_ADDRSTRLEN);
         inet_ntop(AF_INET, &data[16], dstIP, INET_ADDRSTRLEN);
         info.sourceIP = srcIP;  // 保存源IP（VPN虚拟IP）
-        info.targetIP = dstIP;  // 保存目标IP
-        
-        // 记录源IP（TUN IP）用于排查
-        PROTOCOL_LOGI("🔍 [TUN IP检查] 数据包源IP: %{public}s (这是VPN虚拟网络IP，不是客户端物理IP)", srcIP);
+        info.targetIP = dstIP;
         
         // 获取端口
         int payloadOffset = ipHeaderLen;
@@ -69,8 +66,6 @@ PacketInfo ProtocolHandler::ParseIPPacket(const uint8_t* data, int dataSize) {
         }
         
         info.isValid = true;
-        PROTOCOL_LOGI("Parsed packet: %{public}s:%{public}d (protocol=%{public}d)", 
-                      info.targetIP.c_str(), info.targetPort, info.protocol);
         
     } else if (version == 6) {
         // IPv6处理

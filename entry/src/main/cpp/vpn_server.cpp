@@ -891,10 +891,6 @@ void AddDataPacket(const std::string& data, const std::string& client, const std
   
   g_dataBuffer.insert(g_dataBuffer.begin(), packetEntry);
   
-  // 添加调试日志
-  VPN_SERVER_LOGI("📦 Added packet to buffer: client=%{public}s, type=%{public}s, buffer_size=%{public}zu", 
-                  client.c_str(), dataType.c_str(), g_dataBuffer.size());
-  
   // Keep buffer size limited
   if (g_dataBuffer.size() > MAX_DATA_BUFFER) {
     g_dataBuffer.resize(MAX_DATA_BUFFER);
@@ -1069,7 +1065,6 @@ void WorkerLoop()
     sockaddr_in peer {};
     socklen_t peerLen = sizeof(peer);
     
-    // 🔧 在读取前先检查是否应该停止
     if (!g_running.load()) {
       VPN_SERVER_LOGI("ZBQ [STOP] Loop exit requested");
       break;
@@ -1077,25 +1072,13 @@ void WorkerLoop()
     
     int n = recvfrom(g_sockFd, buf, sizeof(buf), 0, reinterpret_cast<sockaddr *>(&peer), &peerLen);
     
-    // 只有在失败时才打印errno，成功时的errno是残留值没有意义
     if (n < 0) {
       VPN_SERVER_LOGE("ZBQ [ERROR] recvfrom failed: errno=%{public}d (%{public}s)", 
                       errno, strerror(errno));
       VPN_SERVER_LOGI("ZBQ [STOP] Loop exit on error");
       break;
-      // 检查是否是应该忽略的错误（如EAGAIN/EWOULDBLOCK在非阻塞模式下）
-      if (errno == EAGAIN || errno == EWOULDBLOCK) {
-        VPN_SERVER_LOGI("⏸️ No data available, continuing...");
-        continue;
-      }
-      // 其他错误已在上面记录，直接继续
-      continue;
-    } else {
-      // recvfrom成功 - 注释掉频繁日志
-      // VPN_SERVER_LOGI("📨 recvfrom succeeded: received %{public}d bytes", n);
     }
     
-    // UDP理论上不应该返回0，但为了安全还是检查一下
     if (n == 0) {
       VPN_SERVER_LOGI("⚠️ Received empty packet, ignoring");
       continue;
@@ -1110,12 +1093,10 @@ void WorkerLoop()
     
     std::string clientKey = peerAddr + ":" + std::to_string(peerPort);
     
-    // 识别数据包类型（用于简洁日志）
     std::string dataStr(reinterpret_cast<char*>(buf), std::min(n, BUFFER_SIZE));
-    std::string hexData = BytesToHex(buf, n, 64);  // 显示前64字节的十六进制
-    std::string packetType = IdentifyPacketType(buf, n);  // 识别数据包类型
+    std::string hexData = BytesToHex(buf, n, 64);
+    std::string packetType = IdentifyPacketType(buf, n);
     
-    // 🔧 ZBQ 简洁日志：只显示关键信息
     VPN_SERVER_LOGI("ZBQ [RX] %{public}d bytes from %{public}s", n, clientKey.c_str());
     
     // Update last activity
@@ -1171,9 +1152,6 @@ void WorkerLoop()
                         peerAddr.c_str(), peerPort, strerror(errno));
       }
     } else {
-      // 普通数据包处理 - 转发到真实服务器
-      // VPN_SERVER_LOGI("🔬 Starting packet analysis for %{public}d bytes", n);  // 注释掉频繁日志
-      
       // 使用新的协议处理器解析数据包
       PacketInfo packetInfo = ProtocolHandler::ParseIPPacket(buf, n);
       
@@ -1184,7 +1162,6 @@ void WorkerLoop()
         continue;
       }
       
-      // 🔧 ZBQ 简洁日志：显示解析结果
       if (packetInfo.protocol == PROTOCOL_ICMPV6) {
         VPN_SERVER_LOGI("ZBQ [PARSE] ICMPv6 -> %{public}s Type=%{public}d", 
                         packetInfo.targetIP.c_str(), packetInfo.icmpv6Type);
@@ -1224,7 +1201,6 @@ void WorkerLoop()
       // 转发到真实服务器
       int realServerSock = PacketForwarder::ForwardPacket(buf, n, packetInfo, peer);
       if (realServerSock >= 0) {
-        // 🔧 ZBQ 简洁日志：转发成功
         if (packetInfo.protocol == PROTOCOL_ICMPV6) {
           VPN_SERVER_LOGI("ZBQ [FWD✓] ICMPv6 -> %{public}s (sock=%{public}d)", 
                           packetInfo.targetIP.c_str(), realServerSock);
@@ -1234,7 +1210,6 @@ void WorkerLoop()
                           packetInfo.targetIP.c_str(), packetInfo.targetPort, realServerSock);
         }
       } else {
-        // 🔧 ZBQ 简洁日志：转发失败
         if (packetInfo.protocol == PROTOCOL_ICMPV6) {
           VPN_SERVER_LOGE("ZBQ [FWD✗] ICMPv6 -> %{public}s FAILED", packetInfo.targetIP.c_str());
         } else {
