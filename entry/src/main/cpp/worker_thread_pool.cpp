@@ -213,15 +213,46 @@ void WorkerThreadPool::responseWorkerThread() {
         // 🐛 修复：保存g_sockFd副本，避免并发修改导致的问题
         int tunnelFd = g_sockFd;
 
+        // 🐛 关键修复：检查数据包是否包含IP头
+        // 如果第一个字节是0x45（IPv4），说明包含IP头
+        // 需要去掉IP头和UDP头，只发送payload
+        const uint8_t* sendData = respTask.data;
+        int sendSize = respTask.dataSize;
+        
+        if (respTask.dataSize > 20 && respTask.data[0] == 0x45) {
+            // ❌ BUG修复：这是完整的IP包，但通过UDP socket发送会导致双重封装！
+            // 应该只发送payload，或者改用RAW socket
+            WORKER_LOGE("⚠️ 检测到完整IP包(%{public}d字节)通过UDP socket发送 - 这会导致客户端无法解析！", 
+                       respTask.dataSize);
+            WORKER_LOGE("⚠️ 客户端会收不到响应，导致不停重试！");
+            
+            // 🔧 临时解决：提取payload
+            // IP头长度 = (data[0] & 0x0F) * 4
+            // UDP头长度 = 8
+            int ipHeaderLen = (respTask.data[0] & 0x0F) * 4;
+            int udpHeaderLen = 8;
+            int headerLen = ipHeaderLen + udpHeaderLen;
+            
+            if (headerLen < respTask.dataSize) {
+                sendData = respTask.data + headerLen;
+                sendSize = respTask.dataSize - headerLen;
+                WORKER_LOGI("🔧 提取payload: %{public}d字节 (去掉%{public}d字节的头部)", 
+                           sendSize, headerLen);
+            }
+        }
+
         // 发送响应给客户端
         if (tunnelFd >= 0 && g_running.load()) {
-            ssize_t sent = sendto(tunnelFd, respTask.data, respTask.dataSize, 0,
+            ssize_t sent = sendto(tunnelFd, sendData, sendSize, 0,
                                  (struct sockaddr*)&respTask.clientAddr,
                                  sizeof(respTask.clientAddr));
 
             if (sent > 0) {
                 responseTasksProcessed_.fetch_add(1);
-                WORKER_LOGI("✅ Response sent successfully: %{public}zd bytes", sent);
+                WORKER_LOGI("✅ Response sent successfully: %{public}zd bytes to %{public}s:%{public}d", 
+                           sent, 
+                           inet_ntoa(respTask.clientAddr.sin_addr),
+                           ntohs(respTask.clientAddr.sin_port));
 
                 // 计算延迟
                 auto now = std::chrono::steady_clock::now();

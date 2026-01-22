@@ -8,10 +8,31 @@
 #include <arpa/inet.h>
 
 #define MAKE_FILE_NAME (strrchr(__FILE__, '/') ? (strrchr(__FILE__, '/') + 1) : __FILE__)
-#define NAT_LOGI(fmt, ...) \
-  OH_LOG_Print(LOG_APP, LOG_INFO, 0x15b1, "VpnServer", "ZBQ [NAT] [%{public}s:%{public}d] " fmt, MAKE_FILE_NAME, __LINE__, ##__VA_ARGS__)
-#define NAT_LOGE(fmt, ...) \
-  OH_LOG_Print(LOG_APP, LOG_ERROR, 0x15b1, "VpnServer", "ZBQ [NAT] [%{public}s:%{public}d] " fmt, MAKE_FILE_NAME, __LINE__, ##__VA_ARGS__)
+
+// 🔧 NAT日志级别控制
+// 0 = 关闭所有日志
+// 1 = 仅错误和关键操作（创建/删除映射仅记录总数）
+// 2 = 详细日志（每个映射的详细信息）
+#define NAT_LOG_LEVEL 1
+
+#if NAT_LOG_LEVEL >= 2
+  #define NAT_LOG_DEBUG(fmt, ...) \
+    OH_LOG_Print(LOG_APP, LOG_INFO, 0x15b1, "VpnServer", "ZBQ [NAT] [%{public}s:%{public}d] " fmt, MAKE_FILE_NAME, __LINE__, ##__VA_ARGS__)
+  #define NAT_LOGI(fmt, ...) \
+    OH_LOG_Print(LOG_APP, LOG_INFO, 0x15b1, "VpnServer", "ZBQ [NAT] [%{public}s:%{public}d] " fmt, MAKE_FILE_NAME, __LINE__, ##__VA_ARGS__)
+  #define NAT_LOGE(fmt, ...) \
+    OH_LOG_Print(LOG_APP, LOG_ERROR, 0x15b1, "VpnServer", "ZBQ [NAT] [%{public}s:%{public}d] " fmt, MAKE_FILE_NAME, __LINE__, ##__VA_ARGS__)
+#elif NAT_LOG_LEVEL >= 1
+  #define NAT_LOG_DEBUG(fmt, ...) /* 详细日志已禁用 */
+  #define NAT_LOGI(fmt, ...) \
+    OH_LOG_Print(LOG_APP, LOG_INFO, 0x15b1, "VpnServer", "ZBQ [NAT] [%{public}s:%{public}d] " fmt, MAKE_FILE_NAME, __LINE__, ##__VA_ARGS__)
+  #define NAT_LOGE(fmt, ...) \
+    OH_LOG_Print(LOG_APP, LOG_ERROR, 0x15b1, "VpnServer", "ZBQ [NAT] [%{public}s:%{public}d] " fmt, MAKE_FILE_NAME, __LINE__, ##__VA_ARGS__)
+#else
+  #define NAT_LOG_DEBUG(fmt, ...) /* 日志已禁用 */
+  #define NAT_LOGI(fmt, ...) /* 日志已禁用 */
+  #define NAT_LOGE(fmt, ...) /* 日志已禁用 */
+#endif
 
 // 静态成员初始化
 std::unordered_map<std::string, NATConnection> NATTable::mappings_;
@@ -36,20 +57,34 @@ bool NATTable::CreateMapping(const std::string& key,
     conn.lastActivity = std::chrono::steady_clock::now();
     conn.originalRequest = packetInfo;
     
+    // 检查是否是新映射还是更新
+    bool isNewMapping = (mappings_.find(key) == mappings_.end());
+    
     mappings_[key] = conn;
     socketToKey_[forwardSocket] = key;
     
-    char clientPhysicalIP[INET_ADDRSTRLEN];
-    inet_ntop(AF_INET, &clientPhysicalAddr.sin_addr, clientPhysicalIP, sizeof(clientPhysicalIP));
-    int clientPhysicalPort = ntohs(clientPhysicalAddr.sin_port);
+    // 仅在详细日志模式下打印详细信息
+    NAT_LOG_DEBUG("✅ Created NAT mapping: %{public}s", key.c_str());
     
-    NAT_LOGI("✅ Created NAT mapping: %{public}s", key.c_str());
-    NAT_LOGI("   Client Physical: %{public}s:%{public}d", clientPhysicalIP, clientPhysicalPort);
-    NAT_LOGI("   Client Virtual: %{public}s:%{public}d", conn.clientVirtualIP.c_str(), conn.clientVirtualPort);
-    NAT_LOGI("   Server: %{public}s:%{public}d", conn.serverIP.c_str(), conn.serverPort);
-    NAT_LOGI("   Forward Socket: %{public}d, Protocol: %{public}s", 
-             forwardSocket, packetInfo.protocol == PROTOCOL_TCP ? "TCP" : "UDP");
-    NAT_LOGI("   Total mappings: %{public}zu", mappings_.size());
+    if (NAT_LOG_LEVEL >= 2) {
+        char clientPhysicalIP[INET_ADDRSTRLEN];
+        inet_ntop(AF_INET, &clientPhysicalAddr.sin_addr, clientPhysicalIP, sizeof(clientPhysicalIP));
+        int clientPhysicalPort = ntohs(clientPhysicalAddr.sin_port);
+        
+        NAT_LOG_DEBUG("   Client Physical: %{public}s:%{public}d", clientPhysicalIP, clientPhysicalPort);
+        NAT_LOG_DEBUG("   Client Virtual: %{public}s:%{public}d", conn.clientVirtualIP.c_str(), conn.clientVirtualPort);
+        NAT_LOG_DEBUG("   Server: %{public}s:%{public}d", conn.serverIP.c_str(), conn.serverPort);
+        NAT_LOG_DEBUG("   Forward Socket: %{public}d, Protocol: %{public}s", 
+                 forwardSocket, packetInfo.protocol == PROTOCOL_TCP ? "TCP" : "UDP");
+        NAT_LOG_DEBUG("   Total mappings: %{public}zu", mappings_.size());
+    }
+    
+    // 仅在创建新映射且是重要协议时记录简要信息
+    if (isNewMapping && (packetInfo.protocol == PROTOCOL_TCP || packetInfo.targetPort == 53)) {
+        NAT_LOGI("✅ NAT: %{public}s -> %{public}s:%{public}d/%{public}s (total: %{public}zu)", 
+                 conn.clientVirtualIP.c_str(), conn.serverIP.c_str(), conn.serverPort,
+                 packetInfo.protocol == PROTOCOL_TCP ? "TCP" : "UDP", mappings_.size());
+    }
     
     return true;
 }
@@ -104,7 +139,7 @@ void NATTable::RemoveMapping(const std::string& key) {
         socketToKey_.erase(socket);
         mappings_.erase(it);
         
-        NAT_LOGI("🗑️ Removed NAT mapping: %{public}s, remaining: %{public}zu", 
+        NAT_LOG_DEBUG("🗑️ Removed NAT mapping: %{public}s, remaining: %{public}zu", 
                  key.c_str(), mappings_.size());
     }
 }
@@ -134,7 +169,7 @@ void NATTable::CleanupExpired(int timeoutSeconds) {
     }
     
     if (!expiredKeys.empty()) {
-        NAT_LOGI("🧹 Cleaned up %{public}zu expired mappings, remaining: %{public}zu",
+        NAT_LOG_DEBUG("🧹 Cleaned up %{public}zu expired mappings, remaining: %{public}zu",
                  expiredKeys.size(), mappings_.size());
     }
 }
