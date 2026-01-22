@@ -7,11 +7,11 @@
         "material": {
           "certpath": "C:\\Users\\LeagSoft\\.ohos\\config\\default_VpnProxyServer_3OY97C7DhfR-jqc5aua3vHRaPtcUoLk1-zsOXb_JqbA=.cer",
           "keyAlias": "debugKey",
-          "keyPassword": "0000001B05B2A431080414FFECE6D69A1CEF63F4300D1FB05555CA9092F548DD9DD34F116C3C9213CFA3D8",
+          "keyPassword": "0000001AA7211B84F0C05122F9AB3E874642DBCBBF6C47D34C42E9F4EF6CE49ECD7041CEAB41DEA4421C",
           "profile": "C:\\Users\\LeagSoft\\.ohos\\config\\default_VpnProxyServer_3OY97C7DhfR-jqc5aua3vHRaPtcUoLk1-zsOXb_JqbA=.p7b",
           "signAlg": "SHA256withECDSA",
           "storeFile": "C:\\Users\\LeagSoft\\.ohos\\config\\default_VpnProxyServer_3OY97C7DhfR-jqc5aua3vHRaPtcUoLk1-zsOXb_JqbA=.p12",
-          "storePassword": "0000001BFC67DA12DB734785454751F4DD19F67FCAA462700595520AE4AA45BDF9DF2005723CE6236D013D"
+          "storePassword": "0000001AF37BF5392647BBA001D18B1969E00C781F1585E23F48AED771D5E18022D3C3E9CE172158F636"
         }
       }
     ],
@@ -20,7 +20,7 @@
         "name": "default",
         "signingConfig": "default",
         "targetSdkVersion": "6.0.0(20)",
-        "compatibleSdkVersion": "5.0.2(14)",
+        "compatibleSdkVersion": "6.0.0(20)",
         "runtimeOS": "HarmonyOS",
         "buildOption": {
           "strictMode": {
@@ -32,12 +32,12 @@
     ],
     "buildModeSet": [
       {
-        "name": "debug",
+        "name": "debug"
       },
       {
         "name": "release"
       }
-    ]
+    ],
   },
   "modules": [
     {
