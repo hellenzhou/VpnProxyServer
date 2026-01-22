@@ -20,10 +20,21 @@
 #define LOG_ERROR(fmt, ...) \
     OH_LOG_Print(LOG_APP, LOG_ERROR, 0x15b1, "VpnServer", "ZHOUB [Forwarder] ❌ " fmt, ##__VA_ARGS__)
 
-// 🎯 获取socket (简化版)
+// 🎯 获取socket (支持TCP和UDP)
 static int GetSocket(const PacketInfo& packetInfo) {
-    // 创建新socket
-    int sockFd = socket(packetInfo.addressFamily, SOCK_DGRAM, 0);
+    int sockFd;
+    
+    if (packetInfo.protocol == PROTOCOL_UDP) {
+        // UDP socket
+        sockFd = socket(packetInfo.addressFamily, SOCK_DGRAM, 0);
+    } else if (packetInfo.protocol == PROTOCOL_TCP) {
+        // TCP socket
+        sockFd = socket(packetInfo.addressFamily, SOCK_STREAM, 0);
+    } else {
+        LOG_ERROR("不支持的协议: %d", packetInfo.protocol);
+        return -1;
+    }
+    
     if (sockFd < 0) {
         LOG_ERROR("创建socket失败: %s", strerror(errno));
         return -1;
@@ -33,23 +44,37 @@ static int GetSocket(const PacketInfo& packetInfo) {
     struct timeval timeout = {5, 0};
     setsockopt(sockFd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
     
-    LOG_INFO("✅ 创建新socket: fd=%d", sockFd);
+    LOG_INFO("✅ 创建新socket: fd=%d, 协议=%s", 
+             sockFd, packetInfo.protocol == PROTOCOL_TCP ? "TCP" : "UDP");
     return sockFd;
 }
 
-// 🎯 UDP响应线程
+// 🎯 UDP响应线程 (添加socket清理)
 static void StartUDPThread(int sockFd, const sockaddr_in& originalPeer) {
     std::thread([sockFd, originalPeer]() {
         LOG_INFO("🚀 UDP线程启动: fd=%d", sockFd);
         
         uint8_t buffer[4096];
+        int noResponseCount = 0;
+        const int MAX_NO_RESPONSE = 3;  // 最多3次无响应后清理
+        
         while (true) {
             ssize_t received = recvfrom(sockFd, buffer, sizeof(buffer), 0, nullptr, nullptr);
             if (received < 0) {
-                if (errno == EAGAIN || errno == EWOULDBLOCK) continue;
+                if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                    noResponseCount++;
+                    if (noResponseCount >= MAX_NO_RESPONSE) {
+                        LOG_INFO("🔚 UDP无响应次数过多，清理socket: fd=%d", sockFd);
+                        break;
+                    }
+                    continue;
+                }
                 LOG_ERROR("UDP接收失败: fd=%d, errno=%d", sockFd, errno);
                 break;
             }
+            
+            // 重置无响应计数
+            noResponseCount = 0;
             
             // 🔧 调试：打印接收到的数据
             LOG_INFO("🔍 UDP收到响应: fd=%d, %zd字节", sockFd, received);
@@ -75,9 +100,77 @@ static void StartUDPThread(int sockFd, const sockaddr_in& originalPeer) {
             }
         }
         
-        LOG_INFO("🔚 UDP线程退出: fd=%d", sockFd);
+        // 🧹 清理NAT映射和socket
+        LOG_INFO("🧹 清理UDP线程资源: fd=%d", sockFd);
+        NATTable::RemoveMappingBySocket(sockFd);
+        close(sockFd);
+        
     }).detach();
 }
+
+// 🎯 TCP响应线程
+static void StartTCPThread(int sockFd, const sockaddr_in& originalPeer) {
+    std::thread([sockFd, originalPeer]() {
+        LOG_INFO("🚀 TCP线程启动: fd=%d", sockFd);
+        
+        uint8_t buffer[4096];
+        int noResponseCount = 0;
+        const int MAX_NO_RESPONSE = 3;  // 最多3次无响应后清理
+        
+        while (true) {
+            ssize_t received = recv(sockFd, buffer, sizeof(buffer), 0);
+            if (received < 0) {
+                if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                    noResponseCount++;
+                    if (noResponseCount >= MAX_NO_RESPONSE) {
+                        LOG_INFO("🔚 TCP无响应次数过多，清理socket: fd=%d", sockFd);
+                        break;
+                    }
+                    continue;
+                }
+                LOG_ERROR("TCP接收失败: fd=%d, errno=%d", sockFd, errno);
+                break;
+            } else if (received == 0) {
+                LOG_INFO("🔚 TCP连接关闭: fd=%d", sockFd);
+                break;
+            }
+            
+            // 重置无响应计数
+            noResponseCount = 0;
+            
+            // 🔧 调试：打印接收到的数据
+            LOG_INFO("🔍 TCP收到响应: fd=%d, %zd字节", sockFd, received);
+            
+            // 检查NAT映射
+            NATConnection conn;
+            if (NATTable::FindMappingBySocket(sockFd, conn)) {
+                // 🔧 调试：打印发送目标
+                char peerIP[INET_ADDRSTRLEN];
+                inet_ntop(AF_INET, &originalPeer.sin_addr, peerIP, sizeof(peerIP));
+                uint16_t peerPort = ntohs(originalPeer.sin_port);
+                LOG_INFO("🔍 发送响应到: %s:%d (原始客户端)", peerIP, peerPort);
+                
+                ssize_t sent = sendto(sockFd, buffer, received, 0, 
+                                    (struct sockaddr*)&originalPeer, sizeof(originalPeer));
+                if (sent > 0) {
+                    LOG_INFO("📤 转发TCP响应成功: %zd字节 -> %s:%d", sent, peerIP, peerPort);
+                } else {
+                    LOG_ERROR("❌ 转发TCP响应失败: %s", strerror(errno));
+                }
+            } else {
+                LOG_ERROR("❌ NAT映射不存在: fd=%d", sockFd);
+                break;
+            }
+        }
+        
+        // 🧹 清理NAT映射和socket
+        LOG_INFO("🧹 清理TCP线程资源: fd=%d", sockFd);
+        NATTable::RemoveMappingBySocket(sockFd);
+        close(sockFd);
+        
+    }).detach();
+}
+
 
 // ========== 主转发函数 ==========
 
@@ -113,28 +206,30 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
         }
     }
     
-    // 3. 获取socket (关键：先确定socket)
-    int sockFd = GetSocket(packetInfo);
-    if (sockFd < 0) {
-        LOG_ERROR("获取socket失败");
-        return -1;
-    }
-    
-    // 4. 创建NAT映射 (关键：检查是否已存在)
+    // 3. 检查或创建NAT映射 (优化版本)
     std::string natKey = NATTable::GenerateKey(packetInfo);
     
-    // 🔧 关键修复：检查NAT映射是否已存在
     NATConnection existingConn;
-    if (NATTable::FindMappingBySocket(sockFd, existingConn)) {
-        LOG_INFO("🔄 NAT映射已存在: fd=%d, key=%s", sockFd, natKey.c_str());
-        // 映射已存在，直接使用
+    int sockFd;
+    
+    if (NATTable::FindMapping(natKey, existingConn)) {
+        // 映射已存在，使用现有socket
+        LOG_INFO("🔄 使用现有NAT映射: key=%s, fd=%d", natKey.c_str(), existingConn.forwardSocket);
+        sockFd = existingConn.forwardSocket;
+        
     } else {
-        // 创建新映射
+        // 没有现有映射，创建新socket和映射
+        sockFd = GetSocket(packetInfo);
+        if (sockFd < 0) {
+            LOG_ERROR("获取socket失败");
+            return -1;
+        }
+        
         NATTable::CreateMapping(natKey, originalPeer, packetInfo, sockFd);
         LOG_INFO("✅ 创建新NAT映射: %s -> fd=%d", natKey.c_str(), sockFd);
     }
     
-    // 5. 发送UDP数据
+    // 5. 发送数据
     if (packetInfo.protocol == PROTOCOL_UDP) {
         struct sockaddr_in targetAddr{};
         targetAddr.sin_family = AF_INET;
@@ -156,8 +251,37 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
         StartUDPThread(sockFd, originalPeer);
         LOG_INFO("🚀 启动UDP响应线程: fd=%d", sockFd);
         
+    } else if (packetInfo.protocol == PROTOCOL_TCP) {
+        // TCP转发实现
+        struct sockaddr_in targetAddr{};
+        targetAddr.sin_family = AF_INET;
+        targetAddr.sin_port = htons(packetInfo.targetPort);
+        inet_pton(AF_INET, actualTargetIP.c_str(), &targetAddr.sin_addr);
+        
+        // 连接到目标服务器
+        if (connect(sockFd, (struct sockaddr*)&targetAddr, sizeof(targetAddr)) < 0) {
+            LOG_ERROR("TCP连接失败: fd=%d, 目标=%s:%d, errno=%d", 
+                     sockFd, actualTargetIP.c_str(), packetInfo.targetPort, errno);
+            NATTable::RemoveMapping(natKey);
+            return -1;
+        }
+        
+        // 发送TCP数据
+        ssize_t sent = send(sockFd, payload, payloadSize, 0);
+        if (sent < 0) {
+            LOG_ERROR("TCP发送失败: fd=%d, errno=%d", sockFd, errno);
+            NATTable::RemoveMapping(natKey);
+            return -1;
+        }
+        
+        LOG_INFO("✅ TCP发送: fd=%d, %zd字节", sockFd, sent);
+        
+        // 启动TCP响应处理
+        StartTCPThread(sockFd, originalPeer);
+        LOG_INFO("🚀 启动TCP响应线程: fd=%d", sockFd);
+        
     } else {
-        LOG_ERROR("TCP转发未实现");
+        LOG_ERROR("不支持的协议: %d", packetInfo.protocol);
         NATTable::RemoveMapping(natKey);
         return -1;
     }

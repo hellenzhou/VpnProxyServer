@@ -33,6 +33,7 @@ add_library(vpn_server SHARED
     task_queue.cpp
     udp_retransmit.cpp
     worker_thread_pool.cpp
+    thread_pool.cpp  # 🔄 添加线程池实现
 )
 
 target_link_libraries(vpn_server PUBLIC libace_napi.z.so libc++.a)

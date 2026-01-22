@@ -189,7 +189,12 @@ bool NetworkDiagnostics::TestTCPConnection(const std::string& host, int port, in
                     DIAG_LOGE("❌ TCP connection failed: %{public}s", strerror(error));
                 }
             } else if (selectResult == 0) {
-                DIAG_LOGE("❌ TCP connection timeout (%{public}d seconds)", timeoutSec);
+                // 减少超时日志噪音 - 只对关键服务记录
+                if (port == 53 || host.find("baidu") != std::string::npos) {
+                    DIAG_LOGE("❌ TCP connection timeout (%d seconds) to %s:%d", timeoutSec, host.c_str(), port);
+                } else {
+                    DIAG_LOGI("ℹ️  TCP connection timeout (%d seconds) to %s:%d (may be blocked)", timeoutSec, host.c_str(), port);
+                }
             } else {
                 DIAG_LOGE("❌ select() failed: %{public}s", strerror(errno));
             }
@@ -391,6 +396,8 @@ void NetworkDiagnostics::RunFullDiagnostics() {
     
     if (basicOK && gatewayOK && dnsOK) {
         DIAG_LOGI("✅ All network tests passed - VPN proxy should work");
+    DIAG_LOGI("📝 Note: Some HTTPS connections may be blocked by firewall/GFW");
+    DIAG_LOGI("💡 This is normal and does not affect VPN proxy functionality");
     } else {
         DIAG_LOGE("❌ Network issues detected - VPN proxy will NOT work until resolved");
     }

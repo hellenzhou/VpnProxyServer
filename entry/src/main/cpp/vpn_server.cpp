@@ -20,15 +20,19 @@
 #include <sys/select.h>
 #include <hilog/log.h>
 #include <chrono>
-
-#include "protocol_handler.h"
-#include "packet_forwarder.h"
 #include "vpn_server_globals.h"
-#include "network_diagnostics.h"
-#include "task_queue.h"
 #include "worker_thread_pool.h"
 #include "udp_retransmit.h"
+#include "network_diagnostics.h"
+#include "thread_pool.h"  // 🔄 添加线程池支持
+#include "protocol_handler.h"
+#include "packet_forwarder.h"
 #include "nat_table.h"  // NATTable
+
+// 🔄 线程池管理函数声明
+bool InitializeThreadPool(int forwardWorkers, int responseWorkers, int networkWorkers);
+VPNThreadPool* GetThreadPool();
+void CleanupThreadPool();
 
 #define MAKE_FILE_NAME (strrchr(__FILE__, '/') ? (strrchr(__FILE__, '/') + 1) : __FILE__)
 
@@ -49,7 +53,7 @@ constexpr int BUFFER_SIZE = 2048;  // 🔧 减少缓冲区大小，避免内存�
 std::atomic<bool> g_running{false};
 std::atomic<int> g_sockFd{-1};  // 🔧 使用atomic确保线程安全
 std::thread g_worker;
-std::thread g_udpRetransmitThread;
+// std::thread g_udpRetransmitThread;  // 🔄 替换为线程池管理
 
 // Statistics
 std::atomic<uint64_t> g_packetsReceived{0};
@@ -1205,6 +1209,12 @@ void WorkerLoop()
     VPN_SERVER_LOGI("ZHOUB [RX] %{public}d bytes from %{public}s (前16字节: %{public}s)", 
                    n, clientKey.c_str(), hexData.substr(0, 32).c_str());
     
+    // 🔥 检查是否是测试包（非IP包）
+    if (n < 20 || (buf[0] >> 4) != 4) {
+        VPN_SERVER_LOGI("ZHOUB [DEBUG] 检测到非IP包或测试包: %d字节", n);
+        continue;  // 跳过非IP包，防止崩溃
+    }
+    
     // 🔥 检查是否是TestDNSQuery发送的测试包（包含IP头，前4位是0x45）
     if (n >= 20 && (buf[0] >> 4) == 4 && buf[9] == 17) {
       // 这是一个IPv4 UDP包，可能是TestDNSQuery发送的完整IP包
@@ -1375,11 +1385,24 @@ napi_value StartServer(napi_env env, napi_callback_info info)
       close(sockFd);
     }
     
-    // 使用detach()而不是join()，避免阻塞UI线程
+    // 使用timeout join而不是detach，确保线程正确退出
     // WorkerLoop会在检查g_running时发现为false，然后退出循环
     if (g_worker.joinable()) {
-      VPN_SERVER_LOGI("🔄 Detaching old worker thread (will exit naturally)");
-      g_worker.detach();
+        VPN_SERVER_LOGI("🔄 Waiting for old worker thread to exit...");
+        
+        // 等待线程自然退出，最多等待2秒
+        auto start = std::chrono::steady_clock::now();
+        while (g_running.load() && 
+               std::chrono::steady_clock::now() - start < std::chrono::seconds(2)) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+        
+        if (g_worker.joinable()) {
+            g_worker.detach();  // 如果超时才detach
+            VPN_SERVER_LOGI("⚠️ Worker thread timeout, detached");
+        } else {
+            VPN_SERVER_LOGI("✅ Worker thread exited cleanly");
+        }
     }
     // 给旧线程一点时间退出（非阻塞）
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -1387,6 +1410,15 @@ napi_value StartServer(napi_env env, napi_callback_info info)
 
   VPN_SERVER_LOGI("ZHOUB [START] VPN Server on port %{public}d", port);
   
+  // 🔄 初始化线程池
+  if (!InitializeThreadPool(2, 2, 1)) {
+    VPN_SERVER_LOGE("❌ Failed to initialize thread pool");
+    napi_value ret;
+    napi_create_int32(env, -1, &ret);
+    return ret;
+  }
+  VPN_SERVER_LOGI("✅ Thread pool initialized");
+
   // 停止旧的工作线程池（如果存在）
   if (WorkerThreadPool::getInstance().isRunning()) {
     VPN_SERVER_LOGI("⚠️ Worker thread pool already running, stopping it...");
@@ -1543,22 +1575,28 @@ napi_value StartServer(napi_env env, napi_callback_info info)
     }
   }).detach();
   
-  // 启动UDP重传定时器线程
-  g_udpRetransmitThread = std::thread([]() {
-    VPN_SERVER_LOGI("🔄 UDP retransmit timer thread started");
-    while (g_running.load()) {
-      // 🐛 修复：使用可中断的sleep，避免退出延迟
-      for (int i = 0; i < 10 && g_running.load(); ++i) {
+  // 🔄 使用线程池启动UDP重传定时器任务
+  auto* threadPool = GetThreadPool();
+  if (threadPool) {
+    threadPool->submit(VPNThreadPool::NETWORK_WORKER, []() {
+      VPN_SERVER_LOGI("🔄 UDP retransmit timer task started");
+      
+      while (g_running.load()) {
+        // 🐛 修复：使用可中断的sleep，避免退出延迟
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        
+        if (!g_running.load()) break;  // 双重检查
+        
+        // 调用UDP重传逻辑
+        UdpRetransmitManager::getInstance().checkAndRetransmit();
       }
       
-      if (!g_running.load()) break;
-      
-      // 检查并重传超时的UDP包（1秒超时，最多重传3次）
-      UdpRetransmitManager::getInstance().checkAndRetransmit(1000, 3);
-    }
-    VPN_SERVER_LOGI("🔚 UDP retransmit timer thread stopped");
-  });
+      VPN_SERVER_LOGI("🔄 UDP retransmit timer task stopped");
+    });
+    VPN_SERVER_LOGI("✅ UDP retransmit task submitted to thread pool");
+  } else {
+    VPN_SERVER_LOGE("❌ Failed to get thread pool for UDP retransmit");
+  }
 
   VPN_SERVER_LOGI("🎯 PROXY SERVER STARTED - Ready to accept proxy client connections");
   VPN_SERVER_LOGI("📡 Listening on UDP port %{public}d for proxy tunnel traffic", port);
@@ -1570,24 +1608,21 @@ napi_value StartServer(napi_env env, napi_callback_info info)
     NetworkDiagnostics::RunFullDiagnostics();
   }).detach();
   
-  // 测试网络连接
+  // 测试网络连接 - 只保留一次测试
   TestNetworkConnectivity();
 
   // 等待服务器完全启动
   std::this_thread::sleep_for(std::chrono::milliseconds(100));
   VPN_SERVER_LOGI("✅ Server fully initialized and ready for connections");
 
-  // 测试UDP连通性
-  std::thread([]() {
-    std::this_thread::sleep_for(std::chrono::seconds(1));  // 等待服务器完全启动
-    TestUDPConnectivity();
-  }).detach();
-
-  // 测试网络连通性
-  std::thread([]() {
-    std::this_thread::sleep_for(std::chrono::seconds(1));  // 等待服务器完全启动
-    TestNetworkConnectivity();
-  }).detach();
+  // 测试UDP连通性 - 添加保护，避免重复创建
+  static std::atomic<bool> udpTestStarted{false};
+  if (!udpTestStarted.exchange(true)) {
+    std::thread([]() {
+      std::this_thread::sleep_for(std::chrono::seconds(1));  // 等待服务器完全启动
+      TestUDPConnectivity();
+    }).detach();
+  }
 
   // 测试DNS连通性 - 已禁用，避免影响功能逻辑
   // std::thread([]() {
@@ -1663,6 +1698,10 @@ napi_value StopServer(napi_env env, napi_callback_info info)
     VPN_SERVER_LOGI("ZHOUB [STOP] Socket closed");
   }
   
+  // 🔄 清理线程池
+  CleanupThreadPool();
+  VPN_SERVER_LOGI("✅ Thread pool cleaned up");
+
   // 🔧 修复：正确等待线程退出，避免资源泄漏
   // 由于socket已关闭且select有100ms超时，工作线程会快速退出
   if (g_worker.joinable()) {
@@ -1671,12 +1710,9 @@ napi_value StopServer(napi_env env, napi_callback_info info)
     VPN_SERVER_LOGI("✅ Worker thread stopped");
   }
   
-  // 停止UDP重传线程（g_running已经为false，重传线程会退出）
-  if (g_udpRetransmitThread.joinable()) {
-    VPN_SERVER_LOGI("⏳ Waiting for UDP retransmit thread to exit...");
-    g_udpRetransmitThread.join();
-    VPN_SERVER_LOGI("✅ UDP retransmit thread stopped");
-  }
+  // 🔄 UDP重传任务已由线程池管理，无需手动join
+  // 线程池shutdown时会自动清理所有任务
+  VPN_SERVER_LOGI("✅ UDP retransmit task will be cleaned up by thread pool");
   
   // Reset statistics
   g_packetsReceived.store(0);
@@ -1813,8 +1849,10 @@ napi_value GetDataBuffer(napi_env env, napi_callback_info info)
   
   std::lock_guard<std::mutex> lock(g_dataBufferMutex);
   
-  // 添加调试日志
-  VPN_SERVER_LOGI("📋 GetDataBuffer called: buffer_size=%{public}zu", g_dataBuffer.size());
+  // 完全禁用日志 - 避免频繁输出
+  // if (g_dataBuffer.size() > 0) {
+  //   VPN_SERVER_LOGI("📋 GetDataBuffer called: buffer_size=%zu", g_dataBuffer.size());
+  // }
   
   for (size_t i = 0; i < g_dataBuffer.size(); i++) {
     napi_value dataStr;

@@ -84,8 +84,11 @@ int UdpRetransmitManager::checkAndRetransmit(int timeoutMs, int maxRetries) {
                 char targetIP[INET_ADDRSTRLEN];
                 inet_ntop(AF_INET, &info.targetAddr.sin_addr, targetIP, sizeof(targetIP));
 
-                RETRANS_LOGE("❌ UDP packet dropped: id=%{public}u, target=%{public}s:%{public}d, retries=%{public}d",
-                            info.packetId, targetIP, ntohs(info.targetAddr.sin_port), info.retryCount);
+                // 减少日志噪音 - 只在必要时记录
+                if (info.retryCount >= 3) {
+                    RETRANS_LOGE("❌ UDP packet dropped: id=%u, target=%s:%d, retries=%d",
+                                info.packetId, targetIP, ntohs(info.targetAddr.sin_port), info.retryCount);
+                }
 
                 toRemove.push_back(pair.first);
                 totalDropped_++;

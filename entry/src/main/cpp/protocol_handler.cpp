@@ -11,8 +11,16 @@
 PacketInfo ProtocolHandler::ParseIPPacket(const uint8_t* data, int dataSize) {
     PacketInfo info;
     
+    // 初始化默认值防止崩溃
+    info.protocol = PROTOCOL_UDP;
+    info.addressFamily = AF_INET;
+    info.sourceIP = "0.0.0.0";
+    info.targetIP = "0.0.0.0";
+    info.sourcePort = 0;
+    info.targetPort = 0;
+    
     if (!data || dataSize < 20) {
-        PROTOCOL_LOGI("Invalid packet: null data or too small");
+        PROTOCOL_LOGI("Invalid packet: null data or too small, dataSize=%d", dataSize ? *data : 0);
         return info;
     }
     
@@ -21,22 +29,29 @@ PacketInfo ProtocolHandler::ParseIPPacket(const uint8_t* data, int dataSize) {
     if (version == 4) {
         // IPv4处理
         if (dataSize < 20) {
-            PROTOCOL_LOGI("IPv4 packet too small: %{public}d bytes", dataSize);
+            PROTOCOL_LOGI("IPv4 packet too small: %d bytes", dataSize);
             return info;
         }
         
         uint8_t ipHeaderLen = (data[0] & 0x0F) * 4;
         if (ipHeaderLen < 20 || ipHeaderLen > dataSize) {
-            PROTOCOL_LOGI("Invalid IPv4 header length: %{public}d bytes", ipHeaderLen);
+            PROTOCOL_LOGI("Invalid IPv4 header length: %d bytes", ipHeaderLen);
             return info;
         }
         
         info.protocol = data[9];
         info.addressFamily = AF_INET;
         
+        // 🔍 调试：打印协议识别信息
+        PROTOCOL_LOGI("🔍 协议识别: data[9]=%d, 协议类型=%s", 
+                     data[9], 
+                     info.protocol == PROTOCOL_TCP ? "TCP" : 
+                     info.protocol == PROTOCOL_UDP ? "UDP" : 
+                     info.protocol == PROTOCOL_ICMPV6 ? "ICMPv6" : "UNKNOWN");
+        
         // 只处理TCP、UDP和ICMPv6
         if (info.protocol != PROTOCOL_TCP && info.protocol != PROTOCOL_UDP && info.protocol != PROTOCOL_ICMPV6) {
-            PROTOCOL_LOGI("Unsupported protocol: %{public}d", info.protocol);
+            PROTOCOL_LOGI("Unsupported protocol: %d", info.protocol);
             return info;
         }
         
@@ -56,6 +71,7 @@ PacketInfo ProtocolHandler::ParseIPPacket(const uint8_t* data, int dataSize) {
             }
             info.sourcePort = (data[payloadOffset + 0] << 8) | data[payloadOffset + 1];  // 源端口
             info.targetPort = (data[payloadOffset + 2] << 8) | data[payloadOffset + 3];  // 目标端口
+            PROTOCOL_LOGI("🔍 TCP端口解析: 源端口=%d, 目标端口=%d", info.sourcePort, info.targetPort);
         } else if (info.protocol == PROTOCOL_UDP) {
             if (dataSize < payloadOffset + 8) {
                 PROTOCOL_LOGI("UDP packet too small");
@@ -63,6 +79,7 @@ PacketInfo ProtocolHandler::ParseIPPacket(const uint8_t* data, int dataSize) {
             }
             info.sourcePort = (data[payloadOffset + 0] << 8) | data[payloadOffset + 1];  // 源端口
             info.targetPort = (data[payloadOffset + 2] << 8) | data[payloadOffset + 3];  // 目标端口
+            PROTOCOL_LOGI("🔍 UDP端口解析: 源端口=%d, 目标端口=%d", info.sourcePort, info.targetPort);
         }
         
         info.isValid = true;

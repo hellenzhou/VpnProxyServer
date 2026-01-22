@@ -192,6 +192,30 @@ void NATTable::RemoveMapping(const std::string& key) {
     }
 }
 
+// 通过socket移除映射
+void NATTable::RemoveMappingBySocket(int forwardSocket) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    
+    auto socketIt = socketToKey_.find(forwardSocket);
+    if (socketIt != socketToKey_.end()) {
+        std::string key = socketIt->second;
+        
+        auto it = mappings_.find(key);
+        if (it != mappings_.end()) {
+            LOG_INFO("🧹 通过socket清理NAT映射: fd=%d, key=%s", forwardSocket, key.c_str());
+            
+            socketToKey_.erase(socketIt);
+            mappings_.erase(it);
+            
+            LOG_INFO("✅ NAT映射清理完成: fd=%d, 剩余映射数=%zu", forwardSocket, mappings_.size());
+        } else {
+            LOG_ERROR("❌ socket存在但映射不存在: fd=%d, key=%s", forwardSocket, key.c_str());
+        }
+    } else {
+        LOG_ERROR("❌ socket不存在于映射中: fd=%d", forwardSocket);
+    }
+}
+
 // 清理过期映射
 void NATTable::CleanupExpired(int timeoutSeconds) {
     std::lock_guard<std::mutex> lock(mutex_);

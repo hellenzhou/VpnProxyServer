@@ -9,7 +9,7 @@
 extern std::atomic<bool> g_running;
 extern std::atomic<int> g_sockFd;  // 🔧 修复：改为atomic，确保多线程安全访问
 extern std::thread g_worker;
-extern std::thread g_udpRetransmitThread;
+// extern std::thread g_udpRetransmitThread;  // 🔄 替换为线程池管理
 
 // 统计变量
 extern std::atomic<uint64_t> g_packetsReceived;

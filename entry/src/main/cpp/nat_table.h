@@ -58,6 +58,9 @@ public:
     // 移除映射
     static void RemoveMapping(const std::string& key);
     
+    // 通过socket移除映射
+    static void RemoveMappingBySocket(int forwardSocket);
+    
     // 移除过期的映射
     static void CleanupExpired(int timeoutSeconds = 300);
     
