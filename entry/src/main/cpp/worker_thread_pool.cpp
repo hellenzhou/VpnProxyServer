@@ -213,51 +213,37 @@ void WorkerThreadPool::responseWorkerThread() {
         // 🐛 修复：保存g_sockFd副本，避免并发修改导致的问题
         int tunnelFd = g_sockFd.load();
 
-        // 🐛 关键修复：检查数据包是否包含IP头
-        // 如果是完整IP包，需要提取payload（去掉IP头和传输层头部）
+        // ✅ 关键修复：直接发送完整IP包，不要提取payload！
+        // packet_forwarder.cpp已经用BuildResponsePacket构建了完整IP包
+        // VPN客户端期望收到完整的IP包（包含IP头和传输层头部）
         const uint8_t* sendData = respTask.data;
         int sendSize = respTask.dataSize;
-        int headerLen = 0;
         
-        // 检查是否是IP包（IPv4以0x4开头）
+        // 🔍 验证：检查是否是完整IP包
         if (respTask.dataSize >= 20 && (respTask.data[0] >> 4) == 4) {
-            // IPv4包：提取payload
-            int ipHeaderLen = (respTask.data[0] & 0x0F) * 4;  // IP头部长度
-            
-            if (respTask.protocol == PROTOCOL_UDP && respTask.dataSize >= ipHeaderLen + 8) {
-                // UDP：IP头+UDP头（8字节）
-                headerLen = ipHeaderLen + 8;
-            } else if (respTask.protocol == PROTOCOL_TCP && respTask.dataSize >= ipHeaderLen + 20) {
-                // TCP：IP头+TCP头（至少20字节）
-                headerLen = ipHeaderLen + 20;
-            } else {
-                // 未知协议或数据包太小，使用原始数据
-                headerLen = 0;
-            }
-            
-            if (headerLen > 0 && respTask.dataSize > headerLen) {
-                sendData = respTask.data + headerLen;
-                sendSize = respTask.dataSize - headerLen;
-                WORKER_LOGI("🔧 提取%s payload: %{public}d字节 (去掉%{public}d字节IP/传输层头部)", 
-                           respTask.protocol == PROTOCOL_UDP ? "UDP" : "TCP",
-                           sendSize, headerLen);
-            } else {
-                WORKER_LOGE("⚠️ 无法提取payload（数据包太小或格式错误），发送原始数据");
-            }
+            WORKER_LOGI("✅ 准备发送完整IP包: %{public}d字节 (协议=%{public}s)", 
+                       sendSize,
+                       respTask.protocol == PROTOCOL_UDP ? "UDP" : "TCP");
+        } else {
+            WORKER_LOGE("⚠️ 警告：响应数据不是有效的IP包（可能导致客户端解析失败）");
         }
 
-        // 发送响应给客户端
+        // 发送完整IP包给客户端
         if (tunnelFd >= 0 && g_running.load()) {
+            // 🔍 详细诊断日志
+            char clientIP[INET_ADDRSTRLEN];
+            inet_ntop(AF_INET, &respTask.clientAddr.sin_addr, clientIP, sizeof(clientIP));
+            WORKER_LOGI("🔍 [响应发送] 准备发送 %{public}d字节到 %{public}s:%{public}d (tunnelFd=%{public}d)", 
+                       sendSize, clientIP, ntohs(respTask.clientAddr.sin_port), tunnelFd);
+            
             ssize_t sent = sendto(tunnelFd, sendData, sendSize, 0,
                                  (struct sockaddr*)&respTask.clientAddr,
                                  sizeof(respTask.clientAddr));
 
             if (sent > 0) {
                 responseTasksProcessed_.fetch_add(1);
-                WORKER_LOGI("✅ Response sent successfully: %{public}zd bytes to %{public}s:%{public}d", 
-                           sent, 
-                           inet_ntoa(respTask.clientAddr.sin_addr),
-                           ntohs(respTask.clientAddr.sin_port));
+                WORKER_LOGI("✅✅✅ Response sent successfully: %{public}zd bytes to %{public}s:%{public}d", 
+                           sent, clientIP, ntohs(respTask.clientAddr.sin_port));
 
                 // 计算延迟
                 auto now = std::chrono::steady_clock::now();

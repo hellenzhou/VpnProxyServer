@@ -345,8 +345,23 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
             
             if (sent < 0) {
                 retryCount++;
-                LOG_INFO("⚠️ UDP发送失败，重试 %d/%d: errno=%d (%s)", 
-                    retryCount, maxRetries, errno, strerror(errno));
+                int savedErrno = errno;
+                LOG_ERROR("❌ UDP sendto()失败，重试 %d/%d", retryCount, maxRetries);
+                LOG_ERROR("   Errno: %d (%s)", savedErrno, strerror(savedErrno));
+                LOG_ERROR("   Socket: %d, Payload: %d字节, Target: %s:%d", 
+                         sockFd, payloadSize, actualTargetIP.c_str(), packetInfo.targetPort);
+                
+                // 🔧 详细错误分析
+                if (savedErrno == ENETUNREACH) {
+                    LOG_ERROR("   ⚠️ ENETUNREACH: 网络不可达！可能原因：");
+                    LOG_ERROR("      1. 设备没有网络连接");
+                    LOG_ERROR("      2. 没有到8.8.8.8的路由");
+                    LOG_ERROR("      3. VPN未调用protect()保护socket");
+                } else if (savedErrno == EACCES) {
+                    LOG_ERROR("   ⚠️ EACCES: 权限被拒绝（可能需要网络权限或protect socket）");
+                } else if (savedErrno == EPERM) {
+                    LOG_ERROR("   ⚠️ EPERM: 操作不被允许（需要protect socket避免路由循环）");
+                }
                 
                 if (retryCount < maxRetries) {
                     std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -355,7 +370,7 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
                     int error = 0;
                     socklen_t len = sizeof(error);
                     if (getsockopt(sockFd, SOL_SOCKET, SO_ERROR, &error, &len) == 0 && error != 0) {
-                        LOG_ERROR("Socket状态错误，停止重试: %s", strerror(error));
+                        LOG_ERROR("Socket状态错误，停止重试: errno=%d (%s)", error, strerror(error));
                         break;
                     }
                 }
@@ -467,7 +482,8 @@ static void HandleUdpResponseSimple(int sockFd, sockaddr_in originalPeer, const 
     
     int ret = setsockopt(sockFd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
     if (ret < 0) {
-        LOG_ERROR("设置socket超时失败: %s", strerror(errno));
+        LOG_ERROR("❌ setsockopt(SO_RCVTIMEO)失败: errno=%d (%s)", errno, strerror(errno));
+        // 🔧 继续执行，超时失败不影响基本功能（只是会永久阻塞）
     } else {
         LOG_DEBUG("✅ socket超时设置成功: %ldms", timeout.tv_usec / 1000);
     }
@@ -530,7 +546,26 @@ static void HandleUdpResponseSimple(int sockFd, sockaddr_in originalPeer, const 
                 }
                 continue;
             } else {
-                LOG_ERROR("UDP响应接收失败: socket=%d, errno=%d (%s)", sockFd, errno, strerror(errno));
+                // 🔴 关键错误日志：详细显示errno（不被日志系统隐藏）
+                int savedErrno = errno;
+                LOG_ERROR("❌❌❌ UDP recvfrom()失败 ❌❌❌");
+                LOG_ERROR("   Socket FD: %d", sockFd);
+                LOG_ERROR("   Errno: %d", savedErrno);
+                LOG_ERROR("   错误描述: %s", strerror(savedErrno));
+                LOG_ERROR("   目标地址: %s:%d", packetInfo.targetIP.c_str(), packetInfo.targetPort);
+                
+                // 🔧 特殊错误处理
+                if (savedErrno == EBADF) {
+                    LOG_ERROR("   ⚠️ EBADF: Socket已关闭或无效");
+                } else if (savedErrno == ENOTCONN) {
+                    LOG_ERROR("   ⚠️ ENOTCONN: Socket未连接（UDP不需要连接，这不应该发生）");
+                } else if (savedErrno == ENETUNREACH) {
+                    LOG_ERROR("   ⚠️ ENETUNREACH: 网络不可达（可能是路由问题或网络断开）");
+                } else if (savedErrno == EHOSTUNREACH) {
+                    LOG_ERROR("   ⚠️ EHOSTUNREACH: 主机不可达");
+                } else if (savedErrno == ECONNREFUSED) {
+                    LOG_ERROR("   ⚠️ ECONNREFUSED: 连接被拒绝（端口关闭）");
+                }
                 break;
             }
         }
@@ -548,8 +583,9 @@ static void HandleUdpResponseSimple(int sockFd, sockaddr_in originalPeer, const 
             continue;
         }
         
-        LOG_DEBUG("✅ 收到UDP响应: socket=%d, %zd字节, 来源=%s:%d", 
-            sockFd, received, responseIP, ntohs(responseAddr.sin_port));
+        LOG_INFO("✅✅✅ 收到UDP响应: socket=%d, %zd字节, 来源=%s:%d (目标=%s:%d)", 
+            sockFd, received, responseIP, ntohs(responseAddr.sin_port),
+            packetInfo.targetIP.c_str(), packetInfo.targetPort);
         
         // 🔧 关键修复：构建完整的IP包（UDP响应需要IP/UDP头部！）
         uint8_t ipPacket[4096 + 60];
@@ -636,7 +672,10 @@ static void HandleUdpResponseSimple(int sockFd, sockaddr_in originalPeer, const 
             // UDP丢包是可接受的，客户端会重试DNS查询
             sendSuccess = false;
         } else {
-            LOG_DEBUG("✅ UDP响应已提交到队列: %d字节 (完整IP包)", packetLen);
+            LOG_INFO("✅✅✅ UDP响应已提交到队列: %d字节 (完整IP包) -> 客户端 %s:%d", 
+                    packetLen, 
+                    inet_ntoa(originalPeer.sin_addr),
+                    ntohs(originalPeer.sin_port));
             sendSuccess = true;
         }
 
