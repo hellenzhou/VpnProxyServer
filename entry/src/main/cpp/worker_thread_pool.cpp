@@ -211,33 +211,38 @@ void WorkerThreadPool::responseWorkerThread() {
         }
 
         // 🐛 修复：保存g_sockFd副本，避免并发修改导致的问题
-        int tunnelFd = g_sockFd;
+        int tunnelFd = g_sockFd.load();
 
         // 🐛 关键修复：检查数据包是否包含IP头
-        // 如果第一个字节是0x45（IPv4），说明包含IP头
-        // 需要去掉IP头和UDP头，只发送payload
+        // 如果是完整IP包，需要提取payload（去掉IP头和传输层头部）
         const uint8_t* sendData = respTask.data;
         int sendSize = respTask.dataSize;
+        int headerLen = 0;
         
-        if (respTask.dataSize > 20 && respTask.data[0] == 0x45) {
-            // ❌ BUG修复：这是完整的IP包，但通过UDP socket发送会导致双重封装！
-            // 应该只发送payload，或者改用RAW socket
-            WORKER_LOGE("⚠️ 检测到完整IP包(%{public}d字节)通过UDP socket发送 - 这会导致客户端无法解析！", 
-                       respTask.dataSize);
-            WORKER_LOGE("⚠️ 客户端会收不到响应，导致不停重试！");
+        // 检查是否是IP包（IPv4以0x4开头）
+        if (respTask.dataSize >= 20 && (respTask.data[0] >> 4) == 4) {
+            // IPv4包：提取payload
+            int ipHeaderLen = (respTask.data[0] & 0x0F) * 4;  // IP头部长度
             
-            // 🔧 临时解决：提取payload
-            // IP头长度 = (data[0] & 0x0F) * 4
-            // UDP头长度 = 8
-            int ipHeaderLen = (respTask.data[0] & 0x0F) * 4;
-            int udpHeaderLen = 8;
-            int headerLen = ipHeaderLen + udpHeaderLen;
+            if (respTask.protocol == PROTOCOL_UDP && respTask.dataSize >= ipHeaderLen + 8) {
+                // UDP：IP头+UDP头（8字节）
+                headerLen = ipHeaderLen + 8;
+            } else if (respTask.protocol == PROTOCOL_TCP && respTask.dataSize >= ipHeaderLen + 20) {
+                // TCP：IP头+TCP头（至少20字节）
+                headerLen = ipHeaderLen + 20;
+            } else {
+                // 未知协议或数据包太小，使用原始数据
+                headerLen = 0;
+            }
             
-            if (headerLen < respTask.dataSize) {
+            if (headerLen > 0 && respTask.dataSize > headerLen) {
                 sendData = respTask.data + headerLen;
                 sendSize = respTask.dataSize - headerLen;
-                WORKER_LOGI("🔧 提取payload: %{public}d字节 (去掉%{public}d字节的头部)", 
+                WORKER_LOGI("🔧 提取%s payload: %{public}d字节 (去掉%{public}d字节IP/传输层头部)", 
+                           respTask.protocol == PROTOCOL_UDP ? "UDP" : "TCP",
                            sendSize, headerLen);
+            } else {
+                WORKER_LOGE("⚠️ 无法提取payload（数据包太小或格式错误），发送原始数据");
             }
         }
 
@@ -321,9 +326,10 @@ int ResponseBatcher::flush() {
     }
     
     int sent = 0;
+    int sockFd = g_sockFd.load();  // 🔧 使用atomic的load()方法
     for (const auto& task : toSend) {
-        if (g_sockFd >= 0) {
-            ssize_t n = sendto(g_sockFd, task.data, task.dataSize, 0,
+        if (sockFd >= 0) {
+            ssize_t n = sendto(sockFd, task.data, task.dataSize, 0,
                               (struct sockaddr*)&task.clientAddr,
                               sizeof(task.clientAddr));
             if (n > 0) {

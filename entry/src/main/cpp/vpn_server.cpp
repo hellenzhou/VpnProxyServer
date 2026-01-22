@@ -46,8 +46,7 @@ constexpr int BUFFER_SIZE = 2048;
 
 // 全局变量定义
 std::atomic<bool> g_running{false};
-int g_sockFd = -1;
-std::mutex g_sockFdMutex;  // 🔧 保护 g_sockFd 的互斥锁
+std::atomic<int> g_sockFd{-1};  // 🔧 使用atomic确保线程安全
 std::thread g_worker;
 std::thread g_udpRetransmitThread;
 
@@ -1032,20 +1031,23 @@ std::string IdentifyPacketType(const uint8_t* data, size_t len)
 void WorkerLoop()
 {
   VPN_SERVER_LOGI("🔄 WorkerLoop started - waiting for client data...");
-  VPN_SERVER_LOGI("📡 Socket fd: %{public}d, g_running: %{public}d", g_sockFd, g_running.load() ? 1 : 0);
+  VPN_SERVER_LOGI("📡 Socket fd: %{public}d, g_running: %{public}d", g_sockFd.load(), g_running.load() ? 1 : 0);
   
   uint8_t buf[BUFFER_SIZE];
   while (g_running.load()) {
+    // 🔧 获取当前socket fd（atomic变量需要load）
+    int currentSockFd = g_sockFd.load();
+    
     // 使用select检查socket是否有数据可读，避免无限期阻塞
     fd_set readfds;
     FD_ZERO(&readfds);
-    FD_SET(g_sockFd, &readfds);
+    FD_SET(currentSockFd, &readfds);
     
     struct timeval timeout;
     timeout.tv_sec = 0;
     timeout.tv_usec = 100000;  // 100ms超时，快速响应停止信号
     
-    int selectResult = select(g_sockFd + 1, &readfds, nullptr, nullptr, &timeout);
+    int selectResult = select(currentSockFd + 1, &readfds, nullptr, nullptr, &timeout);
     
     if (selectResult < 0) {
       if (!g_running.load()) {
@@ -1077,7 +1079,7 @@ void WorkerLoop()
       break;
     }
     
-    int n = recvfrom(g_sockFd, buf, sizeof(buf), 0, reinterpret_cast<sockaddr *>(&peer), &peerLen);
+    int n = recvfrom(currentSockFd, buf, sizeof(buf), 0, reinterpret_cast<sockaddr *>(&peer), &peerLen);
 
     if (n < 0) {
       // 检查是否是因为服务器正在停止
@@ -1122,8 +1124,8 @@ void WorkerLoop()
     static uint32_t packetCount = 0;
     packetCount++;
     if (packetCount % 100 == 0) {
-        VPN_SERVER_LOGI("📊 处理统计: %{public}u个数据包 (%{public}llu字节发送, %{public}llu字节接收)",
-                        packetCount, g_bytesSent.load(), g_bytesReceived.load());
+        VPN_SERVER_LOGI("📊 处理统计: %{public}u个数据包 (%{public}lu字节发送, %{public}lu字节接收)",
+                        packetCount, (unsigned long)g_bytesSent.load(), (unsigned long)g_bytesReceived.load());
     }
     
     // 检查是否是心跳包
@@ -1136,7 +1138,7 @@ void WorkerLoop()
       // 发送pong响应
       const char* pongMsg = "pong";
       int pongLen = strlen(pongMsg);
-      int s = sendto(g_sockFd, pongMsg, pongLen, 0, reinterpret_cast<sockaddr *>(&peer), peerLen);
+      int s = sendto(currentSockFd, pongMsg, pongLen, 0, reinterpret_cast<sockaddr *>(&peer), peerLen);
       if (s >= 0) {
         VPN_SERVER_LOGI("Heartbeat response sent to [%{public}s:%{public}d]: pong", peerAddr.c_str(), peerPort);
         g_packetsSent.fetch_add(1);
@@ -1225,13 +1227,10 @@ napi_value StartServer(napi_env env, napi_callback_info info)
     VPN_SERVER_LOGI("⚠️ Server already running, stopping old instance...");
     g_running.store(false);
     
-    // 🔧 修复：使用锁保护 g_sockFd 的修改
-    {
-      std::lock_guard<std::mutex> lock(g_sockFdMutex);
-      if (g_sockFd >= 0) {
-        close(g_sockFd);
-        g_sockFd = -1;
-      }
+    // 🔧 atomic 变量不需要锁保护
+    int sockFd = g_sockFd.exchange(-1);  // 原子交换
+    if (sockFd >= 0) {
+      close(sockFd);
     }
     
     // 使用detach()而不是join()，避免阻塞UI线程
@@ -1332,11 +1331,8 @@ napi_value StartServer(napi_env env, napi_callback_info info)
   }
   VPN_SERVER_LOGI("✅ Socket set to non-blocking mode");
 
-  // 🔧 修复：使用锁保护 g_sockFd 的修改
-  {
-    std::lock_guard<std::mutex> lock(g_sockFdMutex);
-    g_sockFd = fd;
-  }
+  // 🔧 atomic 变量不需要锁保护
+  g_sockFd.store(fd);
   
   g_running.store(true);
   g_worker = std::thread(WorkerLoop);
@@ -1430,7 +1426,8 @@ napi_value StopServer(napi_env env, napi_callback_info info)
   VPN_SERVER_LOGI("✅ NAT table cleared");
 
   // 🐛 修复：发送服务器停止广播，通知VPN客户端服务器已停止
-  if (g_sockFd >= 0) {
+  int stopSockFd = g_sockFd.load();
+  if (stopSockFd >= 0) {
     // 发送特殊的停止消息，通知客户端服务器已停止
     const char* stopMsg = "SERVER_STOPPED";
     sockaddr_in broadcastAddr {};
@@ -1440,25 +1437,22 @@ napi_value StopServer(napi_env env, napi_callback_info info)
 
     // 设置socket为广播模式
     int broadcastEnable = 1;
-    setsockopt(g_sockFd, SOL_SOCKET, SO_BROADCAST, &broadcastEnable, sizeof(broadcastEnable));
+    setsockopt(stopSockFd, SOL_SOCKET, SO_BROADCAST, &broadcastEnable, sizeof(broadcastEnable));
 
     // 发送广播消息
-    ssize_t sent = sendto(g_sockFd, stopMsg, strlen(stopMsg), 0,
+    ssize_t sent = sendto(stopSockFd, stopMsg, strlen(stopMsg), 0,
                          (struct sockaddr*)&broadcastAddr, sizeof(broadcastAddr));
     if (sent > 0) {
       VPN_SERVER_LOGI("ZBQ [STOP] Server stopping broadcast sent to clients");
     }
   }
 
-  // 🔧 修复：使用锁保护 g_sockFd 的修改，防止竞态条件
+  // 🔧 atomic 变量不需要锁保护
   // 关闭socket，这会中断recvfrom/select调用
-  {
-    std::lock_guard<std::mutex> lock(g_sockFdMutex);
-    if (g_sockFd >= 0) {
-      close(g_sockFd);
-      g_sockFd = -1;
-      VPN_SERVER_LOGI("ZBQ [STOP] Socket closed");
-    }
+  int sockFd = g_sockFd.exchange(-1);  // 原子交换
+  if (sockFd >= 0) {
+    close(sockFd);
+    VPN_SERVER_LOGI("ZBQ [STOP] Socket closed");
   }
   
   // 🔧 修复：正确等待线程退出，避免资源泄漏
@@ -1638,7 +1632,7 @@ napi_value SendTestData(napi_env env, napi_callback_info info)
   }
 
   // 检查服务器是否运行
-  if (!g_running.load() || g_sockFd < 0) {
+  if (!g_running.load() || g_sockFd.load() < 0) {
     VPN_SERVER_LOGE("SendTestData: Server is not running");
     napi_value ret;
     napi_create_int32(env, -2, &ret);
@@ -1701,7 +1695,7 @@ napi_value SendTestData(napi_env env, napi_callback_info info)
     return ret;
   }
 
-  int sent = sendto(g_sockFd, testMessage.c_str(), testMessage.length(), 0,
+  int sent = sendto(g_sockFd.load(), testMessage.c_str(), testMessage.length(), 0,
                    reinterpret_cast<sockaddr*>(&clientAddr), sizeof(clientAddr));
   
   if (sent > 0) {
@@ -1743,7 +1737,7 @@ napi_value TestDNSQuery(napi_env env, napi_callback_info info)
   VPN_SERVER_LOGI("🧪🧪🧪 TestDNSQuery - Starting DNS test for www.baidu.com");
   
   // 检查服务器是否运行
-  if (!g_running || g_sockFd < 0) {
+  if (!g_running.load() || g_sockFd.load() < 0) {
     VPN_SERVER_LOGE("❌ Server not running, cannot test DNS");
     napi_value result;
     napi_create_string_utf8(env, "❌ Server not running\nPlease start server first", NAPI_AUTO_LENGTH, &result);

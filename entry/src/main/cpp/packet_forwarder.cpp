@@ -104,12 +104,14 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
     
     LOG_DEBUG("✅ [步骤1完成] 提取payload: %d字节", payloadSize);
     
-    // 🔧 3. Socket复用：检查是否已有可用socket
+    // 🔧 3. 禁用UDP socket复用，避免NAT映射冲突导致响应发送给错误的客户端
+    // TCP仍然可以复用（因为有独立的连接）
     std::string socketKey = packetInfo.targetIP + ":" + std::to_string(packetInfo.targetPort);
     int sockFd = -1;
     bool isNewSocket = true;  // 🔧 默认是新socket
     
-    {
+    // 🔧 仅对TCP协议启用socket复用
+    if (packetInfo.protocol == PROTOCOL_TCP) {
         std::lock_guard<std::mutex> lock(g_socketCacheMutex);
         auto it = g_socketCache.find(socketKey);
         if (it != g_socketCache.end()) {
@@ -118,7 +120,7 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
             int error = 0;
             socklen_t len = sizeof(error);
             if (getsockopt(sockFd, SOL_SOCKET, SO_ERROR, &error, &len) == 0 && error == 0) {
-                LOG_DEBUG("♻️ 复用已有socket: fd=%d, key=%s", sockFd, socketKey.c_str());
+                LOG_DEBUG("♻️ 复用TCP socket: fd=%d, key=%s", sockFd, socketKey.c_str());
                 isNewSocket = false;  // 🔧 标记为复用socket
             } else {
                 LOG_INFO("⚠️ 缓存的socket无效，将创建新socket");
@@ -127,6 +129,8 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
                 sockFd = -1;
             }
         }
+    } else {
+        LOG_DEBUG("🔧 UDP协议不复用socket，避免NAT映射冲突");
     }
     
     // 🔍 [流程3] 创建或复用socket
@@ -444,7 +448,7 @@ static void HandleUdpResponseSimple(int sockFd, sockaddr_in originalPeer, const 
         sockFd, packetInfo.targetIP.c_str(), packetInfo.targetPort);
     
     // 🐛 修复：保存g_sockFd副本，避免服务器停止时使用无效socket
-    int tunnelFd = g_sockFd;
+    int tunnelFd = g_sockFd.load();
     if (tunnelFd < 0) {
         LOG_ERROR("TUN socket无效，退出响应线程");
         close(sockFd);
@@ -480,7 +484,7 @@ static void HandleUdpResponseSimple(int sockFd, sockaddr_in originalPeer, const 
     LOG_DEBUG("🔄 开始持续监听UDP响应... socket=%d, 超时限制=%d", sockFd, maxTimeouts);
     while (consecutiveTimeouts < maxTimeouts) {
         // 🐛 修复：快速检查服务器是否正在停止
-        if (!g_running.load() || tunnelFd != g_sockFd) {
+        if (!g_running.load() || tunnelFd != g_sockFd.load()) {
             LOG_INFO("⚠️ 服务器正在停止，退出响应线程 socket=%d", sockFd);
             break;
         }
@@ -662,7 +666,7 @@ static void HandleTcpResponseSimple(int sockFd, sockaddr_in originalPeer, const 
     LOG_DEBUG("📥 TCP响应线程启动: socket=%d, 目标=%s:%d", sockFd, packetInfo.targetIP.c_str(), packetInfo.targetPort);
     
     // 🐛 修复：保存g_sockFd副本，避免服务器停止时使用无效socket
-    int tunnelFd = g_sockFd;
+    int tunnelFd = g_sockFd.load();
     if (tunnelFd < 0) {
         LOG_ERROR("TUN socket无效，退出响应线程");
         close(sockFd);
@@ -693,7 +697,7 @@ static void HandleTcpResponseSimple(int sockFd, sockaddr_in originalPeer, const 
     LOG_DEBUG("🔄 开始TCP数据转发... socket=%d", sockFd);
     while (true) {
         // 🐛 修复：快速检查服务器是否正在停止
-        if (!g_running.load() || tunnelFd != g_sockFd) {
+        if (!g_running.load() || tunnelFd != g_sockFd.load()) {
             LOG_INFO("⚠️ 服务器正在停止，退出TCP响应线程 socket=%d", sockFd);
             break;
         }
