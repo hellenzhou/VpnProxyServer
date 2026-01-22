@@ -24,8 +24,6 @@
 #include <map>
 #include <chrono>  // 仅用于 sleep_for
 #include <mutex>
-#include <algorithm>  // 用于 std::transform
-#include <cctype>     // 用于 std::tolower
 
 #define MAKE_FILE_NAME (strrchr(__FILE__, '/') ? (strrchr(__FILE__, '/') + 1) : __FILE__)
 
@@ -119,108 +117,56 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
     
     // 🔧 检查socket缓存
     if (packetInfo.protocol == PROTOCOL_TCP) {
-        if (isHttpKeepAlive) {
-            // 🔧 HTTP Keep-Alive: 从HTTP连接池中查找
-            CleanupExpiredHttpConnections();  // 先清理过期连接
+        // 🔧 TCP连接: 从socket缓存中查找
+        std::lock_guard<std::mutex> lock(g_socketCacheMutex);
+        auto it = g_socketCache.find(socketKey);
+        if (it != g_socketCache.end()) {
+            sockFd = it->second;
+            // 🔧 BUG修复：检查socket是否已经连接
+            // TCP socket一旦connect，就不能再connect到其他地址
+            struct sockaddr_in peerAddr{};
+            socklen_t peerLen = sizeof(peerAddr);
+            int isConnected = (getpeername(sockFd, (struct sockaddr*)&peerAddr, &peerLen) == 0);
             
-            std::lock_guard<std::mutex> lock(g_httpConnectionPoolMutex);
-            auto it = g_httpConnectionPool.find(socketKey);
-            if (it != g_httpConnectionPool.end()) {
-                HttpConnectionInfo& conn = it->second;
-                sockFd = conn.socketFd;
+            if (isConnected) {
+                // Socket已经连接，检查是否连接到同一个目标
+                char connectedIP[INET_ADDRSTRLEN];
+                inet_ntop(AF_INET, &peerAddr.sin_addr, connectedIP, sizeof(connectedIP));
+                int connectedPort = ntohs(peerAddr.sin_port);
                 
-                // 检查socket是否仍然有效
-                int error = 0;
-                socklen_t len = sizeof(error);
-                if (getsockopt(sockFd, SOL_SOCKET, SO_ERROR, &error, &len) == 0 && error == 0) {
-                    // 检查是否已连接到目标
-                    struct sockaddr_in peerAddr{};
-                    socklen_t peerLen = sizeof(peerAddr);
-                    int isConnected = (getpeername(sockFd, (struct sockaddr*)&peerAddr, &peerLen) == 0);
-                    
-                    if (isConnected) {
-                        char connectedIP[INET_ADDRSTRLEN];
-                        inet_ntop(AF_INET, &peerAddr.sin_addr, connectedIP, sizeof(connectedIP));
-                        int connectedPort = ntohs(peerAddr.sin_port);
-                        
-                        if (connectedIP == packetInfo.targetIP && connectedPort == packetInfo.targetPort) {
-                            // 复用HTTP Keep-Alive连接
-                            conn.lastActivity = time(nullptr);
-                            conn.requestCount++;
-                            LOG_DEBUG("♻️ 复用HTTP Keep-Alive连接: fd=%d, key=%s, 请求数=%d", 
-                                     sockFd, socketKey.c_str(), conn.requestCount);
-                            isNewSocket = false;
-                        } else {
-                            LOG_INFO("⚠️ HTTP连接已连接到不同目标，将创建新连接");
-                            close(sockFd);
-                            g_httpConnectionPool.erase(it);
-                            sockFd = -1;
-                        }
-                    } else {
-                        LOG_INFO("⚠️ HTTP连接未连接，将创建新连接");
-                        close(sockFd);
-                        g_httpConnectionPool.erase(it);
-                        sockFd = -1;
-                    }
-                } else {
-                    LOG_INFO("⚠️ HTTP连接socket有错误，将创建新连接");
-                    close(sockFd);
-                    g_httpConnectionPool.erase(it);
-                    sockFd = -1;
-                }
-            }
-        } else {
-            // 🔧 普通TCP连接: 从普通socket缓存中查找
-            std::lock_guard<std::mutex> lock(g_socketCacheMutex);
-            auto it = g_socketCache.find(socketKey);
-            if (it != g_socketCache.end()) {
-                sockFd = it->second;
-                // 🔧 BUG修复：检查socket是否已经连接
-                // TCP socket一旦connect，就不能再connect到其他地址
-                struct sockaddr_in peerAddr{};
-                socklen_t peerLen = sizeof(peerAddr);
-                int isConnected = (getpeername(sockFd, (struct sockaddr*)&peerAddr, &peerLen) == 0);
-                
-                if (isConnected) {
-                    // Socket已经连接，检查是否连接到同一个目标
-                    char connectedIP[INET_ADDRSTRLEN];
-                    inet_ntop(AF_INET, &peerAddr.sin_addr, connectedIP, sizeof(connectedIP));
-                    int connectedPort = ntohs(peerAddr.sin_port);
-                    
-                    if (connectedIP == packetInfo.targetIP && connectedPort == packetInfo.targetPort) {
-                        // 已连接到同一目标，可以复用
-                        int error = 0;
-                        socklen_t len = sizeof(error);
-                        if (getsockopt(sockFd, SOL_SOCKET, SO_ERROR, &error, &len) == 0 && error == 0) {
-                            LOG_DEBUG("♻️ 复用已连接的TCP socket: fd=%d, key=%s", sockFd, socketKey.c_str());
-                            isNewSocket = false;
-                        } else {
-                            LOG_INFO("⚠️ 缓存的socket有错误，将创建新socket");
-                            close(sockFd);
-                            g_socketCache.erase(it);
-                            sockFd = -1;
-                        }
-                    } else {
-                        // 已连接到不同目标，不能复用
-                        LOG_INFO("⚠️ 缓存的socket已连接到不同目标 (%s:%d vs %s:%d)，将创建新socket",
-                                connectedIP, connectedPort, packetInfo.targetIP.c_str(), packetInfo.targetPort);
-                        close(sockFd);
-                        g_socketCache.erase(it);
-                        sockFd = -1;
-                    }
-                } else {
-                    // Socket未连接，可以复用
+                if (connectedIP == packetInfo.targetIP && connectedPort == packetInfo.targetPort) {
+                    // 已连接到同一目标，可以复用
                     int error = 0;
                     socklen_t len = sizeof(error);
                     if (getsockopt(sockFd, SOL_SOCKET, SO_ERROR, &error, &len) == 0 && error == 0) {
-                        LOG_DEBUG("♻️ 复用未连接的TCP socket: fd=%d, key=%s", sockFd, socketKey.c_str());
+                        LOG_DEBUG("♻️ 复用已连接的TCP socket: fd=%d, key=%s", sockFd, socketKey.c_str());
                         isNewSocket = false;
                     } else {
-                        LOG_INFO("⚠️ 缓存的socket无效，将创建新socket");
+                        LOG_INFO("⚠️ 缓存的socket有错误，将创建新socket");
                         close(sockFd);
                         g_socketCache.erase(it);
                         sockFd = -1;
                     }
+                } else {
+                    // 已连接到不同目标，不能复用
+                    LOG_INFO("⚠️ 缓存的socket已连接到不同目标 (%s:%d vs %s:%d)，将创建新socket",
+                            connectedIP, connectedPort, packetInfo.targetIP.c_str(), packetInfo.targetPort);
+                    close(sockFd);
+                    g_socketCache.erase(it);
+                    sockFd = -1;
+                }
+            } else {
+                // Socket未连接，可以复用
+                int error = 0;
+                socklen_t len = sizeof(error);
+                if (getsockopt(sockFd, SOL_SOCKET, SO_ERROR, &error, &len) == 0 && error == 0) {
+                    LOG_DEBUG("♻️ 复用未连接的TCP socket: fd=%d, key=%s", sockFd, socketKey.c_str());
+                    isNewSocket = false;
+                } else {
+                    LOG_INFO("⚠️ 缓存的socket无效，将创建新socket");
+                    close(sockFd);
+                    g_socketCache.erase(it);
+                    sockFd = -1;
                 }
             }
         }
@@ -315,55 +261,21 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
         }
         
         // 🔧 修复：检查socket缓存大小，防止文件描述符耗尽
-        if (isHttpKeepAlive) {
-            // HTTP Keep-Alive: 添加到HTTP连接池
-            std::lock_guard<std::mutex> lock(g_httpConnectionPoolMutex);
-            
-            // 🔧 检查HTTP连接池大小限制
-            if (g_httpConnectionPool.size() >= MAX_HTTP_CONNECTION_POOL) {
-                LOG_ERROR("⚠️ HTTP连接池已满 (%zu个)，清理最旧的连接...", g_httpConnectionPool.size());
-                // 找到最旧的连接（lastActivity最小的）
-                auto oldestIt = g_httpConnectionPool.begin();
-                time_t oldestTime = oldestIt->second.lastActivity;
-                for (auto it = g_httpConnectionPool.begin(); it != g_httpConnectionPool.end(); ++it) {
-                    if (it->second.lastActivity < oldestTime) {
-                        oldestTime = it->second.lastActivity;
-                        oldestIt = it;
-                    }
-                }
-                close(oldestIt->second.socketFd);
-                g_httpConnectionPool.erase(oldestIt);
-                LOG_ERROR("✅ 已清理1个HTTP连接，当前连接池: %zu个", g_httpConnectionPool.size());
+        {
+            std::lock_guard<std::mutex> lock(g_socketCacheMutex);
+            const size_t MAX_SOCKET_CACHE = 8;  // 最大socket缓存数量（限制为8个）
+            if (g_socketCache.size() >= MAX_SOCKET_CACHE) {
+                LOG_ERROR("⚠️ Socket缓存已满 (%zu个)，清理最旧的socket...", g_socketCache.size());
+                // 关闭并删除第一个socket（最旧的）
+                auto it = g_socketCache.begin();
+                close(it->second);
+                g_socketCache.erase(it);
+                LOG_ERROR("✅ 已清理1个socket，当前缓存: %zu个", g_socketCache.size());
             }
-            
-            HttpConnectionInfo connInfo;
-            connInfo.socketFd = sockFd;
-            connInfo.targetIP = packetInfo.targetIP;
-            connInfo.targetPort = packetInfo.targetPort;
-            connInfo.lastActivity = time(nullptr);
-            connInfo.requestCount = 1;
-            connInfo.keepAlive = true;
-            g_httpConnectionPool[socketKey] = connInfo;
-            LOG_DEBUG("📊 HTTP连接池大小: %zu/%zu", g_httpConnectionPool.size(), MAX_HTTP_CONNECTION_POOL);
-            LOG_INFO("✅ [步骤2完成] 创建HTTP Keep-Alive socket成功: fd=%d, key=%s", sockFd, socketKey.c_str());
-        } else {
-            // 普通TCP/UDP: 添加到普通socket缓存
-            {
-                std::lock_guard<std::mutex> lock(g_socketCacheMutex);
-                const size_t MAX_SOCKET_CACHE = 8;  // 最大socket缓存数量（限制为8个）
-                if (g_socketCache.size() >= MAX_SOCKET_CACHE) {
-                    LOG_ERROR("⚠️ Socket缓存已满 (%zu个)，清理最旧的socket...", g_socketCache.size());
-                    // 关闭并删除第一个socket（最旧的）
-                    auto it = g_socketCache.begin();
-                    close(it->second);
-                    g_socketCache.erase(it);
-                    LOG_ERROR("✅ 已清理1个socket，当前缓存: %zu个", g_socketCache.size());
-                }
-                g_socketCache[socketKey] = sockFd;
-                LOG_DEBUG("📊 Socket缓存大小: %zu/%zu", g_socketCache.size(), MAX_SOCKET_CACHE);
-            }
-            LOG_INFO("✅ [步骤2完成] 创建socket成功: fd=%d, key=%s", sockFd, socketKey.c_str());
+            g_socketCache[socketKey] = sockFd;
+            LOG_DEBUG("📊 Socket缓存大小: %zu/%zu", g_socketCache.size(), MAX_SOCKET_CACHE);
         }
+        LOG_INFO("✅ [步骤2完成] 创建socket成功: fd=%d, key=%s", sockFd, socketKey.c_str());
     } else {
         LOG_DEBUG("♻️ [步骤2跳过] 复用已有socket: fd=%d", sockFd);
     }
@@ -471,10 +383,7 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
             // 🔧 BUG修复：如果socket已关闭或连接断开，从缓存中移除
             if (savedErrno == EPIPE || savedErrno == ECONNRESET || savedErrno == ENOTCONN) {
                 LOG_ERROR("⚠️ Socket连接已断开，清理缓存");
-                if (isHttpKeepAlive) {
-                    std::lock_guard<std::mutex> lock(g_httpConnectionPoolMutex);
-                    g_httpConnectionPool.erase(socketKey);
-                } else {
+                {
                     std::lock_guard<std::mutex> lock(g_socketCacheMutex);
                     g_socketCache.erase(socketKey);
                 }
@@ -483,13 +392,8 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
             
             NATTable::RemoveMapping(natKey);
             if (isNewSocket) {
-                if (isHttpKeepAlive) {
-                    std::lock_guard<std::mutex> lock(g_httpConnectionPoolMutex);
-                    g_httpConnectionPool.erase(socketKey);
-                } else {
-                    std::lock_guard<std::mutex> lock(g_socketCacheMutex);
-                    g_socketCache.erase(socketKey);
-                }
+                std::lock_guard<std::mutex> lock(g_socketCacheMutex);
+                g_socketCache.erase(socketKey);
                 close(sockFd);
             }
             return -1;
@@ -497,15 +401,6 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
         
         LOG_DEBUG("✅ TCP发送成功: socket=%d, %zd字节 -> %s:%d", 
             sockFd, sent, actualTargetIP.c_str(), packetInfo.targetPort);
-        
-        // 🔧 HTTP Keep-Alive: 更新连接活动时间
-        if (isHttpKeepAlive) {
-            std::lock_guard<std::mutex> lock(g_httpConnectionPoolMutex);
-            auto it = g_httpConnectionPool.find(socketKey);
-            if (it != g_httpConnectionPool.end()) {
-                it->second.lastActivity = time(nullptr);
-            }
-        }
         
         // 🔧 TCP响应：启动专用响应线程（TCP连接需要持久监听）
         if (isNewSocket) {
@@ -1247,20 +1142,6 @@ void PacketForwarder::CleanupAll() {
         LOG_INFO("✅ Socket缓存已清空 (关闭了%d个socket)", socketCount);
     }
     
-    // 清理HTTP连接池
-    int httpConnectionCount = 0;
-    {
-        std::lock_guard<std::mutex> lock(g_httpConnectionPoolMutex);
-        httpConnectionCount = g_httpConnectionPool.size();
-        LOG_INFO("📊 [统计] HTTP连接池数量: %d", httpConnectionCount);
-        for (auto& pair : g_httpConnectionPool) {
-            LOG_DEBUG("   🔒 关闭HTTP连接: fd=%d, key=%s", pair.second.socketFd, pair.first.c_str());
-            close(pair.second.socketFd);
-        }
-        g_httpConnectionPool.clear();
-        LOG_INFO("✅ HTTP连接池已清空 (关闭了%d个连接)", httpConnectionCount);
-    }
-    
     // 清理线程映射
     int threadCount = 0;
     {
@@ -1281,22 +1162,8 @@ void PacketForwarder::CleanupAll() {
         LOG_INFO("✅ DNS查询缓存已清空 (清理了%d条DNS记录)", dnsCount);
     }
     
-    // 清理HTTP连接池
-    int httpConnectionCount = 0;
-    {
-        std::lock_guard<std::mutex> lock(g_httpConnectionPoolMutex);
-        httpConnectionCount = g_httpConnectionPool.size();
-        LOG_INFO("📊 [统计] HTTP连接池数量: %d", httpConnectionCount);
-        for (auto& pair : g_httpConnectionPool) {
-            LOG_DEBUG("   🔒 关闭HTTP连接: fd=%d, key=%s", pair.second.socketFd, pair.first.c_str());
-            close(pair.second.socketFd);
-        }
-        g_httpConnectionPool.clear();
-        LOG_INFO("✅ HTTP连接池已清空 (关闭了%d个连接)", httpConnectionCount);
-    }
-    
-    LOG_INFO("✅ [资源清理完成] Socket:%d, HTTP连接:%d, 线程:%d, DNS:%d", 
-        socketCount, httpConnectionCount, threadCount, dnsCount);
+    LOG_INFO("✅ [资源清理完成] Socket:%d, 线程:%d, DNS:%d", 
+        socketCount, threadCount, dnsCount);
     LOG_INFO("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 }
 
@@ -1326,145 +1193,5 @@ void PacketForwarder::LogStatistics() {
     }
     
     LOG_INFO("   NAT映射: %d个", NATTable::GetMappingCount());
-    
-    {
-        std::lock_guard<std::mutex> lock(g_httpConnectionPoolMutex);
-        LOG_INFO("   HTTP连接池: %zu个", g_httpConnectionPool.size());
-    }
-    
     LOG_INFO("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-}
-
-// ========== HTTP Keep-Alive 辅助函数 ==========
-
-// 检测是否为HTTP协议（通过端口或数据包内容）
-static bool IsHttpProtocol(const PacketInfo& packetInfo, const uint8_t* payload, int payloadSize) {
-    // 通过端口检测（HTTP: 80, HTTPS: 443）
-    if (packetInfo.targetPort == 80 || packetInfo.targetPort == 443) {
-        return true;
-    }
-    
-    // 通过数据包内容检测（HTTP请求或响应）
-    if (payloadSize >= 5) {
-        // HTTP请求: "GET /", "POST ", "PUT /", "HEAD", "DELETE" 等
-        if (strncmp((const char*)payload, "GET ", 4) == 0 ||
-            strncmp((const char*)payload, "POST", 4) == 0 ||
-            strncmp((const char*)payload, "PUT ", 4) == 0 ||
-            strncmp((const char*)payload, "HEAD", 4) == 0 ||
-            strncmp((const char*)payload, "DELE", 4) == 0 ||
-            strncmp((const char*)payload, "OPTI", 4) == 0 ||
-            strncmp((const char*)payload, "PATC", 4) == 0) {
-            return true;
-        }
-        
-        // HTTP响应: "HTTP/"
-        if (strncmp((const char*)payload, "HTTP/", 5) == 0) {
-            return true;
-        }
-    }
-    
-    return false;
-}
-
-// 检测HTTP请求是否支持Keep-Alive
-static bool IsHttpKeepAliveRequest(const uint8_t* payload, int payloadSize) {
-    if (payloadSize < 10) {
-        return false;
-    }
-    
-    // 将payload转换为字符串（用于搜索）
-    std::string payloadStr((const char*)payload, std::min(payloadSize, 2048));
-    
-    // 转换为小写以便搜索
-    std::transform(payloadStr.begin(), payloadStr.end(), payloadStr.begin(), ::tolower);
-    
-    // 查找 "Connection:" 头
-    size_t connPos = payloadStr.find("connection:");
-    if (connPos == std::string::npos) {
-        // HTTP/1.1默认支持Keep-Alive（除非明确指定Connection: close）
-        // HTTP/1.0默认不支持Keep-Alive（除非明确指定Connection: keep-alive）
-        // 这里假设HTTP/1.1默认支持Keep-Alive
-        if (payloadStr.find("http/1.1") != std::string::npos) {
-            return true;  // HTTP/1.1默认Keep-Alive
-        }
-        return false;  // HTTP/1.0默认不Keep-Alive
-    }
-    
-    // 提取Connection头的值
-    size_t valueStart = connPos + 11;  // "connection:" 的长度
-    size_t valueEnd = payloadStr.find("\r\n", valueStart);
-    if (valueEnd == std::string::npos) {
-        valueEnd = payloadStr.find("\n", valueStart);
-    }
-    if (valueEnd == std::string::npos) {
-        valueEnd = payloadStr.length();
-    }
-    
-    std::string connectionValue = payloadStr.substr(valueStart, valueEnd - valueStart);
-    
-    // 检查是否包含 "keep-alive" 或 "close"
-    if (connectionValue.find("keep-alive") != std::string::npos) {
-        return true;
-    }
-    if (connectionValue.find("close") != std::string::npos) {
-        return false;
-    }
-    
-    // HTTP/1.1默认支持Keep-Alive
-    if (payloadStr.find("http/1.1") != std::string::npos) {
-        return true;
-    }
-    
-    return false;
-}
-
-// 生成HTTP连接池的key（包含源IP和源端口，确保每个客户端有独立连接）
-// 这样同一客户端的多个HTTP请求可以复用同一个连接，但不同客户端使用独立连接
-static std::string GenerateHttpConnectionKey(const PacketInfo& packetInfo) {
-    return packetInfo.sourceIP + ":" + std::to_string(packetInfo.sourcePort) + 
-           "->" + packetInfo.targetIP + ":" + std::to_string(packetInfo.targetPort) + "/HTTP";
-}
-
-// 清理过期的HTTP连接
-static void CleanupExpiredHttpConnections() {
-    std::lock_guard<std::mutex> lock(g_httpConnectionPoolMutex);
-    
-    time_t currentTime = time(nullptr);
-    auto it = g_httpConnectionPool.begin();
-    
-    while (it != g_httpConnectionPool.end()) {
-        const HttpConnectionInfo& conn = it->second;
-        
-        // 检查超时（60秒空闲）
-        if (currentTime - conn.lastActivity > HTTP_KEEP_ALIVE_TIMEOUT) {
-            LOG_DEBUG("🧹 清理超时HTTP连接: %s:%d (空闲%d秒)", 
-                     conn.targetIP.c_str(), conn.targetPort, 
-                     (int)(currentTime - conn.lastActivity));
-            close(conn.socketFd);
-            it = g_httpConnectionPool.erase(it);
-            continue;
-        }
-        
-        // 检查请求数限制（每个连接最多100个请求）
-        if (conn.requestCount >= HTTP_MAX_REQUESTS_PER_CONNECTION) {
-            LOG_DEBUG("🧹 清理达到请求数限制的HTTP连接: %s:%d (%d个请求)", 
-                     conn.targetIP.c_str(), conn.targetPort, conn.requestCount);
-            close(conn.socketFd);
-            it = g_httpConnectionPool.erase(it);
-            continue;
-        }
-        
-        // 检查socket是否仍然有效
-        int error = 0;
-        socklen_t len = sizeof(error);
-        if (getsockopt(conn.socketFd, SOL_SOCKET, SO_ERROR, &error, &len) != 0 || error != 0) {
-            LOG_DEBUG("🧹 清理无效HTTP连接: %s:%d (socket错误)", 
-                     conn.targetIP.c_str(), conn.targetPort);
-            close(conn.socketFd);
-            it = g_httpConnectionPool.erase(it);
-            continue;
-        }
-        
-        ++it;
-    }
 }
