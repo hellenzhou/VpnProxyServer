@@ -7,9 +7,9 @@
 
 #define MAKE_FILE_NAME (strrchr(__FILE__, '/') ? (strrchr(__FILE__, '/') + 1) : __FILE__)
 #define PACKET_BUILDER_LOGI(fmt, ...) \
-  OH_LOG_Print(LOG_APP, LOG_INFO, 0x15b1, "PacketBuilder", "[%{public}s:%{public}d] " fmt, MAKE_FILE_NAME, __LINE__, ##__VA_ARGS__)
+  OH_LOG_Print(LOG_APP, LOG_INFO, 0x15b1, "PacketBuilder", "ZBQ [%{public}s:%{public}d] " fmt, MAKE_FILE_NAME, __LINE__, ##__VA_ARGS__)
 #define PACKET_BUILDER_LOGE(fmt, ...) \
-  OH_LOG_Print(LOG_APP, LOG_ERROR, 0x15b1, "PacketBuilder", "[%{public}s:%{public}d] " fmt, MAKE_FILE_NAME, __LINE__, ##__VA_ARGS__)
+  OH_LOG_Print(LOG_APP, LOG_ERROR, 0x15b1, "PacketBuilder", "ZBQ [%{public}s:%{public}d] " fmt, MAKE_FILE_NAME, __LINE__, ##__VA_ARGS__)
 
 // 从完整IP包中提取payload
 bool PacketBuilder::ExtractPayload(const uint8_t* ipPacket, int packetSize,

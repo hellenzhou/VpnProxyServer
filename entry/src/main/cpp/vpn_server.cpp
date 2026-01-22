@@ -1033,6 +1033,19 @@ void WorkerLoop()
   VPN_SERVER_LOGI("🔄 WorkerLoop started - waiting for client data...");
   VPN_SERVER_LOGI("📡 Socket fd: %{public}d, g_running: %{public}d", g_sockFd.load(), g_running.load() ? 1 : 0);
   
+  // 🔍 详细诊断：显示服务器监听信息
+  sockaddr_in serverAddr {};
+  socklen_t serverAddrLen = sizeof(serverAddr);
+  if (getsockname(g_sockFd.load(), reinterpret_cast<sockaddr*>(&serverAddr), &serverAddrLen) == 0) {
+    char serverIP[INET_ADDRSTRLEN];
+    inet_ntop(AF_INET, &serverAddr.sin_addr, serverIP, sizeof(serverIP));
+    VPN_SERVER_LOGI("🔍🔍🔍 服务器监听详情: IP=%{public}s, Port=%{public}d, Socket=%{public}d", 
+                   serverIP, ntohs(serverAddr.sin_port), g_sockFd.load());
+    VPN_SERVER_LOGI("🔍🔍🔍 VPN客户端应该连接到: 127.0.0.1:8888");
+  } else {
+    VPN_SERVER_LOGE("❌ 无法获取服务器监听地址: %{public}s", strerror(errno));
+  }
+  
   uint8_t buf[BUFFER_SIZE];
   int loopCount = 0;
   while (g_running.load()) {
@@ -1061,6 +1074,30 @@ void WorkerLoop()
     timeout.tv_sec = 0;
     timeout.tv_usec = 100000;  // 100ms超时，快速响应停止信号
     
+    // 🔍 诊断：检查socket是否仍然有效
+    int socketError = 0;
+    socklen_t errorLen = sizeof(socketError);
+    if (getsockopt(currentSockFd, SOL_SOCKET, SO_ERROR, &socketError, &errorLen) == 0) {
+      if (socketError != 0) {
+        VPN_SERVER_LOGE("❌ Socket错误: errno=%{public}d (%{public}s)", socketError, strerror(socketError));
+      }
+    }
+    
+    // 🔍 诊断：在select之前尝试非阻塞recvfrom，检查是否有数据
+    static int preCheckCount = 0;
+    if (++preCheckCount % 1000 == 0) {
+      uint8_t preCheckBuf[1];
+      sockaddr_in preCheckPeer {};
+      socklen_t preCheckPeerLen = sizeof(preCheckPeer);
+      int preCheckRecv = recvfrom(currentSockFd, preCheckBuf, sizeof(preCheckBuf), MSG_DONTWAIT | MSG_PEEK,
+                                 reinterpret_cast<sockaddr*>(&preCheckPeer), &preCheckPeerLen);
+      if (preCheckRecv > 0) {
+        VPN_SERVER_LOGI("🔍🔍🔍 发现数据！recvfrom(MSG_PEEK)返回 %{public}d字节", preCheckRecv);
+      } else if (preCheckRecv < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
+        VPN_SERVER_LOGE("❌ recvfrom(MSG_PEEK)错误: errno=%{public}d (%{public}s)", errno, strerror(errno));
+      }
+    }
+    
     int selectResult = select(currentSockFd + 1, &readfds, nullptr, nullptr, &timeout);
     
     if (selectResult < 0) {
@@ -1084,16 +1121,21 @@ void WorkerLoop()
       // 🔍 每100次超时记录一次，便于诊断
       static int timeoutCount = 0;
       if (++timeoutCount % 100 == 0) {
-        VPN_SERVER_LOGI("🔍 select timeout #%{public}d (等待数据中... socket=%{public}d, 监听0.0.0.0:8888)", 
+        VPN_SERVER_LOGI("🔍 select timeout #%{public}d (等待数据中... socket=%{public}d, 监听127.0.0.1:8888)", 
                        timeoutCount, currentSockFd);
       }
       continue;  // 超时但没有数据，继续循环
     }
     
-    // 🔍 有数据可读
-    if (FD_ISSET(currentSockFd, &readfds)) {
-      VPN_SERVER_LOGI("🔍 select检测到数据可读 (socket=%{public}d)", currentSockFd);
+    // 🔍 有数据可读 - 必须检查FD_ISSET
+    if (!FD_ISSET(currentSockFd, &readfds)) {
+      // select返回>0但当前socket不在readfds中，可能是其他socket有数据
+      VPN_SERVER_LOGE("⚠️ select返回>0但socket不在readfds中，跳过");
+      continue;
     }
+    
+    VPN_SERVER_LOGI("🔍🔍🔍 select检测到数据可读 (socket=%{public}d) - 准备接收", currentSockFd);
+    
     sockaddr_in peer {};
     socklen_t peerLen = sizeof(peer);
     
@@ -1221,6 +1263,28 @@ void WorkerLoop()
       // 🔧 提交转发任务到队列（异步处理）
       char clientIP[INET_ADDRSTRLEN];
       inet_ntop(AF_INET, &peer.sin_addr, clientIP, sizeof(clientIP));
+      
+      // 🔍 统计接收到的数据包类型
+      static std::map<std::string, int> packetStats;
+      std::string packetKey = std::string(ProtocolHandler::GetProtocolName(packetInfo.protocol)) + 
+                             ":" + packetInfo.targetIP + ":" + std::to_string(packetInfo.targetPort);
+      packetStats[packetKey]++;
+      
+      // 每100个包或每10秒记录一次统计
+      static int totalPackets = 0;
+      static auto lastLogTime = std::chrono::steady_clock::now();
+      totalPackets++;
+      auto now = std::chrono::steady_clock::now();
+      auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - lastLogTime).count();
+      
+      if (totalPackets % 100 == 0 || elapsed >= 10) {
+        VPN_SERVER_LOGI("📊 [流量统计] 总计接收: %{public}d个数据包", totalPackets);
+        for (const auto& stat : packetStats) {
+          VPN_SERVER_LOGI("   %{public}s: %{public}d个", stat.first.c_str(), stat.second);
+        }
+        lastLogTime = now;
+      }
+      
       VPN_SERVER_LOGI("🔍 [接收] 客户端地址: %{public}s:%{public}d, 数据包: %{public}s -> %{public}s:%{public}d", 
                      clientIP, ntohs(peer.sin_port),
                      ProtocolHandler::GetProtocolName(packetInfo.protocol).c_str(),
@@ -1240,7 +1304,7 @@ void WorkerLoop()
 napi_value StartServer(napi_env env, napi_callback_info info)
 {
   // 使用系统日志，确保能看到
-  OH_LOG_Print(LOG_APP, LOG_INFO, 0x15b1, "VpnServer", "🚀🚀🚀 StartServer FUNCTION CALLED - VPN SERVER STARTING NOW 🚀🚀🚀");
+  OH_LOG_Print(LOG_APP, LOG_INFO, 0x15b1, "VpnServer", "ZBQ 🚀🚀🚀 StartServer FUNCTION CALLED - VPN SERVER STARTING NOW 🚀🚀🚀");
   VPN_SERVER_LOGI("🚀🚀🚀 StartServer FUNCTION CALLED - VPN SERVER STARTING NOW 🚀🚀🚀");
   
   size_t argc = 1;
@@ -1252,7 +1316,7 @@ napi_value StartServer(napi_env env, napi_callback_info info)
     napi_get_value_int32(env, args[0], &port);
   }
 
-  OH_LOG_Print(LOG_APP, LOG_INFO, 0x15b1, "VpnServer", "📡 StartServer called with port: %{public}d", port);
+  OH_LOG_Print(LOG_APP, LOG_INFO, 0x15b1, "VpnServer", "ZBQ 📡 StartServer called with port: %{public}d", port);
   VPN_SERVER_LOGI("📡 StartServer called with port: %{public}d", port);
 
   if (port <= 0 || port > 65535) {
@@ -1337,10 +1401,10 @@ napi_value StartServer(napi_env env, napi_callback_info info)
 
   sockaddr_in addr {};
   addr.sin_family = AF_INET;
-  addr.sin_addr.s_addr = htonl(INADDR_ANY);  // 🔧 修复：绑定到0.0.0.0，接收所有接口的数据包
+  addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);  // 🔧 改回127.0.0.1，之前这个配置是正常的
   addr.sin_port = htons(static_cast<uint16_t>(port));
 
-  VPN_SERVER_LOGI("🔗 Binding to 0.0.0.0:%{public}d (all interfaces) - 可以接收来自任何网络接口的数据包", port);
+  VPN_SERVER_LOGI("🔗 Binding to 127.0.0.1:%{public}d (loopback) - 接收本地数据包", port);
 
   if (bind(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) < 0) {
     VPN_SERVER_LOGE("❌ Failed to bind socket to port %{public}d: %{public}s", port, strerror(errno));
@@ -1351,6 +1415,18 @@ napi_value StartServer(napi_env env, napi_callback_info info)
   }
 
   VPN_SERVER_LOGI("✅ Socket bound successfully to port %{public}d", port);
+  
+  // 🔍 验证socket绑定状态
+  sockaddr_in boundAddr {};
+  socklen_t boundAddrLen = sizeof(boundAddr);
+  if (getsockname(fd, reinterpret_cast<sockaddr*>(&boundAddr), &boundAddrLen) == 0) {
+    char boundIP[INET_ADDRSTRLEN];
+    inet_ntop(AF_INET, &boundAddr.sin_addr, boundIP, sizeof(boundIP));
+    VPN_SERVER_LOGI("🔍 Socket验证: 实际绑定到 %{public}s:%{public}d (fd=%{public}d)", 
+                   boundIP, ntohs(boundAddr.sin_port), fd);
+  } else {
+    VPN_SERVER_LOGE("❌ 无法验证socket绑定状态: %{public}s", strerror(errno));
+  }
 
   // 设置为非阻塞模式，避免recvfrom无限期阻塞
   int flags = fcntl(fd, F_GETFL, 0);
@@ -1373,8 +1449,59 @@ napi_value StartServer(napi_env env, napi_callback_info info)
   // 🔧 atomic 变量不需要锁保护
   g_sockFd.store(fd);
   
+  // 🔍 立即测试socket是否能接收数据（诊断用）
+  VPN_SERVER_LOGI("🔍 测试socket接收能力...");
+  uint8_t testBuf[1024];
+  sockaddr_in testPeer {};
+  socklen_t testPeerLen = sizeof(testPeer);
+  int testRecv = recvfrom(fd, testBuf, sizeof(testBuf), MSG_DONTWAIT, 
+                         reinterpret_cast<sockaddr*>(&testPeer), &testPeerLen);
+  if (testRecv < 0 && errno == EAGAIN) {
+    VPN_SERVER_LOGI("✅ Socket测试: 非阻塞模式正常 (EAGAIN表示暂无数据，这是正常的)");
+  } else if (testRecv >= 0) {
+    VPN_SERVER_LOGI("⚠️ Socket测试: 意外收到 %{public}d字节数据", testRecv);
+  } else {
+    VPN_SERVER_LOGE("❌ Socket测试失败: errno=%{public}d (%{public}s)", errno, strerror(errno));
+  }
+  
+  // 🔍 检查socket选项
+  int reuseAddr = 0;
+  socklen_t reuseLen = sizeof(reuseAddr);
+  if (getsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuseAddr, &reuseLen) == 0) {
+    VPN_SERVER_LOGI("🔍 Socket选项: SO_REUSEADDR=%{public}d", reuseAddr);
+  }
+  
+  int recvBufSize = 0;
+  socklen_t recvBufLen = sizeof(recvBufSize);
+  if (getsockopt(fd, SOL_SOCKET, SO_RCVBUF, &recvBufSize, &recvBufLen) == 0) {
+    VPN_SERVER_LOGI("🔍 Socket选项: SO_RCVBUF=%{public}d字节", recvBufSize);
+  }
+  
   g_running.store(true);
   g_worker = std::thread(WorkerLoop);
+  
+  // 🔍 等待WorkerLoop启动后，发送一个测试包验证通信
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  std::thread([]() {
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    VPN_SERVER_LOGI("🔍 [自测] 发送测试包到服务器...");
+    int testSock = socket(AF_INET, SOCK_DGRAM, 0);
+    if (testSock >= 0) {
+      sockaddr_in testAddr {};
+      testAddr.sin_family = AF_INET;
+      testAddr.sin_port = htons(8888);
+      inet_pton(AF_INET, "127.0.0.1", &testAddr.sin_addr);
+      const char* testMsg = "test";
+      int sent = sendto(testSock, testMsg, 4, 0, 
+                       reinterpret_cast<sockaddr*>(&testAddr), sizeof(testAddr));
+      if (sent > 0) {
+        VPN_SERVER_LOGI("✅ [自测] 测试包发送成功: %{public}d字节", sent);
+      } else {
+        VPN_SERVER_LOGE("❌ [自测] 测试包发送失败: %{public}s", strerror(errno));
+      }
+      close(testSock);
+    }
+  }).detach();
   
   // 启动UDP重传定时器线程
   g_udpRetransmitThread = std::thread([]() {
@@ -2029,7 +2156,7 @@ napi_value TestDNSQuery(napi_env env, napi_callback_info info)
   // 发送测试包
   char targetIP[INET_ADDRSTRLEN];
   inet_ntop(AF_INET, &testAddr.sin_addr, targetIP, sizeof(targetIP));
-  VPN_SERVER_LOGI("🔍 [TestDNSQuery] 准备发送 %{public}d字节到 %{public}s:%{public}d (服务器监听0.0.0.0:8888)", 
+    VPN_SERVER_LOGI("🔍 [TestDNSQuery] 准备发送 %{public}d字节到 %{public}s:%{public}d (服务器监听127.0.0.1:8888)",
                  totalLen, targetIP, ntohs(testAddr.sin_port));
   
   int sent = sendto(dnsTestSock, ipPacket, totalLen, 0,
@@ -2301,7 +2428,7 @@ napi_value TestDNSQuery(napi_env env, napi_callback_info info)
 napi_value Init(napi_env env, napi_value exports)
 {
   // 模块初始化日志
-  OH_LOG_Print(LOG_APP, LOG_INFO, 0x15b1, "VpnServer", "🎉🎉🎉 NATIVE MODULE INITIALIZED - VPN SERVER MODULE LOADED 🎉🎉🎉");
+  OH_LOG_Print(LOG_APP, LOG_INFO, 0x15b1, "VpnServer", "ZBQ 🎉🎉🎉 NATIVE MODULE INITIALIZED - VPN SERVER MODULE LOADED 🎉🎉🎉");
   VPN_SERVER_LOGI("🎉 Native module initialized successfully");
   
   napi_property_descriptor desc[] = {
