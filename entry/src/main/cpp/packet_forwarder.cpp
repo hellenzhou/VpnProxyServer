@@ -13,7 +13,6 @@
 #include <map>
 #include <string>
 #include <thread>
-#include <mutex>
 #include <sys/time.h>
 
 #define LOG_INFO(fmt, ...) \
@@ -21,45 +20,8 @@
 #define LOG_ERROR(fmt, ...) \
     OH_LOG_Print(LOG_APP, LOG_ERROR, 0x15b1, "VpnServer", "ZHOUB [Forwarder] ❌ " fmt, ##__VA_ARGS__)
 
-// 🔧 Socket缓存
-static std::map<std::string, int> g_socketCache;
-static std::mutex g_socketCacheMutex;
-const size_t MAX_CACHE_SIZE = 32;
-
-// 🎯 获取或创建socket
+// 🎯 获取socket (简化版)
 static int GetSocket(const PacketInfo& packetInfo) {
-    std::string socketKey;
-    
-    // DNS使用特殊key - 包含源端口避免冲突
-    if (packetInfo.protocol == PROTOCOL_UDP && packetInfo.targetPort == 53) {
-        socketKey = "DNS:" + packetInfo.sourceIP + ":" + std::to_string(packetInfo.sourcePort) + 
-                   "->" + packetInfo.targetIP + ":" + std::to_string(packetInfo.targetPort);
-    } else {
-        socketKey = packetInfo.sourceIP + ":" + std::to_string(packetInfo.sourcePort) + 
-                   "->" + packetInfo.targetIP + ":" + std::to_string(packetInfo.targetPort);
-    }
-    
-    std::lock_guard<std::mutex> lock(g_socketCacheMutex);
-    
-    // 检查缓存
-    auto it = g_socketCache.find(socketKey);
-    if (it != g_socketCache.end()) {
-        int sockFd = it->second;
-        
-        // 🔧 关键修复：检查socket是否仍然有效
-        int error = 0;
-        socklen_t len = sizeof(error);
-        if (getsockopt(sockFd, SOL_SOCKET, SO_ERROR, &error, &len) == 0 && error == 0) {
-            LOG_INFO("♻️ 复用有效socket: fd=%d", sockFd);
-            return sockFd;
-        } else {
-            // socket已失效，从缓存中移除
-            LOG_INFO("🔧 socket已失效，移除缓存: fd=%d", sockFd);
-            close(sockFd);
-            g_socketCache.erase(it);
-        }
-    }
-    
     // 创建新socket
     int sockFd = socket(packetInfo.addressFamily, SOCK_DGRAM, 0);
     if (sockFd < 0) {
@@ -71,13 +33,6 @@ static int GetSocket(const PacketInfo& packetInfo) {
     struct timeval timeout = {5, 0};
     setsockopt(sockFd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
     
-    // 清理缓存
-    if (g_socketCache.size() >= MAX_CACHE_SIZE) {
-        close(g_socketCache.begin()->second);
-        g_socketCache.erase(g_socketCache.begin());
-    }
-    
-    g_socketCache[socketKey] = sockFd;
     LOG_INFO("✅ 创建新socket: fd=%d", sockFd);
     return sockFd;
 }
@@ -105,11 +60,12 @@ static void StartUDPThread(int sockFd, const sockaddr_in& originalPeer) {
                 // 🔧 调试：打印发送目标
                 char peerIP[INET_ADDRSTRLEN];
                 inet_ntop(AF_INET, &originalPeer.sin_addr, peerIP, sizeof(peerIP));
-                LOG_INFO("🔍 发送响应到: %s:%d", peerIP, ntohs(originalPeer.sin_port));
+                uint16_t peerPort = ntohs(originalPeer.sin_port);
+                LOG_INFO("🔍 发送响应到: %s:%d (原始客户端)", peerIP, peerPort);
                 
                 ssize_t sent = sendto(sockFd, buffer, received, 0, (struct sockaddr*)&originalPeer, sizeof(originalPeer));
                 if (sent > 0) {
-                    LOG_INFO("📤 转发响应成功: %zd字节", sent);
+                    LOG_INFO("📤 转发响应成功: %zd字节 -> %s:%d", sent, peerIP, peerPort);
                 } else {
                     LOG_ERROR("❌ 转发响应失败: %s", strerror(errno));
                 }
@@ -198,6 +154,7 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
         
         // 6. 启动响应线程
         StartUDPThread(sockFd, originalPeer);
+        LOG_INFO("🚀 启动UDP响应线程: fd=%d", sockFd);
         
     } else {
         LOG_ERROR("TCP转发未实现");
@@ -208,13 +165,3 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
     return sockFd;
 }
 
-// ========== 清理函数 ==========
-
-void PacketForwarder::CleanupAll() {
-    std::lock_guard<std::mutex> lock(g_socketCacheMutex);
-    for (auto& pair : g_socketCache) {
-        close(pair.second);
-    }
-    g_socketCache.clear();
-    LOG_INFO("✅ 清理完成");
-}

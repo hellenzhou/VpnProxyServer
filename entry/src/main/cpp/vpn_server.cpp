@@ -1625,7 +1625,7 @@ napi_value StopServer(napi_env env, napi_callback_info info)
   VPN_SERVER_LOGI("✅ UDP retransmit manager cleared");
   
   // 🐛 修复：清理PacketForwarder的所有socket和线程
-  PacketForwarder::CleanupAll();
+  // PacketForwarder::CleanupAll(); // 已删除，不再需要清理
   
   // 🚨 BUG修复：注释掉StopServer中的NATTable::Clear()调用
   // 这个Clear调用会清空所有NAT映射，导致UDP响应失败
