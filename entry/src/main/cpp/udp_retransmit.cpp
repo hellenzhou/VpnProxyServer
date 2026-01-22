@@ -6,9 +6,9 @@
 
 #define MAKE_FILE_NAME (strrchr(__FILE__, '/') ? (strrchr(__FILE__, '/') + 1) : __FILE__)
 #define RETRANS_LOGI(fmt, ...) \
-  OH_LOG_Print(LOG_APP, LOG_INFO, 0x15b1, "UdpRetrans", "[%{public}s:%{public}d] " fmt, MAKE_FILE_NAME, __LINE__, ##__VA_ARGS__)
+  OH_LOG_Print(LOG_APP, LOG_INFO, 0x15b1, "VpnServer", "ZHOUB [UdpRetrans] [%{public}s:%{public}d] " fmt, MAKE_FILE_NAME, __LINE__, ##__VA_ARGS__)
 #define RETRANS_LOGE(fmt, ...) \
-  OH_LOG_Print(LOG_APP, LOG_ERROR, 0x15b1, "UdpRetrans", "[%{public}s:%{public}d] " fmt, MAKE_FILE_NAME, __LINE__, ##__VA_ARGS__)
+  OH_LOG_Print(LOG_APP, LOG_ERROR, 0x15b1, "VpnServer", "ZHOUB [UdpRetrans] [%{public}s:%{public}d] " fmt, MAKE_FILE_NAME, __LINE__, ##__VA_ARGS__)
 
 // 静态成员初始化
 std::atomic<uint16_t> UdpRetransmitManager::nextPacketId_(1);

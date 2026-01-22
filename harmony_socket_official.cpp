@@ -111,24 +111,61 @@ public:
                 return;
             }
             
-            // 设置连接超时（鸿蒙推荐方式）
-            struct timeval tv;
-            tv.tv_sec = timeout / 1000;
-            tv.tv_usec = (timeout % 1000) * 1000;
-            setsockopt(socketFd_, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+            // 设置非阻塞模式（鸿蒙推荐方式）
+            int flags = fcntl(socketFd_, F_GETFL, 0);
+            fcntl(socketFd_, F_SETFL, flags | O_NONBLOCK);
             
-            LOGI("🔍 [鸿蒙SOCKET] 开始连接到 %s:%d，超时%dms", address.c_str(), port, timeout);
+            LOGI("🔍 [鸿蒙SOCKET] 开始连接到 %s:%d，超时%dms (非阻塞模式)", address.c_str(), port, timeout);
             
             int result = ::connect(socketFd_, (struct sockaddr*)&connectAddr, sizeof(connectAddr));
             
             if (result == 0) {
                 isConnected_ = true;
-                LOGI("✅ [鸿蒙SOCKET] 连接成功: %s:%d", address.c_str(), port);
+                LOGI("✅ [鸿蒙SOCKET] 连接立即成功: %s:%d", address.c_str(), port);
                 if (onConnect_) onConnect_();
                 callback(true);
                 
                 // 启动消息接收线程
                 startReceiving();
+            } else if (errno == EINPROGRESS) {
+                // 连接正在进行中，使用select等待
+                LOGI("⏳ [鸿蒙SOCKET] 连接进行中，等待完成...");
+                
+                fd_set writefds;
+                struct timeval tv;
+                tv.tv_sec = timeout / 1000;
+                tv.tv_usec = (timeout % 1000) * 1000;
+                
+                FD_ZERO(&writefds);
+                FD_SET(socketFd_, &writefds);
+                
+                int selectResult = select(socketFd_ + 1, nullptr, &writefds, nullptr, &tv);
+                if (selectResult > 0) {
+                    // 检查连接是否成功
+                    int error = 0;
+                    socklen_t len = sizeof(error);
+                    if (getsockopt(socketFd_, SOL_SOCKET, SO_ERROR, &error, &len) == 0 && error == 0) {
+                        isConnected_ = true;
+                        LOGI("✅ [鸿蒙SOCKET] 连接成功: %s:%d", address.c_str(), port);
+                        if (onConnect_) onConnect_();
+                        callback(true);
+                        
+                        // 启动消息接收线程
+                        startReceiving();
+                    } else {
+                        LOGE("❌ [鸿蒙SOCKET] 连接失败: errno=%d (%s)", error, strerror(error));
+                        if (onError_) onError_(strerror(error));
+                        callback(false);
+                    }
+                } else if (selectResult == 0) {
+                    LOGE("❌ [鸿蒙SOCKET] 连接超时: %dms", timeout);
+                    if (onError_) onError_("Connection timeout");
+                    callback(false);
+                } else {
+                    LOGE("❌ [鸿蒙SOCKET] select失败: errno=%d (%s)", errno, strerror(errno));
+                    if (onError_) onError_(strerror(errno));
+                    callback(false);
+                }
             } else {
                 LOGE("❌ [鸿蒙SOCKET] 连接失败: errno=%d (%s)", errno, strerror(errno));
                 if (onError_) onError_(strerror(errno));

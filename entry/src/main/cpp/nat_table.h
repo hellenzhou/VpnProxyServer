@@ -33,7 +33,8 @@ struct NATConnection {
     PacketInfo originalRequest;
     
     NATConnection() : forwardSocket(-1), clientVirtualPort(0), 
-                     serverPort(0), protocol(0) {}
+                     serverPort(0), protocol(0), 
+                     lastActivity(std::chrono::steady_clock::now()) {}
 };
 
 // NAT映射表 - 管理客户端到服务器的连接映射

@@ -15,11 +15,11 @@
 #define MAKE_FILE_NAME (strrchr(__FILE__, '/') ? (strrchr(__FILE__, '/') + 1) : __FILE__)
 
 #define DIAG_LOGI(fmt, ...) \
-  OH_LOG_Print(LOG_APP, LOG_INFO, 0x15b1, "NetworkDiag", "[%{public}s %{public}d] " fmt, MAKE_FILE_NAME, __LINE__, ##__VA_ARGS__)
+  OH_LOG_Print(LOG_APP, LOG_INFO, 0x15b1, "VpnServer", "ZHOUB [NetworkDiag] [%{public}s %{public}d] " fmt, MAKE_FILE_NAME, __LINE__, ##__VA_ARGS__)
 #define DIAG_LOGE(fmt, ...) \
-  OH_LOG_Print(LOG_APP, LOG_ERROR, 0x15b1, "NetworkDiag", "[%{public}s %{public}d] " fmt, MAKE_FILE_NAME, __LINE__, ##__VA_ARGS__)
+  OH_LOG_Print(LOG_APP, LOG_ERROR, 0x15b1, "VpnServer", "ZHOUB [NetworkDiag] [%{public}s %{public}d] " fmt, MAKE_FILE_NAME, __LINE__, ##__VA_ARGS__)
 #define DIAG_LOGW(fmt, ...) \
-  OH_LOG_Print(LOG_APP, LOG_WARN, 0x15b1, "NetworkDiag", "[%{public}s %{public}d] " fmt, MAKE_FILE_NAME, __LINE__, ##__VA_ARGS__)
+  OH_LOG_Print(LOG_APP, LOG_WARN, 0x15b1, "VpnServer", "ZHOUB [NetworkDiag] [%{public}s %{public}d] " fmt, MAKE_FILE_NAME, __LINE__, ##__VA_ARGS__)
 
 bool NetworkDiagnostics::TestBasicConnectivity() {
     DIAG_LOGI("=== Testing Basic Network Connectivity ===");

@@ -24,7 +24,6 @@
 #include "protocol_handler.h"
 #include "packet_forwarder.h"
 #include "vpn_server_globals.h"
-#include "simple_dns_cache.h"  // DNSCacheManager
 #include "network_diagnostics.h"
 #include "task_queue.h"
 #include "worker_thread_pool.h"
@@ -39,6 +38,8 @@
   OH_LOG_Print(LOG_APP, LOG_INFO, 0x15b1, "VpnServer", "ZHOUB server [%{public}s %{public}d] " fmt, MAKE_FILE_NAME, __LINE__, ##__VA_ARGS__)
 #define VPN_SERVER_LOGW(fmt, ...) \
   OH_LOG_Print(LOG_APP, LOG_INFO, 0x15b1, "VpnServer", "ZHOUB server [%{public}s %{public}d] " fmt, MAKE_FILE_NAME, __LINE__, ##__VA_ARGS__)
+#define LOG_ERROR(fmt, ...) \
+  OH_LOG_Print(LOG_APP, LOG_ERROR, 0x15b1, "VpnServer", "ZHOUB [%{public}s:%{public}d] " fmt, MAKE_FILE_NAME, __LINE__, ##__VA_ARGS__)
 
 namespace {
 constexpr int BUFFER_SIZE = 2048;  // 🔧 减少缓冲区大小，避免内存不足
@@ -608,7 +609,7 @@ int ForwardToRealServer(const uint8_t* data, int dataSize, const std::string& ta
                     
                     fd_set writefds;
                     struct timeval timeout;
-                    timeout.tv_sec = 5;  // 5秒超时
+                    timeout.tv_sec = 3;  // 🔧 减少超时时间到3秒，提高响应速度
                     timeout.tv_usec = 0;
                     
                     FD_ZERO(&writefds);
@@ -1410,13 +1411,14 @@ napi_value StartServer(napi_env env, napi_callback_info info)
   // 清理UDP重传管理器
   UdpRetransmitManager::getInstance().clear();
   
-  // 清理DNS缓存
-  DNSCacheManager::clear();
+  // DNS缓存已删除
   VPN_SERVER_LOGI("✅ DNS cache cleared");
   
-  // 清理NAT表（重要！清理旧连接）
-  NATTable::Clear();
-  VPN_SERVER_LOGI("✅ NAT table cleared");
+  // 🚨 BUG修复：注释掉错误的NAT表清空调用
+  // 这个Clear调用会清空所有NAT映射，导致UDP响应失败
+  // NATTable::Clear();
+  // VPN_SERVER_LOGI("✅ NAT table cleared");
+  LOG_ERROR("ZHOUB 🚨🚨🚨 BUG修复：移除StartServer中的NATTable::Clear()调用");
   
   int fd = socket(AF_INET, SOCK_DGRAM, 0);
   if (fd < 0) {
@@ -1569,7 +1571,7 @@ napi_value StartServer(napi_env env, napi_callback_info info)
   }).detach();
   
   // 测试网络连接
-  PacketForwarder::TestNetworkConnectivity();
+  TestNetworkConnectivity();
 
   // 等待服务器完全启动
   std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -1625,9 +1627,11 @@ napi_value StopServer(napi_env env, napi_callback_info info)
   // 🐛 修复：清理PacketForwarder的所有socket和线程
   PacketForwarder::CleanupAll();
   
-  // 🐛 修复：清理NAT表（重要！避免资源泄漏）
-  NATTable::Clear();
-  VPN_SERVER_LOGI("✅ NAT table cleared");
+  // 🚨 BUG修复：注释掉StopServer中的NATTable::Clear()调用
+  // 这个Clear调用会清空所有NAT映射，导致UDP响应失败
+  // NATTable::Clear();
+  // VPN_SERVER_LOGI("✅ NAT table cleared");
+  LOG_ERROR("ZHOUB 🚨🚨🚨 BUG修复：移除StopServer中的NATTable::Clear()调用");
 
   // 🐛 修复：发送服务器停止广播，通知VPN客户端服务器已停止
   int stopSockFd = g_sockFd.load();
@@ -2064,6 +2068,24 @@ napi_value TestNetworkConnectivity(napi_env env, napi_callback_info info)
 napi_value TestDNSQuery(napi_env env, napi_callback_info info)
 {
   VPN_SERVER_LOGI("🧪🧪🧪 TestDNSQuery - Starting DNS test for www.baidu.com");
+  
+  // 🔧 优化：检查是否正在测试中，避免重复调用
+  static std::chrono::steady_clock::time_point lastTestTime;
+  static std::mutex testMutex;
+  
+  {
+    std::lock_guard<std::mutex> lock(testMutex);
+    auto now = std::chrono::steady_clock::now();
+    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastTestTime);
+    
+    if (elapsed.count() < 5000) {  // 5秒内只允许一次测试
+      VPN_SERVER_LOGW("⚠️ TestDNSQuery called too frequently, skipping (elapsed: %lldms)", elapsed.count());
+      napi_value result;
+      napi_create_string_utf8(env, "⚠️ Test in progress, please wait", NAPI_AUTO_LENGTH, &result);
+      return result;
+    }
+    lastTestTime = now;
+  }
   
   // 检查服务器是否运行
   if (!g_running.load() || g_sockFd.load() < 0) {

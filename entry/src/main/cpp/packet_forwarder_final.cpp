@@ -10,11 +10,6 @@
 #include <errno.h>
 #include <string.h>
 #include <hilog/log.h>
-#include <map>
-#include <string>
-#include <thread>
-#include <mutex>
-#include <sys/time.h>
 
 #define LOG_INFO(fmt, ...) \
     OH_LOG_Print(LOG_APP, LOG_INFO, 0x15b1, "VpnServer", "ZHOUB [Forwarder] " fmt, ##__VA_ARGS__)
@@ -30,10 +25,9 @@ const size_t MAX_CACHE_SIZE = 32;
 static int GetSocket(const PacketInfo& packetInfo) {
     std::string socketKey;
     
-    // DNS使用特殊key - 包含源端口避免冲突
+    // DNS使用特殊key
     if (packetInfo.protocol == PROTOCOL_UDP && packetInfo.targetPort == 53) {
-        socketKey = "DNS:" + packetInfo.sourceIP + ":" + std::to_string(packetInfo.sourcePort) + 
-                   "->" + packetInfo.targetIP + ":" + std::to_string(packetInfo.targetPort);
+        socketKey = "DNS:" + packetInfo.targetIP;
     } else {
         socketKey = packetInfo.sourceIP + ":" + std::to_string(packetInfo.sourcePort) + 
                    "->" + packetInfo.targetIP + ":" + std::to_string(packetInfo.targetPort);
@@ -44,20 +38,8 @@ static int GetSocket(const PacketInfo& packetInfo) {
     // 检查缓存
     auto it = g_socketCache.find(socketKey);
     if (it != g_socketCache.end()) {
-        int sockFd = it->second;
-        
-        // 🔧 关键修复：检查socket是否仍然有效
-        int error = 0;
-        socklen_t len = sizeof(error);
-        if (getsockopt(sockFd, SOL_SOCKET, SO_ERROR, &error, &len) == 0 && error == 0) {
-            LOG_INFO("♻️ 复用有效socket: fd=%d", sockFd);
-            return sockFd;
-        } else {
-            // socket已失效，从缓存中移除
-            LOG_INFO("🔧 socket已失效，移除缓存: fd=%d", sockFd);
-            close(sockFd);
-            g_socketCache.erase(it);
-        }
+        LOG_INFO("♻️ 复用socket: fd=%d", it->second);
+        return it->second;
     }
     
     // 创建新socket
@@ -78,7 +60,7 @@ static int GetSocket(const PacketInfo& packetInfo) {
     }
     
     g_socketCache[socketKey] = sockFd;
-    LOG_INFO("✅ 创建新socket: fd=%d", sockFd);
+    LOG_INFO("✅ 创建socket: fd=%d", sockFd);
     return sockFd;
 }
 
@@ -92,27 +74,15 @@ static void StartUDPThread(int sockFd, const sockaddr_in& originalPeer) {
             ssize_t received = recvfrom(sockFd, buffer, sizeof(buffer), 0, nullptr, nullptr);
             if (received < 0) {
                 if (errno == EAGAIN || errno == EWOULDBLOCK) continue;
-                LOG_ERROR("UDP接收失败: fd=%d, errno=%d", sockFd, errno);
+                LOG_ERROR("UDP接收失败: fd=%d", sockFd);
                 break;
             }
-            
-            // 🔧 调试：打印接收到的数据
-            LOG_INFO("🔍 UDP收到响应: fd=%d, %zd字节", sockFd, received);
             
             // 检查NAT映射
             NATConnection conn;
             if (NATTable::FindMappingBySocket(sockFd, conn)) {
-                // 🔧 调试：打印发送目标
-                char peerIP[INET_ADDRSTRLEN];
-                inet_ntop(AF_INET, &originalPeer.sin_addr, peerIP, sizeof(peerIP));
-                LOG_INFO("🔍 发送响应到: %s:%d", peerIP, ntohs(originalPeer.sin_port));
-                
-                ssize_t sent = sendto(sockFd, buffer, received, 0, (struct sockaddr*)&originalPeer, sizeof(originalPeer));
-                if (sent > 0) {
-                    LOG_INFO("📤 转发响应成功: %zd字节", sent);
-                } else {
-                    LOG_ERROR("❌ 转发响应失败: %s", strerror(errno));
-                }
+                sendto(sockFd, buffer, received, 0, (struct sockaddr*)&originalPeer, sizeof(originalPeer));
+                LOG_INFO("📤 转发响应: %zd字节", received);
             } else {
                 LOG_ERROR("❌ NAT映射不存在: fd=%d", sockFd);
                 break;
@@ -143,18 +113,11 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
     
     if (payloadSize <= 0) return 0;
     
-    // 2. DNS重定向 - 只重定向223.5.5.5
+    // 2. DNS重定向
     std::string actualTargetIP = packetInfo.targetIP;
-    if (packetInfo.targetPort == 53) {
-        // 🔧 调试：打印原始IP值
-        LOG_INFO("🔍 DNS原始目标: %s:%d", packetInfo.targetIP.c_str(), packetInfo.targetPort);
-        
-        if (packetInfo.targetIP == "223.5.5.5") {
-            actualTargetIP = "8.8.8.8";  // 只重定向223.5.5.5到8.8.8.8
-            LOG_INFO("🔄 DNS重定向: %s -> %s", packetInfo.targetIP.c_str(), actualTargetIP.c_str());
-        } else {
-            LOG_INFO("🔍 DNS无需重定向: %s", packetInfo.targetIP.c_str());
-        }
+    if (packetInfo.targetPort == 53 && packetInfo.targetIP == "223.5.5.5") {
+        actualTargetIP = "8.8.8.8";
+        LOG_INFO("🔄 DNS重定向: %s -> %s", packetInfo.targetIP.c_str(), actualTargetIP.c_str());
     }
     
     // 3. 获取socket (关键：先确定socket)
@@ -164,19 +127,10 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
         return -1;
     }
     
-    // 4. 创建NAT映射 (关键：检查是否已存在)
+    // 4. 创建NAT映射 (关键：使用确定的socket)
     std::string natKey = NATTable::GenerateKey(packetInfo);
-    
-    // 🔧 关键修复：检查NAT映射是否已存在
-    NATConnection existingConn;
-    if (NATTable::FindMappingBySocket(sockFd, existingConn)) {
-        LOG_INFO("🔄 NAT映射已存在: fd=%d, key=%s", sockFd, natKey.c_str());
-        // 映射已存在，直接使用
-    } else {
-        // 创建新映射
-        NATTable::CreateMapping(natKey, originalPeer, packetInfo, sockFd);
-        LOG_INFO("✅ 创建新NAT映射: %s -> fd=%d", natKey.c_str(), sockFd);
-    }
+    NATTable::CreateMapping(natKey, originalPeer, packetInfo, sockFd);
+    LOG_INFO("✅ NAT映射: %s -> fd=%d", natKey.c_str(), sockFd);
     
     // 5. 发送UDP数据
     if (packetInfo.protocol == PROTOCOL_UDP) {

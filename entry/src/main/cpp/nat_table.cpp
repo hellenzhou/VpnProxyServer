@@ -9,6 +9,12 @@
 
 #define MAKE_FILE_NAME (strrchr(__FILE__, '/') ? (strrchr(__FILE__, '/') + 1) : __FILE__)
 
+// 🔧 添加LOG_INFO和LOG_ERROR宏定义
+#define LOG_INFO(fmt, ...) \
+  OH_LOG_Print(LOG_APP, LOG_INFO, 0x15b1, "VpnServer", "ZHOUB [%{public}s:%{public}d] " fmt, MAKE_FILE_NAME, __LINE__, ##__VA_ARGS__)
+#define LOG_ERROR(fmt, ...) \
+  OH_LOG_Print(LOG_APP, LOG_ERROR, 0x15b1, "VpnServer", "ZHOUB [%{public}s:%{public}d] " fmt, MAKE_FILE_NAME, __LINE__, ##__VA_ARGS__)
+
 // 🔧 NAT日志级别控制
 // 0 = 关闭所有日志
 // 1 = 仅错误和关键操作（创建/删除映射仅记录总数）
@@ -60,8 +66,27 @@ bool NATTable::CreateMapping(const std::string& key,
     // 检查是否是新映射还是更新
     bool isNewMapping = (mappings_.find(key) == mappings_.end());
     
+    // 🔧 监控：检查是否覆盖现有映射
+    if (!isNewMapping) {
+        LOG_ERROR("ZHOUB 🚨🚨🚨 覆盖现有NAT映射! key=%s", key.c_str());
+        LOG_ERROR("ZHOUB 🚨🚨🚨 原有socket=%d, 新socket=%d", mappings_[key].forwardSocket, forwardSocket);
+    }
+    
     mappings_[key] = conn;
+    mappings_[key].lastActivity = std::chrono::steady_clock::now();  // 🔧 修复：设置活动时间
     socketToKey_[forwardSocket] = key;
+    
+    // 🔧 监控：检查socketToKey_映射是否建立成功
+    LOG_ERROR("ZHOUB 🚨🚨🚨 socketToKey_映射建立: socket=%d -> key=%s", forwardSocket, key.c_str());
+    LOG_ERROR("ZHOUB 🚨🚨🚨 socketToKey_大小=%zu, mappings_大小=%zu", socketToKey_.size(), mappings_.size());
+    
+    // 🔧 验证映射是否正确
+    auto verifyIt = socketToKey_.find(forwardSocket);
+    if (verifyIt != socketToKey_.end()) {
+        LOG_ERROR("ZHOUB 🚨🚨🚨 socketToKey_映射验证成功: %s", verifyIt->second.c_str());
+    } else {
+        LOG_ERROR("ZHOUB 🚨🚨🚨 socketToKey_映射验证失败! socket=%d", forwardSocket);
+    }
     
     // 仅在详细日志模式下打印详细信息
     NAT_LOG_DEBUG("✅ Created NAT mapping: %{public}s", key.c_str());
@@ -112,8 +137,13 @@ bool NATTable::FindMappingBySocket(int forwardSocket, NATConnection& conn) {
         auto connIt = mappings_.find(key);
         if (connIt != mappings_.end()) {
             conn = connIt->second;
+            LOG_INFO("✅ NAT映射查找成功: socket=%d -> key=%s", forwardSocket, key.c_str());
             return true;
+        } else {
+            LOG_ERROR("❌ socket存在但映射不存在: socket=%d, key=%s", forwardSocket, key.c_str());
         }
+    } else {
+        LOG_ERROR("❌ socket不存在: socket=%d", forwardSocket);
     }
     
     return false;
@@ -133,14 +163,32 @@ void NATTable::UpdateActivity(const std::string& key) {
 void NATTable::RemoveMapping(const std::string& key) {
     std::lock_guard<std::mutex> lock(mutex_);
     
+    // 🔧 强制输出删除日志
+    LOG_ERROR("ZHOUB 🚨🚨🚨 NAT映射删除! key=%s", key.c_str());
+    LOG_ERROR("ZHOUB 🚨🚨🚨 调用栈: 正在删除NAT映射");
+    LOG_ERROR("ZHOUB 🚨🚨🚨 删除前: socketToKey_大小=%zu, mappings_大小=%zu", socketToKey_.size(), mappings_.size());
+    
     auto it = mappings_.find(key);
     if (it != mappings_.end()) {
         int socket = it->second.forwardSocket;
+        
+        // 🔧 检查socketToKey_中是否存在这个socket
+        auto socketIt = socketToKey_.find(socket);
+        if (socketIt != socketToKey_.end()) {
+            LOG_ERROR("ZHOUB 🚨🚨🚨 socketToKey_中找到socket: %d -> %s", socket, socketIt->second.c_str());
+        } else {
+            LOG_ERROR("ZHOUB 🚨🚨🚨 socketToKey_中未找到socket: %d", socket);
+        }
+        
         socketToKey_.erase(socket);
         mappings_.erase(it);
         
+        LOG_ERROR("ZHOUB 🚨🚨🚨 映射已删除: socket=%d, 剩余映射数=%zu", socket, mappings_.size());
+        LOG_ERROR("ZHOUB 🚨🚨🚨 删除后: socketToKey_大小=%zu, mappings_大小=%zu", socketToKey_.size(), mappings_.size());
         NAT_LOG_DEBUG("🗑️ Removed NAT mapping: %{public}s, remaining: %{public}zu", 
                  key.c_str(), mappings_.size());
+    } else {
+        LOG_ERROR("ZHOUB 🚨🚨🚨 映射不存在: key=%s", key.c_str());
     }
 }
 
@@ -148,25 +196,50 @@ void NATTable::RemoveMapping(const std::string& key) {
 void NATTable::CleanupExpired(int timeoutSeconds) {
     std::lock_guard<std::mutex> lock(mutex_);
     
+    // 🔧 强制输出清理日志
+    LOG_ERROR("ZHOUB 🚨🚨🚨 CleanupExpired被调用! timeout=%d秒", timeoutSeconds);
+    LOG_ERROR("ZHOUB 🚨🚨🚨 调用栈: 正在清理过期NAT映射");
+    LOG_ERROR("ZHOUB 🚨🚨🚨 清理前: socketToKey_大小=%zu, mappings_大小=%zu", socketToKey_.size(), mappings_.size());
+    
     auto now = std::chrono::steady_clock::now();
     auto timeout = std::chrono::seconds(timeoutSeconds);
     
     std::vector<std::string> expiredKeys;
     
     for (const auto& pair : mappings_) {
-        if (now - pair.second.lastActivity > timeout) {
+        auto age = now - pair.second.lastActivity;
+        LOG_INFO("ZHOUB 检查映射 %s: 年龄=%lld秒, 超时=%d秒", 
+               pair.first.c_str(), std::chrono::duration_cast<std::chrono::seconds>(age).count(), timeoutSeconds);
+        
+        if (age > timeout) {
             expiredKeys.push_back(pair.first);
+            LOG_ERROR("ZHOUB 🚨🚨🚨 发现过期映射: %s (年龄=%lld秒)", 
+                   pair.first.c_str(), std::chrono::duration_cast<std::chrono::seconds>(age).count());
         }
     }
+    
+    LOG_ERROR("ZHOUB 🚨🚨🚨 发现过期映射: %zu个", expiredKeys.size());
     
     for (const auto& key : expiredKeys) {
         auto it = mappings_.find(key);
         if (it != mappings_.end()) {
             int socket = it->second.forwardSocket;
+            
+            // 🔧 检查socketToKey_中是否存在这个socket
+            auto socketIt = socketToKey_.find(socket);
+            if (socketIt != socketToKey_.end()) {
+                LOG_ERROR("ZHOUB 🚨🚨🚨 CleanupExpired找到socket: %d -> %s", socket, socketIt->second.c_str());
+            } else {
+                LOG_ERROR("ZHOUB 🚨🚨🚨 CleanupExpired未找到socket: %d", socket);
+            }
+            
             socketToKey_.erase(socket);
             mappings_.erase(it);
+            LOG_ERROR("ZHOUB 🚨🚨🚨 CleanupExpired删除过期映射: key=%s, socket=%d", key.c_str(), socket);
         }
     }
+    
+    LOG_ERROR("ZHOUB 🚨🚨🚨 清理后: socketToKey_大小=%zu, mappings_大小=%zu", socketToKey_.size(), mappings_.size());
     
     if (!expiredKeys.empty()) {
         NAT_LOG_DEBUG("🧹 Cleaned up %{public}zu expired mappings, remaining: %{public}zu",
@@ -202,7 +275,15 @@ int NATTable::GetMappingCount() {
 // 清空所有映射
 void NATTable::Clear() {
     std::lock_guard<std::mutex> lock(mutex_);
+    
+    // 🔧 强制输出清空日志
+    LOG_ERROR("ZHOUB 🚨🚨🚨 NAT表被清空! 当前映射数=%zu", mappings_.size());
+    LOG_ERROR("ZHOUB 🚨🚨🚨 调用栈: 正在清空所有NAT映射");
+    
+    size_t count = mappings_.size();
     mappings_.clear();
     socketToKey_.clear();
+    
+    LOG_ERROR("ZHOUB 🚨🚨🚨 已清空所有映射: %zu条", count);
     NAT_LOGI("🧹 Cleared all NAT mappings");
 }
