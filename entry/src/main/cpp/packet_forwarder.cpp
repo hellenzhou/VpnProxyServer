@@ -36,18 +36,18 @@
 #if FORWARDER_LOG_LEVEL >= 2
   // 详细日志：包括所有操作
   #define LOG_DEBUG(fmt, ...) \
-    OH_LOG_Print(LOG_APP, LOG_INFO, 0x15b1, "VpnServer", "ZBQ [Forwarder] [%{public}s:%{public}d] " fmt, MAKE_FILE_NAME, __LINE__, ##__VA_ARGS__)
+    OH_LOG_Print(LOG_APP, LOG_INFO, 0x15b1, "VpnServer", "ZHOUB [Forwarder] [%{public}s:%{public}d] " fmt, MAKE_FILE_NAME, __LINE__, ##__VA_ARGS__)
   #define LOG_INFO(fmt, ...) \
-    OH_LOG_Print(LOG_APP, LOG_INFO, 0x15b1, "VpnServer", "ZBQ [Forwarder] [%{public}s:%{public}d] " fmt, MAKE_FILE_NAME, __LINE__, ##__VA_ARGS__)
+    OH_LOG_Print(LOG_APP, LOG_INFO, 0x15b1, "VpnServer", "ZHOUB [Forwarder] [%{public}s:%{public}d] " fmt, MAKE_FILE_NAME, __LINE__, ##__VA_ARGS__)
   #define LOG_ERROR(fmt, ...) \
-    OH_LOG_Print(LOG_APP, LOG_ERROR, 0x15b1, "VpnServer", "ZBQ [Forwarder] [%{public}s:%{public}d] ❌ " fmt, MAKE_FILE_NAME, __LINE__, ##__VA_ARGS__)
+    OH_LOG_Print(LOG_APP, LOG_ERROR, 0x15b1, "VpnServer", "ZHOUB [Forwarder] [%{public}s:%{public}d] ❌ " fmt, MAKE_FILE_NAME, __LINE__, ##__VA_ARGS__)
 #elif FORWARDER_LOG_LEVEL >= 1
   // 仅关键操作和错误
   #define LOG_DEBUG(fmt, ...) /* 详细日志已禁用 */
   #define LOG_INFO(fmt, ...) \
-    OH_LOG_Print(LOG_APP, LOG_INFO, 0x15b1, "VpnServer", "ZBQ [Forwarder] [%{public}s:%{public}d] " fmt, MAKE_FILE_NAME, __LINE__, ##__VA_ARGS__)
+    OH_LOG_Print(LOG_APP, LOG_INFO, 0x15b1, "VpnServer", "ZHOUB [Forwarder] [%{public}s:%{public}d] " fmt, MAKE_FILE_NAME, __LINE__, ##__VA_ARGS__)
   #define LOG_ERROR(fmt, ...) \
-    OH_LOG_Print(LOG_APP, LOG_ERROR, 0x15b1, "VpnServer", "ZBQ [Forwarder] [%{public}s:%{public}d] ❌ " fmt, MAKE_FILE_NAME, __LINE__, ##__VA_ARGS__)
+    OH_LOG_Print(LOG_APP, LOG_ERROR, 0x15b1, "VpnServer", "ZHOUB [Forwarder] [%{public}s:%{public}d] ❌ " fmt, MAKE_FILE_NAME, __LINE__, ##__VA_ARGS__)
 #else
   // 关闭所有日志
   #define LOG_DEBUG(fmt, ...) /* 日志已禁用 */

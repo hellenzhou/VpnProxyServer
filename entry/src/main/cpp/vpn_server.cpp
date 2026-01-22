@@ -34,11 +34,11 @@
 #define MAKE_FILE_NAME (strrchr(__FILE__, '/') ? (strrchr(__FILE__, '/') + 1) : __FILE__)
 
 #define VPN_SERVER_LOGE(fmt, ...) \
-  OH_LOG_Print(LOG_APP, LOG_INFO, 0x15b1, "VpnServer", "ZBQ server [%{public}s %{public}d] " fmt, MAKE_FILE_NAME, __LINE__, ##__VA_ARGS__)
+  OH_LOG_Print(LOG_APP, LOG_INFO, 0x15b1, "VpnServer", "ZHOUB server [%{public}s %{public}d] " fmt, MAKE_FILE_NAME, __LINE__, ##__VA_ARGS__)
 #define VPN_SERVER_LOGI(fmt, ...) \
-  OH_LOG_Print(LOG_APP, LOG_INFO, 0x15b1, "VpnServer", "ZBQ server [%{public}s %{public}d] " fmt, MAKE_FILE_NAME, __LINE__, ##__VA_ARGS__)
+  OH_LOG_Print(LOG_APP, LOG_INFO, 0x15b1, "VpnServer", "ZHOUB server [%{public}s %{public}d] " fmt, MAKE_FILE_NAME, __LINE__, ##__VA_ARGS__)
 #define VPN_SERVER_LOGW(fmt, ...) \
-  OH_LOG_Print(LOG_APP, LOG_INFO, 0x15b1, "VpnServer", "ZBQ server [%{public}s %{public}d] " fmt, MAKE_FILE_NAME, __LINE__, ##__VA_ARGS__)
+  OH_LOG_Print(LOG_APP, LOG_INFO, 0x15b1, "VpnServer", "ZHOUB server [%{public}s %{public}d] " fmt, MAKE_FILE_NAME, __LINE__, ##__VA_ARGS__)
 
 namespace {
 constexpr int BUFFER_SIZE = 2048;
@@ -1140,7 +1140,7 @@ void WorkerLoop()
     socklen_t peerLen = sizeof(peer);
     
     if (!g_running.load()) {
-      VPN_SERVER_LOGI("ZBQ [STOP] Loop exit requested");
+      VPN_SERVER_LOGI("ZHOUB [STOP] Loop exit requested");
       break;
     }
     
@@ -1149,7 +1149,7 @@ void WorkerLoop()
     if (n < 0) {
       // 检查是否是因为服务器正在停止
       if (!g_running.load()) {
-        VPN_SERVER_LOGI("ZBQ [STOP] recvfrom interrupted by server shutdown");
+        VPN_SERVER_LOGI("ZHOUB [STOP] recvfrom interrupted by server shutdown");
         break;
       }
       
@@ -1161,9 +1161,9 @@ void WorkerLoop()
       }
       
       // 其他错误才是真正的错误
-      VPN_SERVER_LOGE("ZBQ [ERROR] recvfrom failed: errno=%{public}d (%{public}s)",
+      VPN_SERVER_LOGE("ZHOUB [ERROR] recvfrom failed: errno=%{public}d (%{public}s)",
                       errno, strerror(errno));
-      VPN_SERVER_LOGI("ZBQ [STOP] Loop exit on error");
+      VPN_SERVER_LOGI("ZHOUB [STOP] Loop exit on error");
       break;
     }
     
@@ -1185,7 +1185,7 @@ void WorkerLoop()
     std::string hexData = BytesToHex(buf, n, 64);
     std::string packetType = IdentifyPacketType(buf, n);
     
-    VPN_SERVER_LOGI("ZBQ [RX] %{public}d bytes from %{public}s", n, clientKey.c_str());
+    VPN_SERVER_LOGI("ZHOUB [RX] %{public}d bytes from %{public}s", n, clientKey.c_str());
     
     // Update last activity and client info (no logging to reduce output)
     {
@@ -1291,9 +1291,9 @@ void WorkerLoop()
                      packetInfo.targetIP.c_str(), packetInfo.targetPort);
       
       if (!TaskQueueManager::getInstance().submitForwardTask(buf, n, packetInfo, peer)) {
-        VPN_SERVER_LOGE("ZBQ [FWD✗] Failed to submit task (queue full)");
+        VPN_SERVER_LOGE("ZHOUB [FWD✗] Failed to submit task (queue full)");
       } else {
-        VPN_SERVER_LOGI("ZBQ [FWD→] %{public}s -> %{public}s:%{public}d (queued)", 
+        VPN_SERVER_LOGI("ZHOUB [FWD→] %{public}s -> %{public}s:%{public}d (queued)", 
                         ProtocolHandler::GetProtocolName(packetInfo.protocol).c_str(),
                         packetInfo.targetIP.c_str(), packetInfo.targetPort);
       }
@@ -1304,7 +1304,7 @@ void WorkerLoop()
 napi_value StartServer(napi_env env, napi_callback_info info)
 {
   // 使用系统日志，确保能看到
-  OH_LOG_Print(LOG_APP, LOG_INFO, 0x15b1, "VpnServer", "ZBQ 🚀🚀🚀 StartServer FUNCTION CALLED - VPN SERVER STARTING NOW 🚀🚀🚀");
+  OH_LOG_Print(LOG_APP, LOG_INFO, 0x15b1, "VpnServer", "ZHOUB 🚀🚀🚀 StartServer FUNCTION CALLED - VPN SERVER STARTING NOW 🚀🚀🚀");
   VPN_SERVER_LOGI("🚀🚀🚀 StartServer FUNCTION CALLED - VPN SERVER STARTING NOW 🚀🚀🚀");
   
   size_t argc = 1;
@@ -1316,7 +1316,7 @@ napi_value StartServer(napi_env env, napi_callback_info info)
     napi_get_value_int32(env, args[0], &port);
   }
 
-  OH_LOG_Print(LOG_APP, LOG_INFO, 0x15b1, "VpnServer", "ZBQ 📡 StartServer called with port: %{public}d", port);
+  OH_LOG_Print(LOG_APP, LOG_INFO, 0x15b1, "VpnServer", "ZHOUB 📡 StartServer called with port: %{public}d", port);
   VPN_SERVER_LOGI("📡 StartServer called with port: %{public}d", port);
 
   if (port <= 0 || port > 65535) {
@@ -1346,7 +1346,7 @@ napi_value StartServer(napi_env env, napi_callback_info info)
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
   }
 
-  VPN_SERVER_LOGI("ZBQ [START] VPN Server on port %{public}d", port);
+  VPN_SERVER_LOGI("ZHOUB [START] VPN Server on port %{public}d", port);
   
   // 停止旧的工作线程池（如果存在）
   if (WorkerThreadPool::getInstance().isRunning()) {
@@ -1568,7 +1568,7 @@ napi_value StopServer(napi_env env, napi_callback_info info)
     return ret;
   }
 
-  VPN_SERVER_LOGI("ZBQ [STOP] Stopping server...");
+  VPN_SERVER_LOGI("ZHOUB [STOP] Stopping server...");
   VPN_SERVER_LOGI("⚠️ 重要提醒：服务器停止后，请手动停止HarmonyOS的VPN连接以避免客户端继续发送数据包");
   g_running.store(false);
   
@@ -1609,7 +1609,7 @@ napi_value StopServer(napi_env env, napi_callback_info info)
     ssize_t sent = sendto(stopSockFd, stopMsg, strlen(stopMsg), 0,
                          (struct sockaddr*)&broadcastAddr, sizeof(broadcastAddr));
     if (sent > 0) {
-      VPN_SERVER_LOGI("ZBQ [STOP] Server stopping broadcast sent to clients");
+      VPN_SERVER_LOGI("ZHOUB [STOP] Server stopping broadcast sent to clients");
     }
   }
 
@@ -1618,7 +1618,7 @@ napi_value StopServer(napi_env env, napi_callback_info info)
   int sockFd = g_sockFd.exchange(-1);  // 原子交换
   if (sockFd >= 0) {
     close(sockFd);
-    VPN_SERVER_LOGI("ZBQ [STOP] Socket closed");
+    VPN_SERVER_LOGI("ZHOUB [STOP] Socket closed");
   }
   
   // 🔧 修复：正确等待线程退出，避免资源泄漏
@@ -2428,7 +2428,7 @@ napi_value TestDNSQuery(napi_env env, napi_callback_info info)
 napi_value Init(napi_env env, napi_value exports)
 {
   // 模块初始化日志
-  OH_LOG_Print(LOG_APP, LOG_INFO, 0x15b1, "VpnServer", "ZBQ 🎉🎉🎉 NATIVE MODULE INITIALIZED - VPN SERVER MODULE LOADED 🎉🎉🎉");
+  OH_LOG_Print(LOG_APP, LOG_INFO, 0x15b1, "VpnServer", "ZHOUB 🎉🎉🎉 NATIVE MODULE INITIALIZED - VPN SERVER MODULE LOADED 🎉🎉🎉");
   VPN_SERVER_LOGI("🎉 Native module initialized successfully");
   
   napi_property_descriptor desc[] = {
