@@ -233,6 +233,41 @@ void WorkerThreadPool::responseWorkerThread() {
             // 🔍 详细诊断日志
             char clientIP[INET_ADDRSTRLEN];
             inet_ntop(AF_INET, &respTask.clientAddr.sin_addr, clientIP, sizeof(clientIP));
+            
+            // 🔥 ZHOUB日志：解析IP包信息
+            char srcIP[INET_ADDRSTRLEN] = {0}, dstIP[INET_ADDRSTRLEN] = {0};
+            uint16_t srcPort = 0, dstPort = 0;
+            const char* protocolName = "未知";
+            
+            if (sendSize >= 20 && (sendData[0] >> 4) == 4) {  // IPv4
+                inet_ntop(AF_INET, &sendData[12], srcIP, sizeof(srcIP));
+                inet_ntop(AF_INET, &sendData[16], dstIP, sizeof(dstIP));
+                uint8_t protocol = sendData[9];
+                uint8_t ipHeaderLen = (sendData[0] & 0x0F) * 4;
+                
+                if (protocol == 17 && sendSize >= ipHeaderLen + 8) {  // UDP
+                    protocolName = "UDP";
+                    srcPort = (sendData[ipHeaderLen + 0] << 8) | sendData[ipHeaderLen + 1];
+                    dstPort = (sendData[ipHeaderLen + 2] << 8) | sendData[ipHeaderLen + 3];
+                } else if (protocol == 6 && sendSize >= ipHeaderLen + 20) {  // TCP
+                    protocolName = "TCP";
+                    srcPort = (sendData[ipHeaderLen + 0] << 8) | sendData[ipHeaderLen + 1];
+                    dstPort = (sendData[ipHeaderLen + 2] << 8) | sendData[ipHeaderLen + 3];
+                } else if (protocol == 1) {  // ICMP
+                    protocolName = "ICMP";
+                }
+            }
+            
+            // 🔥 ZHOUB日志：代理成功后给客户端
+            char dataHex[129] = {0};  // 64字节 * 2 + 1
+            int hexLen = sendSize < 64 ? sendSize : 64;
+            for (int i = 0; i < hexLen; i++) {
+                snprintf(dataHex + i * 2, 3, "%02x", sendData[i]);
+            }
+            
+            WORKER_LOGI("ZHOUB [代理→客户端] 源IP:%{public}s 目的IP:%{public}s 源端口:%{public}d 目的端口:%{public}d 协议:%{public}s 大小:%{public}d字节 数据:%{public}s",
+                       srcIP, dstIP, srcPort, dstPort, protocolName, sendSize, dataHex);
+            
             WORKER_LOGI("🔍 [响应发送] 准备发送 %{public}d字节到 %{public}s:%{public}d (tunnelFd=%{public}d)", 
                        sendSize, clientIP, ntohs(respTask.clientAddr.sin_port), tunnelFd);
             

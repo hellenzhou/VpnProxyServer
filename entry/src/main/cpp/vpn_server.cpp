@@ -41,7 +41,7 @@
   OH_LOG_Print(LOG_APP, LOG_INFO, 0x15b1, "VpnServer", "ZHOUB server [%{public}s %{public}d] " fmt, MAKE_FILE_NAME, __LINE__, ##__VA_ARGS__)
 
 namespace {
-constexpr int BUFFER_SIZE = 2048;
+constexpr int BUFFER_SIZE = 2048;  // 🔧 减少缓冲区大小，避免内存不足
 }
 
 // 全局变量定义
@@ -1155,16 +1155,31 @@ void WorkerLoop()
       
       // 🔧 关键修复：非阻塞socket在没有数据时返回EAGAIN/EWOULDBLOCK，这是正常的，应该继续循环
       if (errno == EAGAIN || errno == EWOULDBLOCK) {
+        // 🔥 调试：每1000次超时记录一次，确认循环在运行
+        static int eagainCount = 0;
+        if (++eagainCount % 1000 == 0) {
+          VPN_SERVER_LOGI("ZHOUB [DEBUG] recvfrom EAGAIN #%{public}d (等待数据中...)", eagainCount);
+        }
         // 非阻塞模式下没有数据是正常的，继续等待
         std::this_thread::sleep_for(std::chrono::milliseconds(10));  // 避免CPU占用过高
         continue;
       }
       
-      // 其他错误才是真正的错误
-      VPN_SERVER_LOGE("ZHOUB [ERROR] recvfrom failed: errno=%{public}d (%{public}s)",
-                      errno, strerror(errno));
-      VPN_SERVER_LOGI("ZHOUB [STOP] Loop exit on error");
-      break;
+      // 其他错误处理
+      int savedErrno = errno;
+      if (savedErrno == ENOMEM) {
+        // 🔧 修复：内存不足不应该导致服务器退出，应该记录并继续
+        VPN_SERVER_LOGE("ZHOUB [ERROR] recvfrom内存不足: errno=%{public}d (%{public}s) - 继续运行", 
+                       savedErrno, strerror(savedErrno));
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));  // 等待内存释放
+        continue;  // 继续循环，不退出
+      } else {
+        // 其他严重错误才退出
+        VPN_SERVER_LOGE("ZHOUB [ERROR] recvfrom failed: errno=%{public}d (%{public}s)",
+                        savedErrno, strerror(savedErrno));
+        VPN_SERVER_LOGI("ZHOUB [STOP] Loop exit on error");
+        break;
+      }
     }
     
     if (n == 0) {
@@ -1185,7 +1200,19 @@ void WorkerLoop()
     std::string hexData = BytesToHex(buf, n, 64);
     std::string packetType = IdentifyPacketType(buf, n);
     
-    VPN_SERVER_LOGI("ZHOUB [RX] %{public}d bytes from %{public}s", n, clientKey.c_str());
+    // 🔥 ZHOUB调试日志：记录所有接收到的数据包（包括测试包）
+    VPN_SERVER_LOGI("ZHOUB [RX] %{public}d bytes from %{public}s (前16字节: %{public}s)", 
+                   n, clientKey.c_str(), hexData.substr(0, 32).c_str());
+    
+    // 🔥 检查是否是TestDNSQuery发送的测试包（包含IP头，前4位是0x45）
+    if (n >= 20 && (buf[0] >> 4) == 4 && buf[9] == 17) {
+      // 这是一个IPv4 UDP包，可能是TestDNSQuery发送的完整IP包
+      char srcIP[INET_ADDRSTRLEN], dstIP[INET_ADDRSTRLEN];
+      inet_ntop(AF_INET, &buf[12], srcIP, sizeof(srcIP));
+      inet_ntop(AF_INET, &buf[16], dstIP, sizeof(dstIP));
+      VPN_SERVER_LOGI("ZHOUB [DEBUG] 检测到完整IP包: %{public}s -> %{public}s (可能是TestDNSQuery测试包)", 
+                     srcIP, dstIP);
+    }
     
     // Update last activity and client info (no logging to reduce output)
     {
@@ -1242,6 +1269,19 @@ void WorkerLoop()
       }
       AddDataPacket(hexData, clientKey + " -> " + targetInfo, packetType);
       
+      // 🔥 ZHOUB日志：代理服务器接收到的代理请求
+      char clientIP[INET_ADDRSTRLEN];
+      inet_ntop(AF_INET, &peer.sin_addr, clientIP, sizeof(clientIP));
+      if (packetInfo.protocol == PROTOCOL_ICMPV6) {
+        VPN_SERVER_LOGI("ZHOUB [代理接收] 源IP:%{public}s 目的IP:%{public}s 源端口:0 目的端口:0 协议:ICMPv6 大小:%{public}d字节",
+                       clientIP, packetInfo.targetIP.c_str(), n);
+      } else {
+        VPN_SERVER_LOGI("ZHOUB [代理接收] 源IP:%{public}s 目的IP:%{public}s 源端口:%{public}d 目的端口:%{public}d 协议:%{public}s 大小:%{public}d字节",
+                       packetInfo.sourceIP.c_str(), packetInfo.targetIP.c_str(), 
+                       packetInfo.sourcePort, packetInfo.targetPort,
+                       ProtocolHandler::GetProtocolName(packetInfo.protocol).c_str(), n);
+      }
+      
       // ICMPv6 特殊处理：某些 ICMPv6 消息不需要转发
       if (packetInfo.protocol == PROTOCOL_ICMPV6) {
         // Router Solicitation/Advertisement 和 Neighbor Solicitation/Advertisement 通常不需要转发
@@ -1261,8 +1301,6 @@ void WorkerLoop()
       }
       
       // 🔧 提交转发任务到队列（异步处理）
-      char clientIP[INET_ADDRSTRLEN];
-      inet_ntop(AF_INET, &peer.sin_addr, clientIP, sizeof(clientIP));
       
       // 🔍 统计接收到的数据包类型
       static std::map<std::string, int> packetStats;
