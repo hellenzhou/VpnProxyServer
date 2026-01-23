@@ -40,8 +40,16 @@ static int GetSocket(const PacketInfo& packetInfo) {
         return -1;
     }
     
-    // 设置超时
-    struct timeval timeout = {5, 0};
+    // 设置超时 - DNS查询使用更长超时时间
+    struct timeval timeout;
+    if (packetInfo.protocol == PROTOCOL_UDP && packetInfo.targetPort == 53) {
+        // DNS查询：10秒超时
+        timeout = {10, 0};
+        LOG_INFO("⏱️ DNS查询socket超时: 10秒");
+    } else {
+        // 其他UDP/TCP：5秒超时
+        timeout = {5, 0};
+    }
     setsockopt(sockFd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
     
     LOG_INFO("✅ 创建新socket: fd=%d, 协议=%s", 
@@ -233,7 +241,8 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
     if (packetInfo.protocol == PROTOCOL_UDP) {
         struct sockaddr_in targetAddr{};
         targetAddr.sin_family = AF_INET;
-        targetAddr.sin_port = htons(packetInfo.targetPort);
+        // ✅ 修复：targetPort已经是主机字节序，不需要再htons
+        targetAddr.sin_port = packetInfo.targetPort;
         inet_pton(AF_INET, actualTargetIP.c_str(), &targetAddr.sin_addr);
         
         ssize_t sent = sendto(sockFd, payload, payloadSize, 0, 

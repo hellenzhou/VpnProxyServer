@@ -1587,7 +1587,7 @@ napi_value StartServer(napi_env env, napi_callback_info info)
         
         if (!g_running.load()) break;  // 双重检查
         
-        // 调用UDP重传逻辑
+        // 调用UDP重传逻辑 (修改后的代码)
         UdpRetransmitManager::getInstance().checkAndRetransmit();
       }
       

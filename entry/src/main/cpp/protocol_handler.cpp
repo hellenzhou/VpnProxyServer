@@ -69,16 +69,22 @@ PacketInfo ProtocolHandler::ParseIPPacket(const uint8_t* data, int dataSize) {
                 PROTOCOL_LOGI("TCP packet too small");
                 return info;
             }
-            info.sourcePort = (data[payloadOffset + 0] << 8) | data[payloadOffset + 1];  // 源端口
-            info.targetPort = (data[payloadOffset + 2] << 8) | data[payloadOffset + 3];  // 目标端口
+            // ✅ 修复：正确处理网络字节序
+            uint16_t rawSrcPort = *(uint16_t*)&data[payloadOffset];
+            uint16_t rawDstPort = *(uint16_t*)&data[payloadOffset + 2];
+            info.sourcePort = ntohs(rawSrcPort);
+            info.targetPort = ntohs(rawDstPort);
             PROTOCOL_LOGI("🔍 TCP端口解析: 源端口=%d, 目标端口=%d", info.sourcePort, info.targetPort);
         } else if (info.protocol == PROTOCOL_UDP) {
             if (dataSize < payloadOffset + 8) {
                 PROTOCOL_LOGI("UDP packet too small");
                 return info;
             }
-            info.sourcePort = (data[payloadOffset + 0] << 8) | data[payloadOffset + 1];  // 源端口
-            info.targetPort = (data[payloadOffset + 2] << 8) | data[payloadOffset + 3];  // 目标端口
+            // ✅ 修复：正确处理网络字节序
+            uint16_t rawSrcPort = *(uint16_t*)&data[payloadOffset];
+            uint16_t rawDstPort = *(uint16_t*)&data[payloadOffset + 2];
+            info.sourcePort = ntohs(rawSrcPort);
+            info.targetPort = ntohs(rawDstPort);
             PROTOCOL_LOGI("🔍 UDP端口解析: 源端口=%d, 目标端口=%d", info.sourcePort, info.targetPort);
         }
         

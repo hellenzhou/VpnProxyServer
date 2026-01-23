@@ -162,7 +162,8 @@ void WorkerThreadPool::forwardWorkerThread() {
                     if (payload && payloadSize > 0) {
                         sockaddr_in targetAddr{};
                         targetAddr.sin_family = AF_INET;
-                        targetAddr.sin_port = htons(fwdTask.packetInfo.targetPort);
+                        // ✅ 修复：targetPort已经是主机字节序，不需要再htons
+                        targetAddr.sin_port = fwdTask.packetInfo.targetPort;
 
                         if (inet_pton(AF_INET, fwdTask.packetInfo.targetIP.c_str(), &targetAddr.sin_addr) > 0) {
                             UdpRetransmitManager::getInstance().recordSentPacket(
