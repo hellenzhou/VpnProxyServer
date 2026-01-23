@@ -4,6 +4,7 @@
 #include "protocol_handler.h"
 #include "packet_builder.h"
 #include "udp_retransmit.h"
+#include "task_queue.h"
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -253,23 +254,42 @@ static void StartUDPThread(int sockFd, const sockaddr_in& originalPeer) {
             // 🔧 调试：打印接收到的数据
             LOG_INFO("🔍 UDP收到响应: fd=%d, %zd字节", sockFd, received);
 
-            // 检查NAT映射
+            // 检查NAT映射并构建完整IP响应包
             NATConnection conn;
             if (NATTable::FindMappingBySocket(sockFd, conn)) {
                 // 🔧 调试：打印发送目标
                 char peerIP[INET_ADDRSTRLEN];
                 inet_ntop(AF_INET, &originalPeer.sin_addr, peerIP, sizeof(peerIP));
                 uint16_t peerPort = ntohs(originalPeer.sin_port);
-                LOG_INFO("🔍 发送响应到: %s:%d (原始客户端)", peerIP, peerPort);
+                LOG_INFO("🔍 UDP响应: 构建完整IP包发送到 %s:%d", peerIP, peerPort);
 
-                ssize_t sent = sendto(sockFd, buffer, received, 0, (struct sockaddr*)&originalPeer, sizeof(originalPeer));
-                if (sent > 0) {
-                    LOG_INFO("📤 转发响应成功: %zd字节 -> %s:%d", sent, peerIP, peerPort);
+                // 🐛 修复：构建完整的IP响应包，而不是直接发送原始payload
+                uint8_t responsePacket[4096];
+                int responseSize = PacketBuilder::BuildResponsePacket(
+                    responsePacket, sizeof(responsePacket),
+                    buffer, received,  // 响应payload
+                    conn.originalRequest  // 原始请求信息
+                );
 
-                    // ✅ 确认UDP接收，停止重传 - 使用基于内容的精确匹配
-                    UdpRetransmitManager::getInstance().confirmReceivedByContent(sockFd, buffer, received);
+                if (responseSize > 0) {
+                    // ✅ 通过工作线程池提交响应任务
+                    bool submitted = TaskQueueManager::getInstance().submitResponseTask(
+                        responsePacket, responseSize,
+                        originalPeer,  // 客户端地址
+                        sockFd,        // 来源socket（用于确认重传）
+                        PROTOCOL_UDP
+                    );
+
+                    if (submitted) {
+                        LOG_INFO("📤 UDP响应任务提交成功: %d字节 -> %s:%d", responseSize, peerIP, peerPort);
+
+                        // ✅ 确认UDP接收，停止重传 - 使用基于内容的精确匹配
+                        UdpRetransmitManager::getInstance().confirmReceivedByContent(sockFd, buffer, received);
+                    } else {
+                        LOG_ERROR("❌ UDP响应任务提交失败");
+                    }
                 } else {
-                    LOG_ERROR("❌ 转发响应失败: %s", strerror(errno));
+                    LOG_ERROR("❌ 构建UDP响应包失败");
                 }
             } else {
                 LOG_ERROR("❌ NAT映射不存在: fd=%d", sockFd);
@@ -336,21 +356,39 @@ static void StartTCPThread(int sockFd, const sockaddr_in& originalPeer) {
             // 🔧 调试：打印接收到的数据
             LOG_INFO("🔍 TCP收到响应: fd=%d, %zd字节", sockFd, received);
             
-            // 检查NAT映射
+            // 检查NAT映射并构建完整IP响应包
             NATConnection conn;
             if (NATTable::FindMappingBySocket(sockFd, conn)) {
                 // 🔧 调试：打印发送目标
                 char peerIP[INET_ADDRSTRLEN];
                 inet_ntop(AF_INET, &originalPeer.sin_addr, peerIP, sizeof(peerIP));
                 uint16_t peerPort = ntohs(originalPeer.sin_port);
-                LOG_INFO("🔍 发送响应到: %s:%d (原始客户端)", peerIP, peerPort);
-                
-                ssize_t sent = sendto(sockFd, buffer, received, 0, 
-                                    (struct sockaddr*)&originalPeer, sizeof(originalPeer));
-                if (sent > 0) {
-                    LOG_INFO("📤 转发TCP响应成功: %zd字节 -> %s:%d", sent, peerIP, peerPort);
+                LOG_INFO("🔍 TCP响应: 构建完整IP包发送到 %s:%d", peerIP, peerPort);
+
+                // 🐛 修复：构建完整的IP响应包，而不是直接发送原始payload
+                uint8_t responsePacket[4096];
+                int responseSize = PacketBuilder::BuildResponsePacket(
+                    responsePacket, sizeof(responsePacket),
+                    buffer, received,  // 响应payload
+                    conn.originalRequest  // 原始请求信息
+                );
+
+                if (responseSize > 0) {
+                    // ✅ 通过工作线程池提交响应任务
+                    bool submitted = TaskQueueManager::getInstance().submitResponseTask(
+                        responsePacket, responseSize,
+                        originalPeer,  // 客户端地址
+                        sockFd,        // 来源socket（用于NAT查找）
+                        PROTOCOL_TCP
+                    );
+
+                    if (submitted) {
+                        LOG_INFO("📤 TCP响应任务提交成功: %d字节 -> %s:%d", responseSize, peerIP, peerPort);
+                    } else {
+                        LOG_ERROR("❌ TCP响应任务提交失败");
+                    }
                 } else {
-                    LOG_ERROR("❌ 转发TCP响应失败: %s", strerror(errno));
+                    LOG_ERROR("❌ 构建TCP响应包失败");
                 }
             } else {
                 LOG_ERROR("❌ NAT映射不存在: fd=%d", sockFd);
