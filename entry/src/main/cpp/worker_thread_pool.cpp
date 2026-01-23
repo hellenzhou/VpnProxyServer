@@ -115,8 +115,16 @@ void WorkerThreadPool::forwardWorkerThread() {
         auto taskOpt = taskQueue.popForwardTask(std::chrono::milliseconds(100));
 
         if (!taskOpt.has_value()) {
+            // 每10秒输出一次等待状态
+            if (iteration % 100000 == 0) {  // 1000次/秒 * 100秒 = 100000
+                WORKER_LOGI("⏳ Forward worker waiting for tasks... (iteration=%d, processed=%d)",
+                           iteration, processedTasks);
+            }
             continue;  // 超时或队列关闭
         }
+
+        WORKER_LOGI("📨 Forward worker received task: type=%d, iteration=%d",
+                   static_cast<int>(taskOpt.value().type), iteration);
 
         // 🐛 修复：复制Task对象而不是引用，避免生命周期问题
         Task task = taskOpt.value();
@@ -137,6 +145,13 @@ void WorkerThreadPool::forwardWorkerThread() {
                         fwdTask.packetInfo.targetPort);
         }
 
+        // 🔍 调试：记录任务处理开始
+        WORKER_LOGI("🔄 开始处理转发任务: %s %s:%d -> %s:%d (%d字节)",
+                   fwdTask.packetInfo.protocol == PROTOCOL_TCP ? "TCP" : "UDP",
+                   fwdTask.packetInfo.sourceIP.c_str(), fwdTask.packetInfo.sourcePort,
+                   fwdTask.packetInfo.targetIP.c_str(), fwdTask.packetInfo.targetPort,
+                   fwdTask.dataSize);
+
         // 转发数据包
         int sockFd = PacketForwarder::ForwardPacket(
             fwdTask.data,
@@ -147,6 +162,11 @@ void WorkerThreadPool::forwardWorkerThread() {
 
         if (sockFd >= 0) {
             forwardTasksProcessed_.fetch_add(1);
+            WORKER_LOGI("✅ 转发任务成功: %s %s:%d -> %s:%d (fd=%d)",
+                       fwdTask.packetInfo.protocol == PROTOCOL_TCP ? "TCP" : "UDP",
+                       fwdTask.packetInfo.sourceIP.c_str(), fwdTask.packetInfo.sourcePort,
+                       fwdTask.packetInfo.targetIP.c_str(), fwdTask.packetInfo.targetPort,
+                       sockFd);
 
             // UDP包记录到重传管理器（只对DNS查询）
             if (fwdTask.packetInfo.protocol == PROTOCOL_UDP &&
