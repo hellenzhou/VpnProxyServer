@@ -3,22 +3,39 @@
 #include <cstdint>
 #include <string>
 #include <unordered_map>
+#include <map>
 #include <mutex>
 #include <chrono>
 #include <vector>
 #include <netinet/in.h>
+
+// UDP协议类型枚举
+enum class UdpProtocolType {
+    UNKNOWN = 0,
+    DNS = 1,
+    NTP = 2,
+    SNMP = 3,
+    DHCP = 4,
+    TFTP = 5,
+    QUIC = 6,    // Google QUIC
+    WIREGUARD = 7, // WireGuard
+    OPENVPN = 8   // OpenVPN
+};
 
 // UDP包信息
 struct UdpPacketInfo {
     uint8_t data[2048];                              // 数据包内容
     int dataSize;                                    // 数据大小
     sockaddr_in targetAddr;                          // 目标地址
+    sockaddr_in clientAddr;                          // VPN客户端地址
     int forwardSocket;                               // 转发socket
     std::chrono::steady_clock::time_point sendTime;  // 发送时间
     int retryCount;                                  // 重传次数
     uint16_t packetId;                               // 数据包ID
 
-    UdpPacketInfo() : dataSize(0), forwardSocket(-1), retryCount(0), packetId(0) {}
+    UdpPacketInfo() : dataSize(0), forwardSocket(-1), retryCount(0), packetId(0) {
+        memset(&clientAddr, 0, sizeof(clientAddr));
+    }
 };
 
 /**
@@ -64,27 +81,18 @@ public:
     void recordSentPacket(uint16_t packetId,
                          const uint8_t* data, int dataSize,
                          const sockaddr_in& targetAddr,
+                         const sockaddr_in& clientAddr,
                          int forwardSocket);
 
     // 确认收到响应（移除待重传记录）
     void confirmReceived(uint16_t packetId, double rtt = 0.0);
-
-    // 检查超时并重传
-    int checkAndRetransmit(int timeoutMs = 1000, int maxRetries = 3);
-
-    // 自适应重传
-    int checkAndRetransmitAdaptive();
-
-    // 清理所有记录
-    void clear();
+    void confirmReceivedBySocket(int forwardSocket);  // 确认指定socket的所有pending包
+    void confirmReceivedByContent(int forwardSocket, const uint8_t* responseData, int responseSize);  // 基于内容匹配确认
 
     // 获取统计信息
     size_t getPendingCount() const;
     uint64_t getTotalRetransmits() const { return totalRetransmits_; }
     uint64_t getTotalDropped() const { return totalDropped_; }
-
-    // 生成唯一的包ID
-    static uint16_t generatePacketId();
 
     // 网络质量评估和自适应重传
     void updateNetworkMetrics(uint16_t packetId, double rtt, bool success);
@@ -93,6 +101,28 @@ public:
 
     // 获取网络质量统计
     NetworkQualityMetrics getNetworkQualityMetrics() const;
+
+    // 生成唯一的包ID (需要公开给worker_thread_pool使用)
+    static uint16_t generatePacketId();
+
+    // 检查超时并重传 (需要公开给vpn_server使用)
+    int checkAndRetransmit(int timeoutMs = 1000, int maxRetries = 3);
+
+    // 清理所有记录 (需要公开给vpn_server使用)
+    void clear();
+
+    // 清理超时的pending packets
+    void cleanupExpiredPackets();
+
+private:
+    // 自适应重传
+    int checkAndRetransmitAdaptive();
+
+    // 协议识别和匹配辅助方法
+    UdpProtocolType detectUdpProtocol(const uint8_t* data, int size);
+    uint32_t extractProtocolIdentifier(UdpProtocolType protocol, const uint8_t* data, int size);
+    const char* getProtocolTypeName(UdpProtocolType protocol);
+    uint32_t hashString(const char* str, int len);
 
 private:
     UdpRetransmitManager()

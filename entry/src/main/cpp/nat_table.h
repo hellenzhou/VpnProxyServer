@@ -65,12 +65,14 @@ public:
     static void CleanupExpired(int timeoutSeconds = 300);
     
     // 生成映射key
-    static std::string GenerateKey(const PacketInfo& info);
-    static std::string GenerateKey(const std::string& clientVirtualIP, 
+    static std::string GenerateKey(const PacketInfo& info, const sockaddr_in& clientPhysicalAddr);
+    static std::string GenerateKey(const std::string& clientVirtualIP,
                                    int clientVirtualPort,
                                    const std::string& serverIP,
                                    int serverPort,
-                                   uint8_t protocol);
+                                   uint8_t protocol,
+                                   const std::string& clientPhysicalIP,
+                                   int clientPhysicalPort);
     
     // 获取映射数量
     static int GetMappingCount();

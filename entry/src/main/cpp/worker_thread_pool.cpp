@@ -167,7 +167,7 @@ void WorkerThreadPool::forwardWorkerThread() {
 
                         if (inet_pton(AF_INET, fwdTask.packetInfo.targetIP.c_str(), &targetAddr.sin_addr) > 0) {
                             UdpRetransmitManager::getInstance().recordSentPacket(
-                                packetId, payload, payloadSize, targetAddr, sockFd);
+                                packetId, payload, payloadSize, targetAddr, fwdTask.clientAddr, sockFd);
                         }
                     }
                 }

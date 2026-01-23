@@ -272,19 +272,31 @@ void NATTable::CleanupExpired(int timeoutSeconds) {
 }
 
 // 生成映射key
-std::string NATTable::GenerateKey(const PacketInfo& info) {
-    return GenerateKey(info.sourceIP, info.sourcePort, 
-                      info.targetIP, info.targetPort, 
-                      info.protocol);
+std::string NATTable::GenerateKey(const PacketInfo& info, const sockaddr_in& clientPhysicalAddr) {
+    char clientIP[INET_ADDRSTRLEN];
+    inet_ntop(AF_INET, &clientPhysicalAddr.sin_addr, clientIP, sizeof(clientIP));
+    int clientPort = ntohs(clientPhysicalAddr.sin_port);
+
+    return GenerateKey(info.sourceIP, info.sourcePort,
+                      info.targetIP, info.targetPort,
+                      info.protocol, clientIP, clientPort);
 }
 
-std::string NATTable::GenerateKey(const std::string& clientVirtualIP, 
+std::string NATTable::GenerateKey(const std::string& clientVirtualIP,
                                   int clientVirtualPort,
                                   const std::string& serverIP,
                                   int serverPort,
-                                  uint8_t protocol) {
+                                  uint8_t protocol,
+                                  const std::string& clientPhysicalIP,
+                                  int clientPhysicalPort) {
     std::ostringstream oss;
-    oss << clientVirtualIP << ":" << clientVirtualPort << "->"
+    // 完整的NAT Key：包含五元组 + 高精度时间戳，用于进程级隔离
+    // 格式：物理IP:物理端口/虚拟IP:虚拟端口@时间戳->目标IP:目标端口/协议
+    auto timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+
+    oss << clientPhysicalIP << ":" << clientPhysicalPort << "/"
+        << clientVirtualIP << ":" << clientVirtualPort << "@" << timestamp << "->"
         << serverIP << ":" << serverPort << "/"
         << (protocol == PROTOCOL_TCP ? "TCP" : "UDP");
     return oss.str();

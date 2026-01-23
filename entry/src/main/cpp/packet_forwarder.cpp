@@ -3,6 +3,7 @@
 #include "nat_table.h"
 #include "protocol_handler.h"
 #include "packet_builder.h"
+#include "udp_retransmit.h"
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -86,7 +87,7 @@ static void StartUDPThread(int sockFd, const sockaddr_in& originalPeer) {
             
             // 🔧 调试：打印接收到的数据
             LOG_INFO("🔍 UDP收到响应: fd=%d, %zd字节", sockFd, received);
-            
+
             // 检查NAT映射
             NATConnection conn;
             if (NATTable::FindMappingBySocket(sockFd, conn)) {
@@ -95,10 +96,13 @@ static void StartUDPThread(int sockFd, const sockaddr_in& originalPeer) {
                 inet_ntop(AF_INET, &originalPeer.sin_addr, peerIP, sizeof(peerIP));
                 uint16_t peerPort = ntohs(originalPeer.sin_port);
                 LOG_INFO("🔍 发送响应到: %s:%d (原始客户端)", peerIP, peerPort);
-                
+
                 ssize_t sent = sendto(sockFd, buffer, received, 0, (struct sockaddr*)&originalPeer, sizeof(originalPeer));
                 if (sent > 0) {
                     LOG_INFO("📤 转发响应成功: %zd字节 -> %s:%d", sent, peerIP, peerPort);
+
+                    // ✅ 确认UDP接收，停止重传 - 使用基于内容的精确匹配
+                    UdpRetransmitManager::getInstance().confirmReceivedByContent(sockFd, buffer, received);
                 } else {
                     LOG_ERROR("❌ 转发响应失败: %s", strerror(errno));
                 }
@@ -215,7 +219,7 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
     }
     
     // 3. 检查或创建NAT映射 (优化版本)
-    std::string natKey = NATTable::GenerateKey(packetInfo);
+    std::string natKey = NATTable::GenerateKey(packetInfo, originalPeer);
     
     NATConnection existingConn;
     int sockFd;
@@ -244,21 +248,25 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
         // ✅ 修复：targetPort已经是主机字节序，不需要再htons
         targetAddr.sin_port = packetInfo.targetPort;
         inet_pton(AF_INET, actualTargetIP.c_str(), &targetAddr.sin_addr);
-        
-        ssize_t sent = sendto(sockFd, payload, payloadSize, 0, 
+
+        ssize_t sent = sendto(sockFd, payload, payloadSize, 0,
                              (struct sockaddr*)&targetAddr, sizeof(targetAddr));
-        
+
         if (sent < 0) {
             LOG_ERROR("UDP发送失败: fd=%d, errno=%d", sockFd, errno);
             NATTable::RemoveMapping(natKey);
             return -1;
         }
-        
+
         LOG_INFO("✅ UDP发送: fd=%d, %zd字节", sockFd, sent);
-        
-        // 6. 启动响应线程
-        StartUDPThread(sockFd, originalPeer);
-        LOG_INFO("🚀 启动UDP响应线程: fd=%d", sockFd);
+
+        // 6. 启动响应线程 - 只在创建新映射时启动
+        if (!NATTable::FindMapping(natKey, existingConn)) {
+            StartUDPThread(sockFd, originalPeer);
+            LOG_INFO("🚀 启动UDP响应线程: fd=%d", sockFd);
+        } else {
+            LOG_INFO("🔄 复用现有UDP响应线程: fd=%d", sockFd);
+        }
         
     } else if (packetInfo.protocol == PROTOCOL_TCP) {
         // TCP转发实现
