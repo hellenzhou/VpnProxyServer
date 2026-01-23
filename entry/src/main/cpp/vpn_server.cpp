@@ -1438,6 +1438,98 @@ napi_value StartServer(napi_env env, napi_callback_info info)
   } else {
     VPN_SERVER_LOGI("✅ Worker thread pool started: 4 forward workers, 2 response workers");
     VPN_SERVER_LOGI("✅ Worker thread pool state: isRunning=%d", WorkerThreadPool::getInstance().isRunning() ? 1 : 0);
+
+    // 🔍 显示初始统计信息
+    auto stats = WorkerThreadPool::getInstance().getStats();
+    VPN_SERVER_LOGI("📊 Initial worker stats: forward_processed=%llu, response_processed=%llu, forward_failed=%llu, response_failed=%llu",
+                   stats.forwardTasksProcessed, stats.responseTasksProcessed,
+                   stats.forwardTasksFailed, stats.responseTasksFailed);
+
+    // 🚨 关键诊断：检查是否有任务正在处理
+    VPN_SERVER_LOGI("🔍 [诊断开始] 检查工作线程池是否正常工作...");
+    VPN_SERVER_LOGI("🔍 [诊断] 工作线程池运行状态: %s", WorkerThreadPool::getInstance().isRunning() ? "正常" : "异常");
+    VPN_SERVER_LOGI("🔍 [诊断] 任务队列状态: 待检查");
+    VPN_SERVER_LOGI("🔍 [诊断结束] 如果看到'Forward worker received task'日志，说明工作正常");
+
+    // 🧪 添加一个简单的自检测试
+    VPN_SERVER_LOGI("🧪 [自检测试] 开始系统自检诊断...");
+
+    // 延迟执行，让系统先运行一会儿
+    std::thread([=]() {
+        std::this_thread::sleep_for(std::chrono::seconds(3));
+
+        VPN_SERVER_LOGI("🧪 [自检测试] ===== 系统状态检查 =====");
+
+        // 检查工作线程池状态
+        bool isRunning = WorkerThreadPool::getInstance().isRunning();
+        VPN_SERVER_LOGI("🧪 [检查1] 工作线程池运行状态: %s", isRunning ? "✅ 正常" : "❌ 异常");
+
+        // 检查统计信息
+        auto stats = WorkerThreadPool::getInstance().getStats();
+        VPN_SERVER_LOGI("🧪 [检查2] 任务处理统计:");
+        VPN_SERVER_LOGI("   - 转发任务已处理: %llu", stats.forwardTasksProcessed);
+        VPN_SERVER_LOGI("   - 转发任务失败: %llu", stats.forwardTasksFailed);
+        VPN_SERVER_LOGI("   - 响应任务已处理: %llu", stats.responseTasksProcessed);
+        VPN_SERVER_LOGI("   - 响应任务失败: %llu", stats.responseTasksFailed);
+
+        // 检查任务队列
+        VPN_SERVER_LOGI("🧪 [检查3] 任务队列状态: 监控中...");
+
+        // 诊断建议
+        VPN_SERVER_LOGI("🧪 [系统诊断结果]");
+
+        // 详细诊断每个环节
+        VPN_SERVER_LOGI("🔍 [诊断1] 工作线程池状态:");
+        if (!isRunning) {
+            VPN_SERVER_LOGI("  ❌ 工作线程池未运行 - 这是致命问题，请重启应用");
+            VPN_SERVER_LOGI("  💡 建议：检查应用是否正常启动，查看系统日志中的崩溃信息");
+        } else {
+            VPN_SERVER_LOGI("  ✅ 工作线程池正常运行");
+        }
+
+        VPN_SERVER_LOGI("🔍 [诊断2] 任务处理状态:");
+        if (stats.forwardTasksProcessed == 0) {
+            VPN_SERVER_LOGI("  ❌ 没有转发任务被处理 - VPN客户端没有发送数据或数据丢失");
+            VPN_SERVER_LOGI("  💡 建议：检查VPN客户端是否正常运行，确认TUN设备流量");
+        } else {
+            VPN_SERVER_LOGI("  ✅ 已处理 %llu 个转发任务", stats.forwardTasksProcessed);
+        }
+
+        VPN_SERVER_LOGI("🔍 [诊断3] 任务成功率:");
+        if (stats.forwardTasksProcessed > 0) {
+            double successRate = (stats.forwardTasksProcessed - stats.forwardTasksFailed) * 100.0 / stats.forwardTasksProcessed;
+            if (successRate < 50.0) {
+                VPN_SERVER_LOGI("  ❌ 转发成功率只有 %.1f%% - 网络连接或目标服务器问题", successRate);
+                VPN_SERVER_LOGI("  💡 建议：检查网络连通性，测试目标服务器可达性");
+            } else {
+                VPN_SERVER_LOGI("  ✅ 转发成功率 %.1f%% - 任务处理正常", successRate);
+            }
+        }
+
+        VPN_SERVER_LOGI("🔍 [诊断4] 响应处理状态:");
+        if (stats.responseTasksProcessed == 0) {
+            VPN_SERVER_LOGI("  ⚠️  没有响应任务被处理 - 可能服务器没有收到响应或响应处理失败");
+            VPN_SERVER_LOGI("  💡 建议：检查网络双向连通性，确认响应线程正常启动");
+        } else {
+            VPN_SERVER_LOGI("  ✅ 已处理 %llu 个响应任务", stats.responseTasksProcessed);
+        }
+
+        // 综合判断
+        VPN_SERVER_LOGI("🎯 [综合诊断]");
+        if (!isRunning) {
+            VPN_SERVER_LOGI("🚨 根本问题：工作线程池启动失败 - 需要重启应用");
+        } else if (stats.forwardTasksProcessed == 0) {
+            VPN_SERVER_LOGI("🚨 根本问题：没有数据流入 - VPN客户端或TUN设备问题");
+        } else if (stats.forwardTasksFailed >= stats.forwardTasksProcessed) {
+            VPN_SERVER_LOGI("🚨 根本问题：所有转发任务都失败 - 网络连接问题");
+        } else if (stats.responseTasksProcessed == 0) {
+            VPN_SERVER_LOGI("🚨 根本问题：响应处理中断 - 网络单向可达但双向通信失败");
+        } else {
+            VPN_SERVER_LOGI("✅ 系统核心功能正常 - 如果网站仍无法访问，检查DNS或应用层问题");
+        }
+
+        VPN_SERVER_LOGI("🧪 [自检测试] ===== 自检完成 =====");
+    }).detach();
   }
   
   // 清理UDP重传管理器

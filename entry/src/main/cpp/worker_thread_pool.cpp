@@ -123,8 +123,9 @@ void WorkerThreadPool::forwardWorkerThread() {
             continue;  // 超时或队列关闭
         }
 
+        Task& taskRef = taskOpt.value();
         WORKER_LOGI("📨 Forward worker received task: type=%d, iteration=%d",
-                   static_cast<int>(taskOpt.value().type), iteration);
+                   static_cast<int>(taskRef.type), iteration);
 
         // 🐛 修复：复制Task对象而不是引用，避免生命周期问题
         Task task = taskOpt.value();
@@ -136,14 +137,13 @@ void WorkerThreadPool::forwardWorkerThread() {
         ForwardTask& fwdTask = task.forwardTask;
         processedTasks++;
 
-        // 记录前几个任务和每100个任务
-        if (processedTasks <= 10 || processedTasks % 100 == 0) {
-            WORKER_LOGI("📊 Forward worker processing task #%{public}d: %s -> %s:%d", 
-                        processedTasks,
-                        ProtocolHandler::GetProtocolName(fwdTask.packetInfo.protocol).c_str(),
-                        fwdTask.packetInfo.targetIP.c_str(), 
-                        fwdTask.packetInfo.targetPort);
-        }
+        // 🚨 关键诊断：记录每个任务的详细处理过程
+        WORKER_LOGI("🔍 [任务处理开始] 任务#%d: %s %s:%d -> %s:%d (%d字节)",
+                   processedTasks,
+                   fwdTask.packetInfo.protocol == PROTOCOL_TCP ? "TCP" : "UDP",
+                   fwdTask.packetInfo.sourceIP.c_str(), fwdTask.packetInfo.sourcePort,
+                   fwdTask.packetInfo.targetIP.c_str(), fwdTask.packetInfo.targetPort,
+                   fwdTask.dataSize);
 
         // 🔍 调试：记录任务处理开始
         WORKER_LOGI("🔄 开始处理转发任务: %s %s:%d -> %s:%d (%d字节)",

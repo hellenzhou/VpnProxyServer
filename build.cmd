@@ -30,6 +30,18 @@ if not exist %HVIGOR_SCRIPT% (
 echo ✅ DevEco Studio tools found
 echo.
 
+REM Stop any existing hvigor daemon to clear cached environment variables
+echo 🔄 Stopping existing hvigor daemon...
+%DEVECO_NODE% %HVIGOR_SCRIPT% --stop-daemon >nul 2>&1
+timeout /t 2 /nobreak >nul
+echo ✅ Daemon stopped
+echo.
+
+REM Set required environment variables
+set DEVECO_SDK_HOME=F:\Huawei\DevEco Studio\sdk
+echo 🔧 Set DEVECO_SDK_HOME=%DEVECO_SDK_HOME%
+echo.
+
 echo 🔨 Starting build process...
 echo    Module: entry@default
 echo    Product: default

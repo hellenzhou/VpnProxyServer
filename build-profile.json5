@@ -5,13 +5,13 @@
         "name": "default",
         "type": "HarmonyOS",
         "material": {
-          "certpath": "C:\\Users\\LeagSoft\\.ohos\\config\\default_VpnProxyServer_3OY97C7DhfR-jqc5aua3vHRaPtcUoLk1-zsOXb_JqbA=.cer",
+          "certpath": "C:/Users/LeagSoft/.ohos/config/default_VpnProxyServer_3OY97C7DhfR-jqc5aua3vHRaPtcUoLk1-zsOXb_JqbA=.cer",
           "keyAlias": "debugKey",
-          "keyPassword": "0000001BF048C8C63201F20381B686D30657464A4CBBFB827DF21529341EFEB6003680ABD0240747B10DE5",
-          "profile": "C:\\Users\\LeagSoft\\.ohos\\config\\default_VpnProxyServer_3OY97C7DhfR-jqc5aua3vHRaPtcUoLk1-zsOXb_JqbA=.p7b",
+          "keyPassword": "0000001BE5DAEC28A310EE9A92441BEA776956565F8A155FB68BED3B54A3AB53BDA0EA39848A6100D0E262",
+          "profile": "C:/Users/LeagSoft/.ohos/config/default_VpnProxyServer_3OY97C7DhfR-jqc5aua3vHRaPtcUoLk1-zsOXb_JqbA=.p7b",
           "signAlg": "SHA256withECDSA",
-          "storeFile": "C:\\Users\\LeagSoft\\.ohos\\config\\default_VpnProxyServer_3OY97C7DhfR-jqc5aua3vHRaPtcUoLk1-zsOXb_JqbA=.p12",
-          "storePassword": "0000001BBBD3A11021E76CD4A4B18DDE4BA9DA5D6B7137B916BE19286E9364DE2526821560C584F45C6923"
+          "storeFile": "C:/Users/LeagSoft/.ohos/config/default_VpnProxyServer_3OY97C7DhfR-jqc5aua3vHRaPtcUoLk1-zsOXb_JqbA=.p12",
+          "storePassword": "0000001BE78127ED3A8AB6C22C6EBAB606E858366D9100749B7101AD1244C0A3D86EEA409A594DCE74791B"
         }
       }
     ],

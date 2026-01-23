@@ -15,6 +15,8 @@
 #include <string>
 #include <thread>
 #include <sys/time.h>
+#include <fcntl.h>
+#include <poll.h>
 #include <mutex>
 #include <queue>
 #include <chrono>
@@ -181,6 +183,11 @@ private:
 
 // 🎯 获取socket (使用连接池优化 - 按客户端+目标分组确保数据隔离)
 static int GetSocket(const PacketInfo& packetInfo, const sockaddr_in& clientAddr) {
+    // 🔍 关键调试：记录socket获取过程
+    LOG_INFO("🔍 [Socket获取] 开始为 %s:%d -> %s:%d 获取socket",
+             packetInfo.sourceIP.c_str(), packetInfo.sourcePort,
+             packetInfo.targetIP.c_str(), packetInfo.targetPort);
+
     // 从连接池获取socket - 按客户端+目标分组，确保每个客户端到每个目标都有独立socket
     char clientIP[INET_ADDRSTRLEN];
     inet_ntop(AF_INET, &clientAddr.sin_addr, clientIP, sizeof(clientIP));
@@ -194,18 +201,22 @@ static int GetSocket(const PacketInfo& packetInfo, const sockaddr_in& clientAddr
     );
 
     if (sockFd < 0) {
-        LOG_ERROR("获取socket失败");
+        LOG_ERROR("❌ [Socket获取失败] 连接池返回无效socket: %d", sockFd);
         return -1;
     }
 
     // 设置特殊超时 - DNS查询使用更长超时时间
     if (packetInfo.protocol == PROTOCOL_UDP && packetInfo.targetPort == 53) {
         struct timeval timeout = {10, 0};  // DNS查询：10秒超时
-        setsockopt(sockFd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+        if (setsockopt(sockFd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0) {
+            LOG_ERROR("❌ [Socket配置失败] 设置超时失败: %s", strerror(errno));
+            close(sockFd);
+            return -1;
+        }
         LOG_INFO("⏱️ DNS查询socket超时: 10秒, fd=%d", sockFd);
     }
 
-    LOG_INFO("✅ 获取socket成功: fd=%d, 客户端=%s:%d -> 服务器=%s:%d, 协议=%s",
+    LOG_INFO("✅ [Socket获取成功] fd=%d, 客户端=%s:%d -> 服务器=%s:%d, 协议=%s",
              sockFd, clientIP, ntohs(clientAddr.sin_port),
              packetInfo.targetIP.c_str(), packetInfo.targetPort,
              packetInfo.protocol == PROTOCOL_TCP ? "TCP" : "UDP");
@@ -376,13 +387,28 @@ static void StartTCPThread(int sockFd, const sockaddr_in& originalPeer) {
 
 // ========== 主转发函数 ==========
 
-int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize, 
-                                  const PacketInfo& packetInfo, 
+int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
+                                  const PacketInfo& packetInfo,
                                   const sockaddr_in& originalPeer) {
-    LOG_INFO("📦 转发: %s:%d -> %s:%d (%s, %d字节)",
+    // 🚨 关键诊断：记录转发开始
+    LOG_INFO("📦 [转发开始] %s:%d -> %s:%d (%s, %d字节)",
             packetInfo.sourceIP.c_str(), packetInfo.sourcePort,
             packetInfo.targetIP.c_str(), packetInfo.targetPort,
             packetInfo.protocol == PROTOCOL_TCP ? "TCP" : "UDP", dataSize);
+
+    // 🚨 验证输入参数
+    if (!data || dataSize <= 0) {
+        LOG_ERROR("❌ [参数验证失败] 无效数据: data=%p, dataSize=%d", data, dataSize);
+        return -1;
+    }
+
+    if (packetInfo.targetIP.empty() || packetInfo.targetPort <= 0) {
+        LOG_ERROR("❌ [参数验证失败] 无效目标: IP=%s, Port=%d",
+                 packetInfo.targetIP.c_str(), packetInfo.targetPort);
+        return -1;
+    }
+
+    LOG_INFO("✅ [参数验证通过] 所有输入参数有效");
     
     // 1. 提取payload
     const uint8_t* payload = nullptr;
@@ -433,59 +459,138 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
     
     // 5. 发送数据
     if (packetInfo.protocol == PROTOCOL_UDP) {
+        // 🔍 关键调试：UDP发送过程
+        LOG_INFO("🔍 [UDP转发] 开始发送数据: %s:%d -> %s:%d (%d字节)",
+                 packetInfo.sourceIP.c_str(), packetInfo.sourcePort,
+                 actualTargetIP.c_str(), packetInfo.targetPort, payloadSize);
+
         struct sockaddr_in targetAddr{};
         targetAddr.sin_family = AF_INET;
         // ✅ 修复：targetPort已经是主机字节序，不需要再htons
         targetAddr.sin_port = packetInfo.targetPort;
-        inet_pton(AF_INET, actualTargetIP.c_str(), &targetAddr.sin_addr);
+        if (inet_pton(AF_INET, actualTargetIP.c_str(), &targetAddr.sin_addr) <= 0) {
+            LOG_ERROR("❌ [UDP转发] 无效目标地址: %s", actualTargetIP.c_str());
+            NATTable::RemoveMapping(natKey);
+            return -1;
+        }
+
+        LOG_INFO("📤 [UDP发送] 发送到 %s:%d (fd=%d)...",
+                 actualTargetIP.c_str(), packetInfo.targetPort, sockFd);
 
         ssize_t sent = sendto(sockFd, payload, payloadSize, 0,
                              (struct sockaddr*)&targetAddr, sizeof(targetAddr));
 
         if (sent < 0) {
-            LOG_ERROR("UDP发送失败: fd=%d, errno=%d", sockFd, errno);
+            LOG_ERROR("❌ [UDP发送失败] fd=%d, errno=%d (%s)", sockFd, errno, strerror(errno));
             NATTable::RemoveMapping(natKey);
             return -1;
         }
 
-        LOG_INFO("✅ UDP发送: fd=%d, %zd字节", sockFd, sent);
+        LOG_INFO("✅ [UDP发送成功] fd=%d, 发送了 %zd 字节到 %s:%d",
+                 sockFd, sent, actualTargetIP.c_str(), packetInfo.targetPort);
 
         // 6. 启动响应线程 - 只在创建新映射时启动
         if (!NATTable::FindMapping(natKey, existingConn)) {
             StartUDPThread(sockFd, originalPeer);
-            LOG_INFO("🚀 启动UDP响应线程: fd=%d", sockFd);
+            LOG_INFO("🚀 [UDP响应线程] 新建响应处理线程 (fd=%d)", sockFd);
         } else {
-            LOG_INFO("🔄 复用现有UDP响应线程: fd=%d", sockFd);
+            LOG_INFO("🔄 [UDP响应线程] 复用现有响应处理线程 (fd=%d)", sockFd);
         }
         
     } else if (packetInfo.protocol == PROTOCOL_TCP) {
+    // 🔍 关键调试：TCP连接建立过程
+    LOG_INFO("🔍 [TCP转发] 开始建立连接: %s:%d -> %s:%d",
+             packetInfo.sourceIP.c_str(), packetInfo.sourcePort,
+             actualTargetIP.c_str(), packetInfo.targetPort);
+
+    // 🚨 紧急诊断：测试目标服务器连通性
+    LOG_INFO("🔍 [连通性测试] 测试目标服务器 %s:%d 连通性...",
+             actualTargetIP.c_str(), packetInfo.targetPort);
+
+    // 创建临时socket测试连通性
+    int testSock = socket(AF_INET, SOCK_STREAM, 0);
+    if (testSock >= 0) {
+        struct sockaddr_in testAddr{};
+        testAddr.sin_family = AF_INET;
+        testAddr.sin_port = htons(packetInfo.targetPort);
+        inet_pton(AF_INET, actualTargetIP.c_str(), &testAddr.sin_addr);
+
+        // 设置非阻塞模式进行快速测试
+        int flags = fcntl(testSock, F_GETFL, 0);
+        fcntl(testSock, F_SETFL, flags | O_NONBLOCK);
+
+        int connectResult = connect(testSock, (struct sockaddr*)&testAddr, sizeof(testAddr));
+        if (connectResult == 0) {
+            LOG_INFO("✅ [连通性测试] 目标服务器 %s:%d 直接可达",
+                     actualTargetIP.c_str(), packetInfo.targetPort);
+        } else if (errno == EINPROGRESS) {
+            // 非阻塞连接进行中，检查是否会成功
+            struct pollfd pfd = {testSock, POLLOUT, 0};
+            int pollResult = poll(&pfd, 1, 1000); // 1秒超时
+
+            if (pollResult > 0) {
+                int error = 0;
+                socklen_t len = sizeof(error);
+                getsockopt(testSock, SOL_SOCKET, SO_ERROR, &error, &len);
+
+                if (error == 0) {
+                    LOG_INFO("✅ [连通性测试] 目标服务器 %s:%d 连接成功",
+                             actualTargetIP.c_str(), packetInfo.targetPort);
+                } else {
+                    LOG_ERROR("❌ [连通性测试] 目标服务器 %s:%d 连接失败: %s",
+                             actualTargetIP.c_str(), packetInfo.targetPort, strerror(error));
+                }
+            } else {
+                LOG_ERROR("❌ [连通性测试] 目标服务器 %s:%d 连接超时 (1秒)",
+                         actualTargetIP.c_str(), packetInfo.targetPort);
+            }
+        } else {
+            LOG_ERROR("❌ [连通性测试] 目标服务器 %s:%d 连接立即失败: %s",
+                     actualTargetIP.c_str(), packetInfo.targetPort, strerror(errno));
+        }
+
+        close(testSock);
+    } else {
+        LOG_ERROR("❌ [连通性测试] 无法创建测试socket: %s", strerror(errno));
+    }
+
         // TCP转发实现
         struct sockaddr_in targetAddr{};
         targetAddr.sin_family = AF_INET;
         targetAddr.sin_port = htons(packetInfo.targetPort);
-        inet_pton(AF_INET, actualTargetIP.c_str(), &targetAddr.sin_addr);
-        
-        // 连接到目标服务器
-        if (connect(sockFd, (struct sockaddr*)&targetAddr, sizeof(targetAddr)) < 0) {
-            LOG_ERROR("TCP连接失败: fd=%d, 目标=%s:%d, errno=%d", 
-                     sockFd, actualTargetIP.c_str(), packetInfo.targetPort, errno);
+        if (inet_pton(AF_INET, actualTargetIP.c_str(), &targetAddr.sin_addr) <= 0) {
+            LOG_ERROR("❌ [TCP转发] 无效目标地址: %s", actualTargetIP.c_str());
             NATTable::RemoveMapping(natKey);
             return -1;
         }
-        
+
+        // 连接到目标服务器
+        LOG_INFO("🔗 [TCP连接] 正在连接到 %s:%d (fd=%d)...",
+                 actualTargetIP.c_str(), packetInfo.targetPort, sockFd);
+
+        if (connect(sockFd, (struct sockaddr*)&targetAddr, sizeof(targetAddr)) < 0) {
+            LOG_ERROR("❌ [TCP连接失败] fd=%d, 目标=%s:%d, errno=%d (%s)",
+                     sockFd, actualTargetIP.c_str(), packetInfo.targetPort, errno, strerror(errno));
+            NATTable::RemoveMapping(natKey);
+            return -1;
+        }
+
+        LOG_INFO("✅ [TCP连接成功] fd=%d 已连接到 %s:%d", sockFd, actualTargetIP.c_str(), packetInfo.targetPort);
+
         // 发送TCP数据
+        LOG_INFO("📤 [TCP发送] 发送 %d 字节数据 (fd=%d)...", payloadSize, sockFd);
         ssize_t sent = send(sockFd, payload, payloadSize, 0);
         if (sent < 0) {
-            LOG_ERROR("TCP发送失败: fd=%d, errno=%d", sockFd, errno);
+            LOG_ERROR("❌ [TCP发送失败] fd=%d, errno=%d (%s)", sockFd, errno, strerror(errno));
             NATTable::RemoveMapping(natKey);
             return -1;
         }
-        
-        LOG_INFO("✅ TCP发送: fd=%d, %zd字节", sockFd, sent);
-        
+
+        LOG_INFO("✅ [TCP发送成功] fd=%d, 发送了 %zd 字节", sockFd, sent);
+
         // 启动TCP响应处理
         StartTCPThread(sockFd, originalPeer);
-        LOG_INFO("🚀 启动TCP响应线程: fd=%d", sockFd);
+        LOG_INFO("🚀 [TCP响应线程] 已启动响应处理线程 (fd=%d)", sockFd);
         
     } else {
         LOG_ERROR("不支持的协议: %d", packetInfo.protocol);
