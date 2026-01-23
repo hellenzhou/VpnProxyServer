@@ -15,46 +15,200 @@
 #include <string>
 #include <thread>
 #include <sys/time.h>
+#include <mutex>
+#include <queue>
+#include <chrono>
 
 #define LOG_INFO(fmt, ...) \
     OH_LOG_Print(LOG_APP, LOG_INFO, 0x15b1, "VpnServer", "ZHOUB [Forwarder] " fmt, ##__VA_ARGS__)
 #define LOG_ERROR(fmt, ...) \
     OH_LOG_Print(LOG_APP, LOG_ERROR, 0x15b1, "VpnServer", "ZHOUB [Forwarder] ❌ " fmt, ##__VA_ARGS__)
 
-// 🎯 获取socket (支持TCP和UDP)
-static int GetSocket(const PacketInfo& packetInfo) {
-    int sockFd;
-    
-    if (packetInfo.protocol == PROTOCOL_UDP) {
-        // UDP socket
-        sockFd = socket(packetInfo.addressFamily, SOCK_DGRAM, 0);
-    } else if (packetInfo.protocol == PROTOCOL_TCP) {
-        // TCP socket
-        sockFd = socket(packetInfo.addressFamily, SOCK_STREAM, 0);
-    } else {
-        LOG_ERROR("不支持的协议: %d", packetInfo.protocol);
+// 🎯 Socket连接池 - 解决文件描述符耗尽问题
+class SocketConnectionPool {
+private:
+    struct SocketInfo {
+        int sockFd;
+        std::chrono::steady_clock::time_point lastUsed;
+        bool inUse;
+
+        SocketInfo(int fd) : sockFd(fd), lastUsed(std::chrono::steady_clock::now()), inUse(false) {}
+    };
+
+    struct TargetKey {
+        std::string clientIP;    // 客户端IP
+        uint16_t clientPort;     // 客户端端口
+        std::string serverIP;    // 服务器IP
+        uint16_t serverPort;     // 服务器端口
+        uint8_t protocol;
+
+        bool operator<(const TargetKey& other) const {
+            if (clientIP != other.clientIP) return clientIP < other.clientIP;
+            if (clientPort != other.clientPort) return clientPort < other.clientPort;
+            if (serverIP != other.serverIP) return serverIP < other.serverIP;
+            if (serverPort != other.serverPort) return serverPort < other.serverPort;
+            return protocol < other.protocol;
+        }
+    };
+
+    std::map<TargetKey, std::queue<SocketInfo>> socketPools_;
+    std::mutex poolMutex_;
+    const size_t MAX_SOCKETS_PER_TARGET = 5;  // 每个目标最多5个socket
+    const int SOCKET_TIMEOUT_SECONDS = 300;  // 5分钟超时
+
+    SocketConnectionPool() = default;
+    ~SocketConnectionPool() {
+        cleanup();
+    }
+
+public:
+    static SocketConnectionPool& getInstance() {
+        static SocketConnectionPool instance;
+        return instance;
+    }
+
+    // 获取或创建socket - 按客户端+目标分组，确保数据隔离
+    int getSocket(const std::string& clientIP, uint16_t clientPort,
+                  const std::string& serverIP, uint16_t serverPort, uint8_t protocol) {
+        std::lock_guard<std::mutex> lock(poolMutex_);
+        TargetKey key{clientIP, clientPort, serverIP, serverPort, protocol};
+
+        // 尝试从池中获取现有socket
+        auto& pool = socketPools_[key];
+        while (!pool.empty()) {
+            SocketInfo& info = pool.front();
+            pool.pop();
+
+            // 检查socket是否仍然有效
+            if (isSocketValid(info.sockFd)) {
+                // 检查是否超时
+                auto now = std::chrono::steady_clock::now();
+                auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
+                    now - info.lastUsed).count();
+
+                if (elapsed < SOCKET_TIMEOUT_SECONDS) {
+                    info.inUse = true;
+                    info.lastUsed = now;
+                    LOG_INFO("♻️ 复用socket连接: fd=%d, 客户端=%s:%d -> 服务器=%s:%d",
+                             info.sockFd, clientIP.c_str(), clientPort, serverIP.c_str(), serverPort);
+                    return info.sockFd;
+                } else {
+                    // 超时，关闭socket
+                    close(info.sockFd);
+                    LOG_INFO("⏰ 清理超时socket: fd=%d", info.sockFd);
+                }
+            }
+        }
+
+        // 创建新socket
+        int newSock = createNewSocket(protocol);
+        if (newSock >= 0) {
+            SocketInfo info(newSock);
+            info.inUse = true;
+            LOG_INFO("🆕 创建新socket连接: fd=%d, 客户端=%s:%d -> 服务器=%s:%d",
+                      newSock, clientIP.c_str(), clientPort, serverIP.c_str(), serverPort);
+            return newSock;
+        }
+
         return -1;
     }
-    
+
+    // 归还socket到池中
+    void returnSocket(int sockFd, const std::string& clientIP, uint16_t clientPort,
+                      const std::string& serverIP, uint16_t serverPort, uint8_t protocol) {
+        std::lock_guard<std::mutex> lock(poolMutex_);
+        TargetKey key{clientIP, clientPort, serverIP, serverPort, protocol};
+
+        auto& pool = socketPools_[key];
+        if (pool.size() < MAX_SOCKETS_PER_TARGET) {
+            SocketInfo info(sockFd);
+            info.inUse = false;
+            pool.push(info);
+            LOG_INFO("📥 归还socket到连接池: fd=%d, 客户端=%s:%d -> 服务器=%s:%d",
+                      sockFd, clientIP.c_str(), clientPort, serverIP.c_str(), serverPort);
+        } else {
+            // 池已满，关闭socket
+            close(sockFd);
+            LOG_INFO("🗑️ 连接池已满，关闭socket: fd=%d (客户端=%s:%d -> 服务器=%s:%d)",
+                      sockFd, clientIP.c_str(), clientPort, serverIP.c_str(), serverPort);
+        }
+    }
+
+    // 清理所有socket
+    void cleanup() {
+        std::lock_guard<std::mutex> lock(poolMutex_);
+        for (auto& pair : socketPools_) {
+            while (!pair.second.empty()) {
+                SocketInfo& info = pair.second.front();
+                close(info.sockFd);
+                pair.second.pop();
+            }
+        }
+        socketPools_.clear();
+        LOG_INFO("🧹 清理所有socket连接池");
+    }
+
+private:
+    int createNewSocket(uint8_t protocol) {
+        int sockFd;
+        if (protocol == PROTOCOL_UDP) {
+            sockFd = socket(AF_INET, SOCK_DGRAM, 0);
+        } else if (protocol == PROTOCOL_TCP) {
+            sockFd = socket(AF_INET, SOCK_STREAM, 0);
+        } else {
+            return -1;
+        }
+
+        if (sockFd < 0) {
+            LOG_ERROR("创建socket失败: %s", strerror(errno));
+            return -1;
+        }
+
+        // 设置超时
+        struct timeval timeout = {5, 0};  // 5秒超时
+        setsockopt(sockFd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+
+        return sockFd;
+    }
+
+    bool isSocketValid(int sockFd) {
+        // 简单检查socket是否仍然有效
+        int error = 0;
+        socklen_t len = sizeof(error);
+        return getsockopt(sockFd, SOL_SOCKET, SO_ERROR, &error, &len) == 0 && error == 0;
+    }
+};
+
+// 🎯 获取socket (使用连接池优化 - 按客户端+目标分组确保数据隔离)
+static int GetSocket(const PacketInfo& packetInfo, const sockaddr_in& clientAddr) {
+    // 从连接池获取socket - 按客户端+目标分组，确保每个客户端到每个目标都有独立socket
+    char clientIP[INET_ADDRSTRLEN];
+    inet_ntop(AF_INET, &clientAddr.sin_addr, clientIP, sizeof(clientIP));
+
+    int sockFd = SocketConnectionPool::getInstance().getSocket(
+        clientIP,
+        ntohs(clientAddr.sin_port),
+        packetInfo.targetIP,
+        packetInfo.targetPort,
+        packetInfo.protocol
+    );
+
     if (sockFd < 0) {
-        LOG_ERROR("创建socket失败: %s", strerror(errno));
+        LOG_ERROR("获取socket失败");
         return -1;
     }
-    
-    // 设置超时 - DNS查询使用更长超时时间
-    struct timeval timeout;
+
+    // 设置特殊超时 - DNS查询使用更长超时时间
     if (packetInfo.protocol == PROTOCOL_UDP && packetInfo.targetPort == 53) {
-        // DNS查询：10秒超时
-        timeout = {10, 0};
-        LOG_INFO("⏱️ DNS查询socket超时: 10秒");
-    } else {
-        // 其他UDP/TCP：5秒超时
-        timeout = {5, 0};
+        struct timeval timeout = {10, 0};  // DNS查询：10秒超时
+        setsockopt(sockFd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+        LOG_INFO("⏱️ DNS查询socket超时: 10秒, fd=%d", sockFd);
     }
-    setsockopt(sockFd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
-    
-    LOG_INFO("✅ 创建新socket: fd=%d, 协议=%s", 
-             sockFd, packetInfo.protocol == PROTOCOL_TCP ? "TCP" : "UDP");
+
+    LOG_INFO("✅ 获取socket成功: fd=%d, 客户端=%s:%d -> 服务器=%s:%d, 协议=%s",
+             sockFd, clientIP, ntohs(clientAddr.sin_port),
+             packetInfo.targetIP.c_str(), packetInfo.targetPort,
+             packetInfo.protocol == PROTOCOL_TCP ? "TCP" : "UDP");
     return sockFd;
 }
 
@@ -112,10 +266,28 @@ static void StartUDPThread(int sockFd, const sockaddr_in& originalPeer) {
             }
         }
         
-        // 🧹 清理NAT映射和socket
-        LOG_INFO("🧹 清理UDP线程资源: fd=%d", sockFd);
+        // 🧹 清理NAT映射并归还socket到连接池
+        LOG_INFO("🧹 清理UDP线程资源并归还socket: fd=%d", sockFd);
         NATTable::RemoveMappingBySocket(sockFd);
-        close(sockFd);
+
+        // 获取目标地址信息，用于归还socket到连接池
+        NATConnection conn;
+        if (NATTable::FindMappingBySocket(sockFd, conn)) {
+            char clientIP[INET_ADDRSTRLEN];
+            inet_ntop(AF_INET, &conn.clientPhysicalAddr.sin_addr, clientIP, sizeof(clientIP));
+            SocketConnectionPool::getInstance().returnSocket(
+                sockFd,
+                clientIP,
+                ntohs(conn.clientPhysicalAddr.sin_port),
+                conn.serverIP,
+                conn.serverPort,
+                PROTOCOL_UDP
+            );
+        } else {
+            // 如果找不到映射，直接关闭
+            close(sockFd);
+            LOG_INFO("⚠️ 找不到NAT映射，直接关闭socket: fd=%d", sockFd);
+        }
         
     }).detach();
 }
@@ -175,10 +347,28 @@ static void StartTCPThread(int sockFd, const sockaddr_in& originalPeer) {
             }
         }
         
-        // 🧹 清理NAT映射和socket
-        LOG_INFO("🧹 清理TCP线程资源: fd=%d", sockFd);
+        // 🧹 清理NAT映射并归还socket到连接池
+        LOG_INFO("🧹 清理TCP线程资源并归还socket: fd=%d", sockFd);
         NATTable::RemoveMappingBySocket(sockFd);
-        close(sockFd);
+
+        // 获取目标地址信息，用于归还socket到连接池
+        NATConnection conn;
+        if (NATTable::FindMappingBySocket(sockFd, conn)) {
+            char clientIP[INET_ADDRSTRLEN];
+            inet_ntop(AF_INET, &conn.clientPhysicalAddr.sin_addr, clientIP, sizeof(clientIP));
+            SocketConnectionPool::getInstance().returnSocket(
+                sockFd,
+                clientIP,
+                ntohs(conn.clientPhysicalAddr.sin_port),
+                conn.serverIP,
+                conn.serverPort,
+                PROTOCOL_TCP
+            );
+        } else {
+            // 如果找不到映射，直接关闭
+            close(sockFd);
+            LOG_INFO("⚠️ 找不到NAT映射，直接关闭socket: fd=%d", sockFd);
+        }
         
     }).detach();
 }
@@ -231,7 +421,7 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
         
     } else {
         // 没有现有映射，创建新socket和映射
-        sockFd = GetSocket(packetInfo);
+        sockFd = GetSocket(packetInfo, originalPeer);
         if (sockFd < 0) {
             LOG_ERROR("获取socket失败");
             return -1;
@@ -302,7 +492,26 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
         NATTable::RemoveMapping(natKey);
         return -1;
     }
-    
+
     return sockFd;
+}
+
+// 🎯 清理所有缓存的socket和线程
+void PacketForwarder::CleanupAll() {
+    LOG_INFO("🧹 开始清理所有转发器资源");
+
+    // 清理socket连接池
+    SocketConnectionPool::getInstance().cleanup();
+
+    // 清理过期NAT映射
+    NATTable::CleanupExpired(0);  // 清理所有映射
+
+    LOG_INFO("✅ 转发器资源清理完成");
+}
+
+// 🎯 输出统计信息（用于调试）
+void PacketForwarder::LogStatistics() {
+    LOG_INFO("📊 PacketForwarder统计信息");
+    // TODO: 添加具体的统计信息输出
 }
 
