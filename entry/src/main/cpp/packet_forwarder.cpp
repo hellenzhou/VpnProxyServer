@@ -806,7 +806,7 @@ static void StartTCPThread(int sockFd, const sockaddr_in& originalPeer) {
                 uint16_t peerPort = ntohs(originalPeer.sin_port);
                 LOG_INFO("🔍 TCP响应: 构建完整IP包发送到 %s:%d", peerIP, peerPort);
 
-                // Snapshot + advance nextServerSeq under lock
+            // Snapshot + advance nextServerSeq under lock
                 uint32_t seqToSend = 0;
                 uint32_t ackToSend = 0;
                 PacketInfo origReq = conn.originalRequest;
@@ -815,6 +815,9 @@ static void StartTCPThread(int sockFd, const sockaddr_in& originalPeer) {
                     ackToSend = c.nextClientSeq;
                     c.nextServerSeq += static_cast<uint32_t>(received);
                 });
+
+            LOG_INFO("TCP_SERVER_DATA fd=%d len=%zd seq=%u ack=%u",
+                     sockFd, received, seqToSend, ackToSend);
 
                 const size_t responseCapacity = static_cast<size_t>(received) + 64; // IPv4+TCP headers
                 std::vector<uint8_t> responsePacket(responseCapacity);
@@ -1036,6 +1039,13 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
     const bool isFin = HasTcpFlag(tcp.flags, TCP_FIN);
     const bool isRst = HasTcpFlag(tcp.flags, TCP_RST);
 
+    // 🔍 关键诊断：记录客户端TCP包的seq/ack与当前状态
+    NATTable::WithConnection(natKey, [&](NATConnection& c) {
+        LOG_INFO("TCP_CLIENT_PKT flags=%s seq=%u ack=%u state=%d nextClientSeq=%u nextServerSeq=%u",
+                 TcpFlagsToString(tcp.flags).c_str(), tcp.seq, tcp.ack,
+                 static_cast<int>(c.tcpState), c.nextClientSeq, c.nextServerSeq);
+    });
+
     // New mapping should only start on SYN (no ACK)
     if (isNewMapping) {
         if (!isSyn || isAck) {
@@ -1137,7 +1147,8 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
 
     // Existing mapping: handle control packets & data
     if (isRst) {
-        LOG_INFO("🔚 [TCP] RST received from client, closing (fd=%d)", sockFd);
+        LOG_INFO("🔚 [TCP] RST received from client, closing (fd=%d) seq=%u ack=%u",
+                 sockFd, tcp.seq, tcp.ack);
         shutdown(sockFd, SHUT_RDWR);
         NATTable::RemoveMapping(natKey);
         return 0;
@@ -1145,6 +1156,8 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
 
     // ACK-only / FIN handling updates minimal state
     if (isFin) {
+        LOG_INFO("🔚 [TCP] FIN received from client (fd=%d) seq=%u ack=%u",
+                 sockFd, tcp.seq, tcp.ack);
         // ACK FIN
         uint32_t clientFinSeq = tcp.seq;
         uint32_t ackVal = clientFinSeq + 1;
@@ -1171,6 +1184,10 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
     // If this is the ACK completing handshake, mark established
     if (payloadSize <= 0 && isAck && !isSyn) {
         NATTable::WithConnection(natKey, [&](NATConnection& c) {
+            if (c.nextServerSeq != 0 && tcp.ack != c.nextServerSeq) {
+                LOG_ERROR("TCP_ACK_MISMATCH clientAck=%u expectedServerSeq=%u state=%d",
+                          tcp.ack, c.nextServerSeq, static_cast<int>(c.tcpState));
+            }
             if (c.tcpState == NATConnection::TcpState::SYN_RECEIVED) {
                 // best-effort check: client should ACK our SYN-ACK (ack==serverIsn+1)
                 if (tcp.ack == c.serverIsn + 1) {
