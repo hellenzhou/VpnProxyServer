@@ -24,6 +24,15 @@ public:
     static int BuildResponsePacket(uint8_t* buffer, int bufferSize,
                                    const uint8_t* payload, int payloadSize,
                                    const PacketInfo& originalRequest);
+
+    // Build a TCP packet (including pure ACK/SYN-ACK/FIN etc.) as a full IPv4 packet.
+    // - payload can be null if payloadSize==0
+    // - seq/ack are absolute TCP sequence numbers
+    static int BuildTcpResponsePacket(uint8_t* buffer, int bufferSize,
+                                      const uint8_t* payload, int payloadSize,
+                                      const PacketInfo& originalRequest,
+                                      uint32_t seq, uint32_t ack,
+                                      uint8_t tcpFlags);
     
     // 计算IP校验和
     static uint16_t CalculateIPChecksum(const uint8_t* header, int length);

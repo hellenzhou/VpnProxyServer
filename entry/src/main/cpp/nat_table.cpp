@@ -114,6 +114,34 @@ bool NATTable::CreateMapping(const std::string& key,
     return true;
 }
 
+bool NATTable::WithConnection(const std::string& key, const std::function<void(NATConnection&)>& fn)
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = mappings_.find(key);
+    if (it == mappings_.end()) {
+        return false;
+    }
+    fn(it->second);
+    it->second.lastActivity = std::chrono::steady_clock::now();
+    return true;
+}
+
+bool NATTable::WithConnectionBySocket(int forwardSocket, const std::function<void(NATConnection&)>& fn)
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto socketIt = socketToKey_.find(forwardSocket);
+    if (socketIt == socketToKey_.end()) {
+        return false;
+    }
+    auto connIt = mappings_.find(socketIt->second);
+    if (connIt == mappings_.end()) {
+        return false;
+    }
+    fn(connIt->second);
+    connIt->second.lastActivity = std::chrono::steady_clock::now();
+    return true;
+}
+
 // 查找NAT映射
 bool NATTable::FindMapping(const std::string& key, NATConnection& conn) {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -290,13 +318,10 @@ std::string NATTable::GenerateKey(const std::string& clientVirtualIP,
                                   const std::string& clientPhysicalIP,
                                   int clientPhysicalPort) {
     std::ostringstream oss;
-    // 完整的NAT Key：包含五元组 + 高精度时间戳，用于进程级隔离
-    // 格式：物理IP:物理端口/虚拟IP:虚拟端口@时间戳->目标IP:目标端口/协议
-    auto timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::system_clock::now().time_since_epoch()).count();
-
+    // NAT key MUST be stable per flow, otherwise mappings will churn and TCP state is impossible.
+    // Format: physicalIP:physicalPort/virtualIP:virtualPort->serverIP:serverPort/proto
     oss << clientPhysicalIP << ":" << clientPhysicalPort << "/"
-        << clientVirtualIP << ":" << clientVirtualPort << "@" << timestamp << "->"
+        << clientVirtualIP << ":" << clientVirtualPort << "->"
         << serverIP << ":" << serverPort << "/"
         << (protocol == PROTOCOL_TCP ? "TCP" : "UDP");
     return oss.str();

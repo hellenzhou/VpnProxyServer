@@ -195,6 +195,98 @@ int PacketBuilder::BuildResponsePacket(uint8_t* buffer, int bufferSize,
     return totalLen;
 }
 
+int PacketBuilder::BuildTcpResponsePacket(uint8_t* buffer, int bufferSize,
+                                          const uint8_t* payload, int payloadSize,
+                                          const PacketInfo& originalRequest,
+                                          uint32_t seq, uint32_t ack,
+                                          uint8_t tcpFlags)
+{
+    if (!buffer || bufferSize <= 0) {
+        PACKET_BUILDER_LOGE("Invalid parameters for building TCP packet");
+        return -1;
+    }
+    if (payloadSize < 0) {
+        PACKET_BUILDER_LOGE("Invalid TCP payloadSize: %{public}d", payloadSize);
+        return -1;
+    }
+    if (payloadSize > 0 && !payload) {
+        PACKET_BUILDER_LOGE("TCP payload is null but payloadSize=%{public}d", payloadSize);
+        return -1;
+    }
+    if (originalRequest.addressFamily != AF_INET || originalRequest.protocol != PROTOCOL_TCP) {
+        PACKET_BUILDER_LOGE("BuildTcpResponsePacket only supports IPv4/TCP");
+        return -1;
+    }
+
+    int ipHeaderLen = 20;
+    int tcpHeaderLen = 20;
+    int totalLen = ipHeaderLen + tcpHeaderLen + payloadSize;
+    if (totalLen > bufferSize) {
+        PACKET_BUILDER_LOGE("Buffer too small for TCP packet: need %{public}d, have %{public}d", totalLen, bufferSize);
+        return -1;
+    }
+
+    memset(buffer, 0, totalLen);
+
+    // IPv4 header
+    buffer[0] = 0x45;
+    buffer[1] = 0x00;
+    buffer[2] = (totalLen >> 8) & 0xFF;
+    buffer[3] = totalLen & 0xFF;
+    buffer[4] = 0x00;
+    buffer[5] = 0x00;
+    buffer[6] = 0x40;
+    buffer[7] = 0x00;
+    buffer[8] = 0x40;
+    buffer[9] = PROTOCOL_TCP;
+
+    // src = originalRequest.targetIP (real server), dst = originalRequest.sourceIP (client virtual)
+    struct in_addr srcAddr;
+    inet_pton(AF_INET, originalRequest.targetIP.c_str(), &srcAddr);
+    memcpy(buffer + 12, &srcAddr, 4);
+    struct in_addr dstAddr;
+    inet_pton(AF_INET, originalRequest.sourceIP.c_str(), &dstAddr);
+    memcpy(buffer + 16, &dstAddr, 4);
+
+    uint16_t ipChecksum = CalculateIPChecksum(buffer, ipHeaderLen);
+    buffer[10] = (ipChecksum >> 8) & 0xFF;
+    buffer[11] = ipChecksum & 0xFF;
+
+    uint8_t* tcp = buffer + ipHeaderLen;
+
+    // ports: src=serverPort, dst=clientPort
+    tcp[0] = (originalRequest.targetPort >> 8) & 0xFF;
+    tcp[1] = originalRequest.targetPort & 0xFF;
+    tcp[2] = (originalRequest.sourcePort >> 8) & 0xFF;
+    tcp[3] = originalRequest.sourcePort & 0xFF;
+
+    // seq/ack
+    tcp[4] = (seq >> 24) & 0xFF;
+    tcp[5] = (seq >> 16) & 0xFF;
+    tcp[6] = (seq >> 8) & 0xFF;
+    tcp[7] = seq & 0xFF;
+    tcp[8] = (ack >> 24) & 0xFF;
+    tcp[9] = (ack >> 16) & 0xFF;
+    tcp[10] = (ack >> 8) & 0xFF;
+    tcp[11] = ack & 0xFF;
+
+    tcp[12] = 0x50; // data offset 5 (20 bytes)
+    tcp[13] = tcpFlags;
+    // window size: fixed for now
+    tcp[14] = 0xFF;
+    tcp[15] = 0xFF;
+
+    if (payloadSize > 0) {
+        memcpy(tcp + tcpHeaderLen, payload, payloadSize);
+    }
+
+    uint16_t tcpChecksum = CalculateTCPChecksum(buffer, tcp, tcpHeaderLen + payloadSize);
+    tcp[16] = (tcpChecksum >> 8) & 0xFF;
+    tcp[17] = tcpChecksum & 0xFF;
+
+    return totalLen;
+}
+
 // 计算IP校验和
 uint16_t PacketBuilder::CalculateIPChecksum(const uint8_t* header, int length) {
     uint32_t sum = 0;

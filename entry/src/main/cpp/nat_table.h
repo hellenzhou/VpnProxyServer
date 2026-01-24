@@ -4,6 +4,7 @@
 #include <unordered_map>
 #include <mutex>
 #include <chrono>
+#include <functional>
 #include <netinet/in.h>
 #include "protocol_handler.h"
 
@@ -31,6 +32,21 @@ struct NATConnection {
     
     // 原始请求信息（用于构建响应）
     PacketInfo originalRequest;
+
+    // ===== TCP minimal state (for translating raw TCP packets to a stream socket) =====
+    // NOTE: this is a best-effort minimal TCP state machine (no retransmit/window/options).
+    enum class TcpState : uint8_t {
+        NONE = 0,
+        SYN_RECEIVED = 1,   // server replied SYN-ACK to client
+        ESTABLISHED = 2,
+        FIN_SENT = 3,
+        CLOSED = 4,
+    };
+    TcpState tcpState = TcpState::NONE;
+    uint32_t clientIsn = 0;
+    uint32_t serverIsn = 0;
+    uint32_t nextClientSeq = 0; // next expected seq from client (absolute TCP seq)
+    uint32_t nextServerSeq = 0; // next seq we will send to client (absolute TCP seq)
     
     NATConnection() : forwardSocket(-1), clientVirtualPort(0), 
                      serverPort(0), protocol(0), 
@@ -73,6 +89,11 @@ public:
                                    uint8_t protocol,
                                    const std::string& clientPhysicalIP,
                                    int clientPhysicalPort);
+
+    // Run a short non-blocking mutation of a mapping under NATTable's mutex.
+    // IMPORTANT: Do NOT do network I/O in the callback.
+    static bool WithConnection(const std::string& key, const std::function<void(NATConnection&)>& fn);
+    static bool WithConnectionBySocket(int forwardSocket, const std::function<void(NATConnection&)>& fn);
     
     // 获取映射数量
     static int GetMappingCount();
