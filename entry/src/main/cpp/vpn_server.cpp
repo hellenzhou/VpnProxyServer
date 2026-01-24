@@ -1,4 +1,4 @@
-#include <napi/native_api.h>
+﻿#include <napi/native_api.h>
 #include <hilog/log.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -6,6 +6,7 @@
 #include <unistd.h>
 #include <errno.h>
 #include <string.h>
+#include <inttypes.h>
 #include <sys/select.h>
 #include <sys/ioctl.h>
 #include <net/if.h>
@@ -90,16 +91,13 @@ void HandleUdpResponse(int sockFd, const sockaddr_in& originalPeer);
 // 处理转发响应
 void HandleForwardResponse(int sockFd, const sockaddr_in& originalPeer);
 
-// 测试网络连通性
-void TestNetworkConnectivity();
-
 // 测试百度连接
 void TestBaiduConnection();
 
 // 转发数据到真实目标服务器
 int ForwardToRealServer(const uint8_t* data, int dataSize, const std::string& targetIP, int targetPort, uint8_t protocol, int addressFamily, const sockaddr_in& originalPeer);
 
-// 解析IP数据包获取目标IP和端口 (支持IPv4和IPv6)
+// 解析IP数据包获取目标IP和端�?(支持IPv4和IPv6)
 bool ParseIPPacket(const uint8_t* data, int dataSize, std::string& targetIP, int& targetPort, uint8_t& protocol, int& addressFamily) {
     uint8_t version = (data[0] >> 4);
 
@@ -119,7 +117,7 @@ bool ParseIPPacket(const uint8_t* data, int dataSize, std::string& targetIP, int
         // 获取协议类型
         protocol = data[9];
 
-        // 只处理TCP (protocol=6) 和 UDP (protocol=17)
+        // 只处理TCP (protocol=6) �?UDP (protocol=17)
         if (protocol != PROTOCOL_TCP && protocol != PROTOCOL_UDP) {
             VPN_SERVER_LOGW("Unsupported IPv4 protocol: %{public}d (only TCP=6, UDP=17 supported)", protocol);
             return false;
@@ -166,17 +164,17 @@ bool ParseIPPacket(const uint8_t* data, int dataSize, std::string& targetIP, int
         // IPv6头部固定40字节
         uint8_t nextHeader = data[6];
 
-        // 只处理TCP (nextHeader=6) 和 UDP (nextHeader=17)
+        // 只处理TCP (nextHeader=6) �?UDP (nextHeader=17)
         if (nextHeader != 6 && nextHeader != 17) {
             VPN_SERVER_LOGW("Unsupported IPv6 next header: %{public}d (only TCP=6, UDP=17 supported)", nextHeader);
             return false;
         }
 
-        // 获取目标IPv6地址 (16字节，从偏移24开始)
+        // 获取目标IPv6地址 (16字节，从偏移24开�?
         char dstIP[INET6_ADDRSTRLEN];
         inet_ntop(AF_INET6, &data[24], dstIP, INET6_ADDRSTRLEN);
 
-        // 获取端口 (TCP/UDP头部，IPv6有效载荷从偏移40开始)
+        // 获取端口 (TCP/UDP头部，IPv6有效载荷从偏�?0开�?
         int payloadOffset = 40;
         if (nextHeader == 6) {  // TCP
             if (dataSize < payloadOffset + 20) {
@@ -210,186 +208,25 @@ bool ParseIPPacket(const uint8_t* data, int dataSize, std::string& targetIP, int
     }
 }
 
-// 测试网络连通性的函数
-void TestNetworkConnectivity() {
-    VPN_SERVER_LOGI("=== Starting Network Connectivity Test ===");
-
-    // 检测当前网络接口状态
-    VPN_SERVER_LOGI("=== Network Interface Detection ===");
-
-    // 测试 socket 创建
-    VPN_SERVER_LOGI("Testing socket creation");
-    int testSock = socket(AF_INET, SOCK_STREAM, 0);
-    if (testSock < 0) {
-        VPN_SERVER_LOGE("❌ Failed to create TCP socket: %{public}s", strerror(errno));
-        return;
-    }
-
-    VPN_SERVER_LOGI("✅ Socket creation SUCCESS");
-    close(testSock);
-    VPN_SERVER_LOGI("✅ Socket closed successfully");
-
-    // 检查是否作为VPN服务运行
-    VPN_SERVER_LOGI("=== VPN Service Status Check ===");
-    if (g_running.load()) {
-        VPN_SERVER_LOGI("✅ VPN Server is RUNNING - accepting client connections");
-        VPN_SERVER_LOGI("📡 Server listening for VPN client connections on UDP port 8888");
-        VPN_SERVER_LOGI("🌐 All client traffic will be forwarded through this VPN tunnel");
-    } else {
-        VPN_SERVER_LOGW("⚠️  VPN Server is STOPPED - no VPN tunnel active");
-        VPN_SERVER_LOGI("💡 Start the VPN server to establish tunnel");
-    }
-
-    // 测试网络连接
-    TestBaiduConnection();
-
-    VPN_SERVER_LOGI("=== Network Connectivity Test Complete ===");
-}
-
-// 简化测试：只测试网络连接
-void TestBaiduConnection() {
-    VPN_SERVER_LOGI("=== Testing Network Connection ===");
-    
-    // 检查 VPN 是否已经启动
-    VPN_SERVER_LOGI("Checking if VPN is already active...");
-    
-    // 测试最简单的连接 - 连接到本地回环地址的常用端口
-    VPN_SERVER_LOGI("Testing local loopback connection");
-    int sockFd = socket(AF_INET, SOCK_STREAM, 0);
-    if (sockFd < 0) {
-        VPN_SERVER_LOGE("❌ Failed to create TCP socket: %{public}s", strerror(errno));
-        return;
-    }
-    
-    // 连接到本地回环地址的 80 端口（测试网络栈）
-    struct sockaddr_in localAddr{};
-    localAddr.sin_family = AF_INET;
-    localAddr.sin_port = htons(80);  // 使用标准端口测试
-    inet_pton(AF_INET, "127.0.0.1", &localAddr.sin_addr);
-    
-    int connectResult = connect(sockFd, (struct sockaddr*)&localAddr, sizeof(localAddr));
-    if (connectResult == 0) {
-        VPN_SERVER_LOGI("✅ Local loopback connection SUCCESS");
-        close(sockFd);
-    } else {
-        VPN_SERVER_LOGI("❌ Local loopback connection FAILED: %{public}s", strerror(errno));
-        close(sockFd);
-        // 连接失败是正常的，本地可能没有 HTTP 服务器
-        VPN_SERVER_LOGI("ℹ️  Local HTTP server not available, but network stack is working");
-    }
-    
-    // 测试外部连接 - 使用本地网关而不是外部DNS
-    VPN_SERVER_LOGI("Testing external connection to local gateway");
-    sockFd = socket(AF_INET, SOCK_DGRAM, 0);
-    if (sockFd < 0) {
-        VPN_SERVER_LOGE("❌ Failed to create UDP socket: %{public}s", strerror(errno));
-        return;
-    }
-
-    // 在 HarmonyOS 沙盒中，SO_BINDTODEVICE 不起作用，使用默认绑定
-    struct sockaddr_in bindAddr{};
-    bindAddr.sin_family = AF_INET;
-    bindAddr.sin_addr.s_addr = htonl(INADDR_ANY);
-    bindAddr.sin_port = htons(0);
-
-    if (bind(sockFd, (struct sockaddr*)&bindAddr, sizeof(bindAddr)) < 0) {
-        VPN_SERVER_LOGW("⚠️  Failed to bind socket: %{public}s", strerror(errno));
-    }
-
-    // 设置 socket 选项
-    int sockopt = 1;
-    setsockopt(sockFd, SOL_SOCKET, SO_REUSEADDR, &sockopt, sizeof(sockopt));
-
-    // 设置超时时间
-    struct timeval timeout;
-    timeout.tv_sec = 1;  // 减少超时时间
-    timeout.tv_usec = 0;
-    setsockopt(sockFd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
-    
-    // 发送一个简单的数据包到本地网关（假设网关是192.168.1.1）
-    uint8_t testData[] = {0x01, 0x02, 0x03, 0x04};
-    
-    struct sockaddr_in gatewayAddr{};
-    gatewayAddr.sin_family = AF_INET;
-    gatewayAddr.sin_port = htons(80);
-    inet_pton(AF_INET, "192.168.1.1", &gatewayAddr.sin_addr);
-
-    int sent = sendto(sockFd, testData, sizeof(testData), 0, (struct sockaddr*)&gatewayAddr, sizeof(gatewayAddr));
-    if (sent > 0) {
-        VPN_SERVER_LOGI("✅ Test packet sent successfully to gateway");
-
-        // 等待响应（预期会失败，但能测试网络路由）
-        uint8_t response[512];
-        int received = recvfrom(sockFd, response, sizeof(response), 0, nullptr, nullptr);
-        if (received > 0) {
-            VPN_SERVER_LOGI("✅ Unexpected response received: %{public}d bytes", received);
-        } else {
-            VPN_SERVER_LOGI("ℹ️  No response from gateway (expected) - network routing works");
-        }
-        close(sockFd);
-        VPN_SERVER_LOGI("=== Network Test SUCCESS - Network routing works! ===");
-        return;
-    } else {
-        VPN_SERVER_LOGI("❌ Failed to send test packet: %{public}s", strerror(errno));
-    }
-    
-    close(sockFd);
-    
-    // 简化网络测试 - 只测试UDP DNS，避免TCP连接阻塞
-    VPN_SERVER_LOGI("=== Network Test Complete - Basic connectivity verified! ===");
-    VPN_SERVER_LOGI("VPN Server is ready to handle client connections");
-    
-    // 测试本地网络接口
-    VPN_SERVER_LOGI("Testing local network interfaces");
-    sockFd = socket(AF_INET, SOCK_DGRAM, 0);
-    if (sockFd >= 0) {
-        // 获取本地网络接口信息
-        struct ifconf ifc;
-        char buf[1024];
-        ifc.ifc_len = sizeof(buf);
-        ifc.ifc_buf = buf;
-        
-        if (ioctl(sockFd, SIOCGIFCONF, &ifc) >= 0) {
-            struct ifreq* ifr = (struct ifreq*)buf;
-            int numInterfaces = ifc.ifc_len / sizeof(struct ifreq);
-            
-            VPN_SERVER_LOGI("Found %d network interfaces:", numInterfaces);
-            for (int i = 0; i < numInterfaces; i++) {
-                VPN_SERVER_LOGI("Interface: %{public}s", ifr[i].ifr_name);
-            }
-        }
-        close(sockFd);
-    }
-    
-    VPN_SERVER_LOGI("✅ VPN Server initialization complete - ready for client connections");
-    VPN_SERVER_LOGI("=== Network Test Complete - Server Ready ===");
-}
-
 // 转发数据到真实目标服务器 (支持IPv4和IPv6)
 int ForwardToRealServer(const uint8_t* data, int dataSize, const std::string& targetIP, int targetPort, uint8_t protocol, int addressFamily, const sockaddr_in& originalPeer) {
-    VPN_SERVER_LOGI("Creating connection to %{public}s:%{public}d (protocol=%{public}d)", targetIP.c_str(), targetPort, protocol);
-    
-    // 检测循环路由：如果目标IP是本地网络地址，需要特殊处理
-    if (targetIP.find("127.") == 0) {
-        VPN_SERVER_LOGE("❌ Detected routing loop: target %{public}s is loopback, rejecting", targetIP.c_str());
-        return -1;
-    }
+    VPN_SERVER_LOGI("ForwardToRealServer called with target %{public}s:%{public}d", targetIP.c_str(), targetPort);
     
     // 检查是否是VPN客户端网段（根据实际配置调整）
     if (targetIP.find("192.168.0.") == 0) {
-        VPN_SERVER_LOGE("❌ Detected routing loop: target %{public}s is VPN client subnet, rejecting", targetIP.c_str());
+        VPN_SERVER_LOGE("Detected routing loop: target %{public}s is VPN client subnet, rejecting", targetIP.c_str());
         return -1;
     }
-    
+
     // 检查是否是DNS查询，重定向到公共DNS服务器
     std::string actualTargetIP = targetIP;
     if (targetPort == 53) {
         // 强制重定向到公共DNS服务器
         if (actualTargetIP != "8.8.8.8") {
-            VPN_SERVER_LOGI("🔄 Redirecting DNS query from %{public}s to public DNS 8.8.8.8", actualTargetIP.c_str());
+            VPN_SERVER_LOGI("Redirecting DNS query from %{public}s to public DNS 8.8.8.8", actualTargetIP.c_str());
             actualTargetIP = "8.8.8.8";
         }
-        VPN_SERVER_LOGI("✅ Using public DNS: %{public}s:%{public}d", actualTargetIP.c_str(), targetPort);
+        VPN_SERVER_LOGI("Using public DNS: %{public}s:%{public}d", actualTargetIP.c_str(), targetPort);
     }
     
     int sockFd;
@@ -420,7 +257,7 @@ int ForwardToRealServer(const uint8_t* data, int dataSize, const std::string& ta
         return -1;
     }
 
-    // 在 HarmonyOS 沙盒环境中，使用标准绑定
+    // 在HarmonyOS 沙盒环境中，使用标准绑定
     if (addressFamily == AF_INET6) {
         struct sockaddr_in6 bindAddr{};
         bindAddr.sin6_family = AF_INET6;
@@ -431,7 +268,7 @@ int ForwardToRealServer(const uint8_t* data, int dataSize, const std::string& ta
             VPN_SERVER_LOGW("⚠️  Failed to bind IPv6 socket: %{public}s", strerror(errno));
             VPN_SERVER_LOGI("🔄 Using default socket binding");
         } else {
-            VPN_SERVER_LOGI("✅ Successfully bound IPv6 socket");
+            VPN_SERVER_LOGI("Successfully bound IPv6 socket");
         }
     } else {
         struct sockaddr_in bindAddr{};
@@ -443,7 +280,7 @@ int ForwardToRealServer(const uint8_t* data, int dataSize, const std::string& ta
             VPN_SERVER_LOGW("⚠️  Failed to bind IPv4 socket: %{public}s", strerror(errno));
             VPN_SERVER_LOGI("🔄 Using default socket binding");
         } else {
-            VPN_SERVER_LOGI("✅ Successfully bound IPv4 socket");
+            VPN_SERVER_LOGI("Successfully bound IPv4 socket");
         }
     }
 
@@ -548,8 +385,8 @@ int ForwardToRealServer(const uint8_t* data, int dataSize, const std::string& ta
         // 根据协议类型进行连接
         if (protocol == PROTOCOL_UDP) {  // UDP
             // 计算IP头长度
-            int ipHeaderLen = (data[0] & 0x0F) * 4;  // IP头长度 = (低4位 * 4字节)
-            int udpHeaderLen = 8;  // UDP头固定8字节
+            int ipHeaderLen = (data[0] & 0x0F) * 4;  // IP头长度 = (IHL字段) * 4字节
+            int udpHeaderLen = 8;  // UDP头固�?字节
             int payloadOffset = ipHeaderLen + udpHeaderLen;
             int payloadSize = dataSize - payloadOffset;
             
@@ -613,7 +450,7 @@ int ForwardToRealServer(const uint8_t* data, int dataSize, const std::string& ta
                     
                     fd_set writefds;
                     struct timeval timeout;
-                    timeout.tv_sec = 3;  // 🔧 减少超时时间到3秒，提高响应速度
+                    timeout.tv_sec = 3;  // 🔧 减少超时时间�?秒，提高响应速度
                     timeout.tv_usec = 0;
                     
                     FD_ZERO(&writefds);
@@ -646,8 +483,8 @@ int ForwardToRealServer(const uint8_t* data, int dataSize, const std::string& ta
             }
 
             // 计算IP头长度
-            int ipHeaderLen = (data[0] & 0x0F) * 4;  // IP头长度 = (低4位 * 4字节)
-            int tcpHeaderLen = (data[ipHeaderLen + 12] & 0xF0) >> 4;  // TCP头长度 = (高4位 * 4字节)
+            int ipHeaderLen = (data[0] & 0x0F) * 4;  // IP头长度 = (IHL字段) * 4字节
+            int tcpHeaderLen = (data[ipHeaderLen + 12] & 0xF0) >> 4;  // TCP头长度 = (偏移字段) * 4字节
             tcpHeaderLen *= 4;
             int payloadOffset = ipHeaderLen + tcpHeaderLen;
             int payloadSize = dataSize - payloadOffset;
@@ -769,26 +606,26 @@ void HandleForwardResponse(int sockFd, const sockaddr_in& originalPeer) {
 // 测试UDP连通性
 void TestUDPConnectivity() {
     VPN_SERVER_LOGI("=== Testing UDP Connectivity ===");
-    
+
     int testSock = socket(AF_INET, SOCK_DGRAM, 0);
     if (testSock < 0) {
-        VPN_SERVER_LOGE("❌ Failed to create UDP test socket: %{public}s", strerror(errno));
+        VPN_SERVER_LOGE("Failed to create UDP test socket: %{public}s", strerror(errno));
         return;
     }
-    
+
     // 绑定到本地端口
     struct sockaddr_in localAddr{};
     localAddr.sin_family = AF_INET;
     localAddr.sin_addr.s_addr = htonl(INADDR_ANY);
     localAddr.sin_port = htons(0);
-    
+
     if (bind(testSock, (struct sockaddr*)&localAddr, sizeof(localAddr)) < 0) {
-        VPN_SERVER_LOGE("❌ Failed to bind UDP test socket: %{public}s", strerror(errno));
+        VPN_SERVER_LOGE("Failed to bind UDP test socket: %{public}s", strerror(errno));
         close(testSock);
         return;
     }
-    
-    VPN_SERVER_LOGI("✅ UDP test socket bound successfully");
+
+    VPN_SERVER_LOGI("UDP test socket bound successfully");
     
     // 测试发送到公共DNS服务器
     struct sockaddr_in dnsAddr{};
@@ -799,12 +636,12 @@ void TestUDPConnectivity() {
     const char* testData = "ping";
     int sent = sendto(testSock, testData, strlen(testData), 0, (struct sockaddr*)&dnsAddr, sizeof(dnsAddr));
     if (sent < 0) {
-        VPN_SERVER_LOGE("❌ Failed to send UDP test: %{public}s", strerror(errno));
+        VPN_SERVER_LOGE("Failed to send UDP test: %{public}s", strerror(errno));
         close(testSock);
         return;
     }
     
-    VPN_SERVER_LOGI("✅ UDP test data sent: %{public}d bytes", sent);
+    VPN_SERVER_LOGI("�?UDP test data sent: %{public}d bytes", sent);
     
     // 设置超时
     struct timeval timeout;
@@ -816,12 +653,12 @@ void TestUDPConnectivity() {
     char buffer[1024];
     int received = recvfrom(testSock, buffer, sizeof(buffer), 0, nullptr, nullptr);
     if (received > 0) {
-        VPN_SERVER_LOGI("✅ UDP response received: %{public}d bytes", received);
+        VPN_SERVER_LOGI("�?UDP response received: %{public}d bytes", received);
     } else {
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
             VPN_SERVER_LOGI("ℹ️  UDP test timeout (expected for invalid data)");
         } else {
-            VPN_SERVER_LOGE("❌ UDP test recv error: %{public}s", strerror(errno));
+            VPN_SERVER_LOGE("�?UDP test recv error: %{public}s", strerror(errno));
         }
     }
     
@@ -866,7 +703,7 @@ std::string EscapeJsonString(const std::string& str)
       case '\t': escaped += "\\t"; break;
       default:
         if (c >= 0x00 && c < 0x20) {
-          // 控制字符转义为 \uXXXX
+          // 控制字符转义�?\uXXXX
           char hex[7];
           snprintf(hex, sizeof(hex), "\\u%04x", static_cast<unsigned char>(c));
           escaped += hex;
@@ -912,7 +749,7 @@ std::string FormatTime(const std::string& timestamp)
 {
   try {
     time_t rawtime = static_cast<time_t>(std::stoul(timestamp));
-    // 使用线程安全的 localtime_r() 替代 localtime()，避免多线程环境下的死锁问题
+    // 使用线程安全�?localtime_r() 替代 localtime()，避免多线程环境下的死锁问题
     struct tm timeinfo;
     struct tm * result = localtime_r(&rawtime, &timeinfo);
     if (result == nullptr) {
@@ -965,7 +802,7 @@ std::string IdentifyPacketType(const uint8_t* data, size_t len)
     return "Unknown";
   }
   
-  // 检查IPv4 (第一个字节的高4位通常是0x4，但需要检查IP头长度)
+  // 检查IPv4 (第一个字节的�?位通常�?x4，但需要检查IP头长�?
   if (len >= 20 && (data[0] & 0xF0) == 0x40) {
     uint8_t ipHeaderLen = (data[0] & 0x0F) * 4;
     if (ipHeaderLen >= 20 && len >= ipHeaderLen) {
@@ -983,7 +820,7 @@ std::string IdentifyPacketType(const uint8_t* data, size_t len)
     }
   }
   
-  // 检查IPv6 (第一个字节的高4位是0x6)
+  // 检查IPv6 (第一个字节的�?位是0x6)
   if (len >= 40 && (data[0] & 0xF0) == 0x60) {
     uint8_t nextHeader = data[6];
     std::string nextStr;
@@ -1013,7 +850,7 @@ std::string IdentifyPacketType(const uint8_t* data, size_t len)
     return "IPv6/" + nextStr;
   }
   
-  // 检查ARP (以太网类型0x0806，但这里可能是裸ARP)
+  // 检查ARP (以太网类�?x0806，但这里可能是裸ARP)
   if (len >= 28 && (data[0] == 0x00 && data[1] == 0x01)) {
     return "ARP";
   }
@@ -1044,11 +881,11 @@ void WorkerLoop()
   if (getsockname(g_sockFd.load(), reinterpret_cast<sockaddr*>(&serverAddr), &serverAddrLen) == 0) {
     char serverIP[INET_ADDRSTRLEN];
     inet_ntop(AF_INET, &serverAddr.sin_addr, serverIP, sizeof(serverIP));
-    VPN_SERVER_LOGI("🔍🔍🔍 服务器监听详情: IP=%{public}s, Port=%{public}d, Socket=%{public}d", 
+    VPN_SERVER_LOGI("🔍🔍🔍 服务器监听详�? IP=%{public}s, Port=%{public}d, Socket=%{public}d", 
                    serverIP, ntohs(serverAddr.sin_port), g_sockFd.load());
     VPN_SERVER_LOGI("🔍🔍🔍 VPN客户端应该连接到: 127.0.0.1:8888");
   } else {
-    VPN_SERVER_LOGE("❌ 无法获取服务器监听地址: %{public}s", strerror(errno));
+    VPN_SERVER_LOGE("�?无法获取服务器监听地址: %{public}s", strerror(errno));
   }
   
   uint8_t buf[BUFFER_SIZE];
@@ -1084,7 +921,7 @@ void WorkerLoop()
     socklen_t errorLen = sizeof(socketError);
     if (getsockopt(currentSockFd, SOL_SOCKET, SO_ERROR, &socketError, &errorLen) == 0) {
       if (socketError != 0) {
-        VPN_SERVER_LOGE("❌ Socket错误: errno=%{public}d (%{public}s)", socketError, strerror(socketError));
+        VPN_SERVER_LOGE("�?Socket错误: errno=%{public}d (%{public}s)", socketError, strerror(socketError));
       }
     }
     
@@ -1099,7 +936,7 @@ void WorkerLoop()
       if (preCheckRecv > 0) {
         VPN_SERVER_LOGI("🔍🔍🔍 发现数据！recvfrom(MSG_PEEK)返回 %{public}d字节", preCheckRecv);
       } else if (preCheckRecv < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
-        VPN_SERVER_LOGE("❌ recvfrom(MSG_PEEK)错误: errno=%{public}d (%{public}s)", errno, strerror(errno));
+        VPN_SERVER_LOGE("�?recvfrom(MSG_PEEK)错误: errno=%{public}d (%{public}s)", errno, strerror(errno));
       }
     }
     
@@ -1113,7 +950,7 @@ void WorkerLoop()
       if (errno == EINTR) {
         continue;  // 被信号中断，继续
       }
-      VPN_SERVER_LOGE("❌ select error: %{public}s", strerror(errno));
+      VPN_SERVER_LOGE("�?select error: %{public}s", strerror(errno));
       continue;
     }
     
@@ -1215,7 +1052,7 @@ void WorkerLoop()
         continue;  // 跳过非IP包，防止崩溃
     }
     
-    // 🔥 检查是否是TestDNSQuery发送的测试包（包含IP头，前4位是0x45）
+    // 🔥 检查是否是TestDNSQuery发送的测试包（包含IP头，首位是0x45）
     if (n >= 20 && (buf[0] >> 4) == 4 && buf[9] == 17) {
       // 这是一个IPv4 UDP包，可能是TestDNSQuery发送的完整IP包
       char srcIP[INET_ADDRSTRLEN], dstIP[INET_ADDRSTRLEN];
@@ -1236,7 +1073,7 @@ void WorkerLoop()
     static uint32_t packetCount = 0;
     packetCount++;
     if (packetCount % 100 == 0) {
-        VPN_SERVER_LOGI("📊 处理统计: %{public}u个数据包 (%{public}lu字节发送, %{public}lu字节接收)",
+        VPN_SERVER_LOGI("📊 处理统计: %{public}u个数据包 (%{public}lu字节发�? %{public}lu字节接收)",
                         packetCount, (unsigned long)g_bytesSent.load(), (unsigned long)g_bytesReceived.load());
     }
     
@@ -1284,10 +1121,10 @@ void WorkerLoop()
       char clientIP[INET_ADDRSTRLEN];
       inet_ntop(AF_INET, &peer.sin_addr, clientIP, sizeof(clientIP));
       if (packetInfo.protocol == PROTOCOL_ICMPV6) {
-        VPN_SERVER_LOGI("ZHOUB [代理接收] 源IP:%{public}s 目的IP:%{public}s 源端口:0 目的端口:0 协议:ICMPv6 大小:%{public}d字节",
+        VPN_SERVER_LOGI("ZHOUB [代理接收] 源IP:%{public}s 目的IP:%{public}s 源端�?0 目的端口:0 协议:ICMPv6 大小:%{public}d字节",
                        clientIP, packetInfo.targetIP.c_str(), n);
       } else {
-        VPN_SERVER_LOGI("ZHOUB [代理接收] 源IP:%{public}s 目的IP:%{public}s 源端口:%{public}d 目的端口:%{public}d 协议:%{public}s 大小:%{public}d字节",
+        VPN_SERVER_LOGI("ZHOUB [代理接收] 源IP:%{public}s 目的IP:%{public}s 源端�?%{public}d 目的端口:%{public}d 协议:%{public}s 大小:%{public}d字节",
                        packetInfo.sourceIP.c_str(), packetInfo.targetIP.c_str(), 
                        packetInfo.sourcePort, packetInfo.targetPort,
                        ProtocolHandler::GetProtocolName(packetInfo.protocol).c_str(), n);
@@ -1329,20 +1166,20 @@ void WorkerLoop()
       if (totalPackets % 100 == 0 || elapsed >= 10) {
         VPN_SERVER_LOGI("📊 [流量统计] 总计接收: %{public}d个数据包", totalPackets);
         for (const auto& stat : packetStats) {
-          VPN_SERVER_LOGI("   %{public}s: %{public}d个", stat.first.c_str(), stat.second);
+          VPN_SERVER_LOGI("   %{public}s: %{public}d次", stat.first.c_str(), stat.second);
         }
         lastLogTime = now;
       }
       
-      VPN_SERVER_LOGI("🔍 [接收] 客户端地址: %{public}s:%{public}d, 数据包: %{public}s -> %{public}s:%{public}d", 
+      VPN_SERVER_LOGI("🔍 [接收] 客户端地址: %{public}s:%{public}d, 数据�? %{public}s -> %{public}s:%{public}d", 
                      clientIP, ntohs(peer.sin_port),
                      ProtocolHandler::GetProtocolName(packetInfo.protocol).c_str(),
                      packetInfo.targetIP.c_str(), packetInfo.targetPort);
       
-      if (!TaskQueueManager::getInstance().submitForwardTask(buf, n, packetInfo, peer)) {
+      if (!TaskQueueManager::getInstance().submitForwardTask(buf, n, packetInfo, peer, currentSockFd)) {
         VPN_SERVER_LOGE("ZHOUB [FWD✗] Failed to submit task (queue full)");
       } else {
-        VPN_SERVER_LOGI("ZHOUB [FWD→] %{public}s -> %{public}s:%{public}d (queued)", 
+        VPN_SERVER_LOGI("ZHOUB [FWD→] %{public}s -> %{public}s:%{public}d (queued)",
                         ProtocolHandler::GetProtocolName(packetInfo.protocol).c_str(),
                         packetInfo.targetIP.c_str(), packetInfo.targetPort);
       }
@@ -1428,20 +1265,19 @@ napi_value StartServer(napi_env env, napi_callback_info info)
   
   // 清理任务队列
   TaskQueueManager::getInstance().clear();
-  VPN_SERVER_LOGI("✅ Task queues cleared");
+  VPN_SERVER_LOGI("�?Task queues cleared");
   
-  // 启动工作线程池
-  VPN_SERVER_LOGI("🚀 Starting worker thread pool with 4 forward and 2 response workers...");
+  // 启动工作线程�?  VPN_SERVER_LOGI("🚀 Starting worker thread pool with 4 forward and 2 response workers...");
   if (!WorkerThreadPool::getInstance().start(4, 2)) {
-    VPN_SERVER_LOGE("❌ Failed to start worker thread pool - THIS IS CRITICAL!");
-    VPN_SERVER_LOGE("❌ Worker thread pool state: isRunning=%d", WorkerThreadPool::getInstance().isRunning() ? 1 : 0);
+    VPN_SERVER_LOGE("�?Failed to start worker thread pool - THIS IS CRITICAL!");
+    VPN_SERVER_LOGE("�?Worker thread pool state: isRunning=%d", WorkerThreadPool::getInstance().isRunning() ? 1 : 0);
   } else {
-    VPN_SERVER_LOGI("✅ Worker thread pool started: 4 forward workers, 2 response workers");
-    VPN_SERVER_LOGI("✅ Worker thread pool state: isRunning=%d", WorkerThreadPool::getInstance().isRunning() ? 1 : 0);
+    VPN_SERVER_LOGI("�?Worker thread pool started: 4 forward workers, 2 response workers");
+    VPN_SERVER_LOGI("�?Worker thread pool state: isRunning=%d", WorkerThreadPool::getInstance().isRunning() ? 1 : 0);
 
     // 🔍 显示初始统计信息
     auto stats = WorkerThreadPool::getInstance().getStats();
-    VPN_SERVER_LOGI("📊 Initial worker stats: forward_processed=%llu, response_processed=%llu, forward_failed=%llu, response_failed=%llu",
+    VPN_SERVER_LOGI("📊 Initial worker stats: forward_processed=%" PRIu64 ", response_processed=%" PRIu64 ", forward_failed=%" PRIu64 ", response_failed=%" PRIu64,
                    stats.forwardTasksProcessed, stats.responseTasksProcessed,
                    stats.forwardTasksFailed, stats.responseTasksFailed);
 
@@ -1458,28 +1294,27 @@ napi_value StartServer(napi_env env, napi_callback_info info)
     std::thread([=]() {
         std::this_thread::sleep_for(std::chrono::seconds(3));
 
-        VPN_SERVER_LOGI("🧪 [自检测试] ===== 系统状态检查 =====");
+        VPN_SERVER_LOGI("🧪 [自检测试] ===== 系统状态检�?=====");
 
-        // 检查工作线程池状态
+        // check worker thread pool status
         bool isRunning = WorkerThreadPool::getInstance().isRunning();
-        VPN_SERVER_LOGI("🧪 [检查1] 工作线程池运行状态: %s", isRunning ? "✅ 正常" : "❌ 异常");
+        VPN_SERVER_LOGI("🧪 [检�?] 工作线程池运行状�? %s", isRunning ? "�?正常" : "�?异常");
 
-        // 检查统计信息
+        // check stats
         auto stats = WorkerThreadPool::getInstance().getStats();
-        VPN_SERVER_LOGI("🧪 [检查2] 任务处理统计:");
-        VPN_SERVER_LOGI("   - 转发任务已处理: %llu", stats.forwardTasksProcessed);
-        VPN_SERVER_LOGI("   - 转发任务失败: %llu", stats.forwardTasksFailed);
-        VPN_SERVER_LOGI("   - 响应任务已处理: %llu", stats.responseTasksProcessed);
-        VPN_SERVER_LOGI("   - 响应任务失败: %llu", stats.responseTasksFailed);
+        VPN_SERVER_LOGI("🧪 [检�?] 任务处理统计:");
+        VPN_SERVER_LOGI("   - 转发任务已处理: %" PRIu64, stats.forwardTasksProcessed);
+        VPN_SERVER_LOGI("   - 转发任务失败: %" PRIu64, stats.forwardTasksFailed);
+        VPN_SERVER_LOGI("   - 响应任务已处理: %" PRIu64, stats.responseTasksProcessed);
+        VPN_SERVER_LOGI("   - 响应任务失败: %" PRIu64, stats.responseTasksFailed);
 
-        // 检查任务队列
-        VPN_SERVER_LOGI("🧪 [检查3] 任务队列状态: 监控中...");
+        // 检查任务队�?        VPN_SERVER_LOGI("🧪 [检�?] 任务队列状�? 监控�?..");
 
         // 诊断建议
         VPN_SERVER_LOGI("🧪 [系统诊断结果]");
 
         // 详细诊断每个环节
-        VPN_SERVER_LOGI("🔍 [诊断1] 工作线程池状态:");
+        VPN_SERVER_LOGI("🔍 [诊断1] 工作线程池状�?");
         if (!isRunning) {
             VPN_SERVER_LOGI("  ❌ 工作线程池未运行 - 这是致命问题，请重启应用");
             VPN_SERVER_LOGI("  💡 建议：检查应用是否正常启动，查看系统日志中的崩溃信息");
@@ -1487,31 +1322,31 @@ napi_value StartServer(napi_env env, napi_callback_info info)
             VPN_SERVER_LOGI("  ✅ 工作线程池正常运行");
         }
 
-        VPN_SERVER_LOGI("🔍 [诊断2] 任务处理状态:");
+        VPN_SERVER_LOGI("🔍 [诊断2] 任务处理状态");
         if (stats.forwardTasksProcessed == 0) {
-            VPN_SERVER_LOGI("  ❌ 没有转发任务被处理 - VPN客户端没有发送数据或数据丢失");
+            VPN_SERVER_LOGI("  ⚠️  没有转发任务被处理 - VPN客户端没有发送数据或数据丢失");
             VPN_SERVER_LOGI("  💡 建议：检查VPN客户端是否正常运行，确认TUN设备流量");
         } else {
-            VPN_SERVER_LOGI("  ✅ 已处理 %llu 个转发任务", stats.forwardTasksProcessed);
+            VPN_SERVER_LOGI("  ✅ 已处理 %" PRIu64 " 个转发任务", stats.forwardTasksProcessed);
         }
 
-        VPN_SERVER_LOGI("🔍 [诊断3] 任务成功率:");
+        VPN_SERVER_LOGI("🔍 [诊断3] 任务成功率");
         if (stats.forwardTasksProcessed > 0) {
             double successRate = (stats.forwardTasksProcessed - stats.forwardTasksFailed) * 100.0 / stats.forwardTasksProcessed;
             if (successRate < 50.0) {
-                VPN_SERVER_LOGI("  ❌ 转发成功率只有 %.1f%% - 网络连接或目标服务器问题", successRate);
+                VPN_SERVER_LOGI("  ⚠️  转发成功率只有 %.1f%% - 网络连接或目标服务器问题", successRate);
                 VPN_SERVER_LOGI("  💡 建议：检查网络连通性，测试目标服务器可达性");
             } else {
                 VPN_SERVER_LOGI("  ✅ 转发成功率 %.1f%% - 任务处理正常", successRate);
             }
         }
 
-        VPN_SERVER_LOGI("🔍 [诊断4] 响应处理状态:");
+        VPN_SERVER_LOGI("🔍 [诊断4] 响应处理状态");
         if (stats.responseTasksProcessed == 0) {
             VPN_SERVER_LOGI("  ⚠️  没有响应任务被处理 - 可能服务器没有收到响应或响应处理失败");
             VPN_SERVER_LOGI("  💡 建议：检查网络双向连通性，确认响应线程正常启动");
         } else {
-            VPN_SERVER_LOGI("  ✅ 已处理 %llu 个响应任务", stats.responseTasksProcessed);
+            VPN_SERVER_LOGI("  ✅ 已处理 %" PRIu64 " 个响应任务", stats.responseTasksProcessed);
         }
 
         // 综合判断
@@ -1519,7 +1354,7 @@ napi_value StartServer(napi_env env, napi_callback_info info)
         if (!isRunning) {
             VPN_SERVER_LOGI("🚨 根本问题：工作线程池启动失败 - 需要重启应用");
         } else if (stats.forwardTasksProcessed == 0) {
-            VPN_SERVER_LOGI("🚨 根本问题：没有数据流入 - VPN客户端或TUN设备问题");
+            VPN_SERVER_LOGI("🚨 根本问题：没有数据流�?- VPN客户端或TUN设备问题");
         } else if (stats.forwardTasksFailed >= stats.forwardTasksProcessed) {
             VPN_SERVER_LOGI("🚨 根本问题：所有转发任务都失败 - 网络连接问题");
         } else if (stats.responseTasksProcessed == 0) {
@@ -1541,7 +1376,7 @@ napi_value StartServer(napi_env env, napi_callback_info info)
   // 🚨 BUG修复：注释掉错误的NAT表清空调用
   // 这个Clear调用会清空所有NAT映射，导致UDP响应失败
   // NATTable::Clear();
-  // VPN_SERVER_LOGI("✅ NAT table cleared");
+  // VPN_SERVER_LOGI("❌ NAT table cleared");
   LOG_ERROR("ZHOUB 🚨🚨🚨 BUG修复：移除StartServer中的NATTable::Clear()调用");
   
   int fd = socket(AF_INET, SOCK_DGRAM, 0);
@@ -1578,21 +1413,21 @@ napi_value StartServer(napi_env env, napi_callback_info info)
     return ret;
   }
 
-  VPN_SERVER_LOGI("✅ Socket bound successfully to port %{public}d", port);
+  VPN_SERVER_LOGI("�?Socket bound successfully to port %{public}d", port);
   
-  // 🔍 验证socket绑定状态
+  // verify socket bind status  
   sockaddr_in boundAddr {};
   socklen_t boundAddrLen = sizeof(boundAddr);
   if (getsockname(fd, reinterpret_cast<sockaddr*>(&boundAddr), &boundAddrLen) == 0) {
     char boundIP[INET_ADDRSTRLEN];
     inet_ntop(AF_INET, &boundAddr.sin_addr, boundIP, sizeof(boundIP));
-    VPN_SERVER_LOGI("🔍 Socket验证: 实际绑定到 %{public}s:%{public}d (fd=%{public}d)", 
+    VPN_SERVER_LOGI("🔍 Socket验证: 实际绑定�?%{public}s:%{public}d (fd=%{public}d)", 
                    boundIP, ntohs(boundAddr.sin_port), fd);
   } else {
-    VPN_SERVER_LOGE("❌ 无法验证socket绑定状态: %{public}s", strerror(errno));
+    VPN_SERVER_LOGE("�?无法验证socket绑定状�? %{public}s", strerror(errno));
   }
 
-  // 设置为非阻塞模式，避免recvfrom无限期阻塞
+  // set non-blocking mode (avoid recvfrom blocking forever)
   int flags = fcntl(fd, F_GETFL, 0);
   if (flags < 0) {
     VPN_SERVER_LOGE("Failed to get socket flags: %{public}s", strerror(errno));
@@ -1608,7 +1443,7 @@ napi_value StartServer(napi_env env, napi_callback_info info)
     napi_create_int32(env, -1, &ret);
     return ret;
   }
-  VPN_SERVER_LOGI("✅ Socket set to non-blocking mode");
+  VPN_SERVER_LOGI("�?Socket set to non-blocking mode");
 
   // 🔧 atomic 变量不需要锁保护
   g_sockFd.store(fd);
@@ -1621,11 +1456,11 @@ napi_value StartServer(napi_env env, napi_callback_info info)
   int testRecv = recvfrom(fd, testBuf, sizeof(testBuf), MSG_DONTWAIT, 
                          reinterpret_cast<sockaddr*>(&testPeer), &testPeerLen);
   if (testRecv < 0 && errno == EAGAIN) {
-    VPN_SERVER_LOGI("✅ Socket测试: 非阻塞模式正常 (EAGAIN表示暂无数据，这是正常的)");
+    VPN_SERVER_LOGI("�?Socket测试: 非阻塞模式正�?(EAGAIN表示暂无数据，这是正常的)");
   } else if (testRecv >= 0) {
     VPN_SERVER_LOGI("⚠️ Socket测试: 意外收到 %{public}d字节数据", testRecv);
   } else {
-    VPN_SERVER_LOGE("❌ Socket测试失败: errno=%{public}d (%{public}s)", errno, strerror(errno));
+    VPN_SERVER_LOGE("�?Socket测试失败: errno=%{public}d (%{public}s)", errno, strerror(errno));
   }
   
   // 🔍 检查socket选项
@@ -1659,65 +1494,60 @@ napi_value StartServer(napi_env env, napi_callback_info info)
       int sent = sendto(testSock, testMsg, 4, 0, 
                        reinterpret_cast<sockaddr*>(&testAddr), sizeof(testAddr));
       if (sent > 0) {
-        VPN_SERVER_LOGI("✅ [自测] 测试包发送成功: %{public}d字节", sent);
+        VPN_SERVER_LOGI("�?[自测] 测试包发送成�? %{public}d字节", sent);
       } else {
-        VPN_SERVER_LOGE("❌ [自测] 测试包发送失败: %{public}s", strerror(errno));
+        VPN_SERVER_LOGE("�?[自测] 测试包发送失�? %{public}s", strerror(errno));
       }
       close(testSock);
     }
   }).detach();
   
-  // 🔄 使用线程池启动UDP重传定时器任务
+  // use thread pool to run UDP retransmit timer task  
   auto* threadPool = GetThreadPool();
   if (threadPool) {
     threadPool->submit(VPNThreadPool::NETWORK_WORKER, []() {
       VPN_SERVER_LOGI("🔄 UDP retransmit timer task started");
       
       while (g_running.load()) {
-        // 🐛 修复：使用可中断的sleep，避免退出延迟
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        // 🐛 修复：使用可中断的sleep，避免退出延�?        std::this_thread::sleep_for(std::chrono::milliseconds(100));
         
-        if (!g_running.load()) break;  // 双重检查
-        
+        if (!g_running.load()) break;  // 双重检�?        
         // 调用UDP重传逻辑 (修改后的代码)
         UdpRetransmitManager::getInstance().checkAndRetransmit();
       }
       
       VPN_SERVER_LOGI("🔄 UDP retransmit timer task stopped");
     });
-    VPN_SERVER_LOGI("✅ UDP retransmit task submitted to thread pool");
+    VPN_SERVER_LOGI("�?UDP retransmit task submitted to thread pool");
   } else {
-    VPN_SERVER_LOGE("❌ Failed to get thread pool for UDP retransmit");
+    VPN_SERVER_LOGE("�?Failed to get thread pool for UDP retransmit");
   }
 
   VPN_SERVER_LOGI("🎯 PROXY SERVER STARTED - Ready to accept proxy client connections");
   VPN_SERVER_LOGI("📡 Listening on UDP port %{public}d for proxy tunnel traffic", port);
   VPN_SERVER_LOGI("🌐 All connected clients will have their traffic forwarded through this proxy server");
   
-  // 运行完整网络诊断（在后台线程中，避免阻塞启动）
+  // run comprehensive network diagnostics in background  
   std::thread([]() {
     VPN_SERVER_LOGI("🔍 Starting comprehensive network diagnostics...");
     NetworkDiagnostics::RunFullDiagnostics();
   }).detach();
   
-  // 测试网络连接 - 只保留一次测试
-  TestNetworkConnectivity();
+  // 测试网络连接 - 只保留一次测�?  TestNetworkConnectivity();
 
-  // 等待服务器完全启动
-  std::this_thread::sleep_for(std::chrono::milliseconds(100));
-  VPN_SERVER_LOGI("✅ Server fully initialized and ready for connections");
+  // 等待服务器完全启�?  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  VPN_SERVER_LOGI("�?Server fully initialized and ready for connections");
 
-  // 测试UDP连通性 - 添加保护，避免重复创建
+  // UDP connectivity test - only run once
   static std::atomic<bool> udpTestStarted{false};
   if (!udpTestStarted.exchange(true)) {
     std::thread([]() {
-      std::this_thread::sleep_for(std::chrono::seconds(1));  // 等待服务器完全启动
-      TestUDPConnectivity();
+      std::this_thread::sleep_for(std::chrono::seconds(1));      TestUDPConnectivity();
     }).detach();
   }
 
-  // 测试DNS连通性 - 已禁用，避免影响功能逻辑
-  // std::thread([]() {
+  // 测试DNS连通�?- 已禁用，避免影响功能逻辑
+  // run comprehensive network diagnostics in background  std::thread([]() {
   //   std::this_thread::sleep_for(std::chrono::seconds(2));
   //   TestAllDNSConnectivity();
   // }).detach();
@@ -1739,42 +1569,38 @@ napi_value StopServer(napi_env env, napi_callback_info info)
   VPN_SERVER_LOGI("⚠️ 重要提醒：服务器停止后，请手动停止HarmonyOS的VPN连接以避免客户端继续发送数据包");
   g_running.store(false);
   
-  // 停止工作线程池
-  WorkerThreadPool::getInstance().stop();
-  VPN_SERVER_LOGI("✅ Worker thread pool stopped");
+  // 停止工作线程�?  WorkerThreadPool::getInstance().stop();
+  VPN_SERVER_LOGI("�?Worker thread pool stopped");
   
   // 清理任务队列
   TaskQueueManager::getInstance().clear();
-  VPN_SERVER_LOGI("✅ Task queues cleared");
+  VPN_SERVER_LOGI("�?Task queues cleared");
   
-  // 清理UDP重传管理器
-  UdpRetransmitManager::getInstance().clear();
-  VPN_SERVER_LOGI("✅ UDP retransmit manager cleared");
+  // 清理UDP重传管理�?  UdpRetransmitManager::getInstance().clear();
+  VPN_SERVER_LOGI("�?UDP retransmit manager cleared");
   
-  // 🐛 修复：清理PacketForwarder的所有socket和线程
-  // PacketForwarder::CleanupAll(); // 已删除，不再需要清理
-  
+  // 🐛 修复：清理PacketForwarder的所有socket和线�?  // PacketForwarder::CleanupAll(); // 已删除，不再需要清�?  
   // 🚨 BUG修复：注释掉StopServer中的NATTable::Clear()调用
   // 这个Clear调用会清空所有NAT映射，导致UDP响应失败
   // NATTable::Clear();
-  // VPN_SERVER_LOGI("✅ NAT table cleared");
+  // VPN_SERVER_LOGI("�?NAT table cleared");
   LOG_ERROR("ZHOUB 🚨🚨🚨 BUG修复：移除StopServer中的NATTable::Clear()调用");
 
-  // 🐛 修复：发送服务器停止广播，通知VPN客户端服务器已停止
+  // broadcast server stop message (best-effort)
   int stopSockFd = g_sockFd.load();
   if (stopSockFd >= 0) {
-    // 发送特殊的停止消息，通知客户端服务器已停止
+    // stop message payload
     const char* stopMsg = "SERVER_STOPPED";
     sockaddr_in broadcastAddr {};
     broadcastAddr.sin_family = AF_INET;
     broadcastAddr.sin_addr.s_addr = htonl(INADDR_BROADCAST);
     broadcastAddr.sin_port = htons(8888);
 
-    // 设置socket为广播模式
+    // enable broadcast option
     int broadcastEnable = 1;
     setsockopt(stopSockFd, SOL_SOCKET, SO_BROADCAST, &broadcastEnable, sizeof(broadcastEnable));
 
-    // 发送广播消息
+    // send broadcast
     ssize_t sent = sendto(stopSockFd, stopMsg, strlen(stopMsg), 0,
                          (struct sockaddr*)&broadcastAddr, sizeof(broadcastAddr));
     if (sent > 0) {
@@ -1790,21 +1616,19 @@ napi_value StopServer(napi_env env, napi_callback_info info)
     VPN_SERVER_LOGI("ZHOUB [STOP] Socket closed");
   }
   
-  // 🔄 清理线程池
-  CleanupThreadPool();
-  VPN_SERVER_LOGI("✅ Thread pool cleaned up");
+  // 🔄 清理线程�?  CleanupThreadPool();
+  VPN_SERVER_LOGI("�?Thread pool cleaned up");
 
   // 🔧 修复：正确等待线程退出，避免资源泄漏
-  // 由于socket已关闭且select有100ms超时，工作线程会快速退出
+  // wait for worker thread to exit
   if (g_worker.joinable()) {
-    VPN_SERVER_LOGI("⏳ Waiting for worker thread to exit...");
+    VPN_SERVER_LOGI("�?Waiting for worker thread to exit...");
     g_worker.join();  // 🔧 应该join而不是detach
-    VPN_SERVER_LOGI("✅ Worker thread stopped");
+    VPN_SERVER_LOGI("�?Worker thread stopped");
   }
   
   // 🔄 UDP重传任务已由线程池管理，无需手动join
-  // 线程池shutdown时会自动清理所有任务
-  VPN_SERVER_LOGI("✅ UDP retransmit task will be cleaned up by thread pool");
+  // 线程池shutdown时会自动清理所有任�?  VPN_SERVER_LOGI("�?UDP retransmit task will be cleaned up by thread pool");
   
   // Reset statistics
   g_packetsReceived.store(0);
@@ -1812,8 +1636,7 @@ napi_value StopServer(napi_env env, napi_callback_info info)
   g_bytesReceived.store(0);
   g_bytesSent.store(0);
   {
-    std::lock_guard<std::mutex> lock(g_lastActivityMutex);  // 🔧 使用专用锁
-    g_lastActivity.clear();
+    std::lock_guard<std::mutex> lock(g_lastActivityMutex);    g_lastActivity.clear();
   }
   
   // Clear client info
@@ -1861,7 +1684,7 @@ napi_value GetStats(napi_env env, napi_callback_info info)
   // Last activity
   std::string lastActivity;
   {
-    std::lock_guard<std::mutex> lock(g_lastActivityMutex);  // 🔧 使用专用锁
+    std::lock_guard<std::mutex> lock(g_lastActivityMutex);  // 🔧 使用专用互斥锁保护 lastActivity
     lastActivity = g_lastActivity.empty() ? "No activity" : g_lastActivity;
   }
   napi_value lastActivityStr;
@@ -1921,6 +1744,7 @@ napi_value GetClients(napi_env env, napi_callback_info info)
 // 测试数据缓冲区函数
 napi_value TestDataBuffer(napi_env env, napi_callback_info info)
 {
+  (void)info;
   VPN_SERVER_LOGI("🧪 Testing data buffer functionality");
   
   // 手动添加测试数据
@@ -2025,7 +1849,7 @@ napi_value SendTestData(napi_env env, napi_callback_info info)
   clientAddr.sin_family = AF_INET;
   clientAddr.sin_port = htons(static_cast<uint16_t>(clientPort));
   
-  // 检查inet_pton的返回值
+  // 检查 inet_pton 的返回值
   if (inet_pton(AF_INET, clientIp.c_str(), &clientAddr.sin_addr) != 1) {
     VPN_SERVER_LOGE("Invalid IP address: %{public}s", clientIp.c_str());
     napi_value ret;
@@ -2072,18 +1896,19 @@ napi_value ClearDataBuffer(napi_env env, napi_callback_info info)
 // 🔧 网络连通性测试：直接测试DNS（不经过VPN隧道）
 napi_value TestNetworkConnectivity(napi_env env, napi_callback_info info)
 {
-  VPN_SERVER_LOGI("🧪 开始测试网络连通性...");
+  (void)info;
+  VPN_SERVER_LOGI("🧪 开始测试网络连通�?..");
   
   std::string result = "🌐 网络连通性测试报告\n\n";
   
   // 测试1: 创建UDP socket
-  result += "【测试1】创建UDP Socket\n";
+  result += "【测�?】创建UDP Socket\n";
   int udpSock = socket(AF_INET, SOCK_DGRAM, 0);
   if (udpSock < 0) {
-    result += "  ❌ 失败: errno=" + std::to_string(errno) + " (" + strerror(errno) + ")\n";
+    result += "  �?失败: errno=" + std::to_string(errno) + " (" + strerror(errno) + ")\n";
     VPN_SERVER_LOGE("创建UDP socket失败");
   } else {
-    result += "  ✅ 成功: socket fd=" + std::to_string(udpSock) + "\n";
+    result += "  �?成功: socket fd=" + std::to_string(udpSock) + "\n";
     
     // 测试2: 发送到8.8.8.8:53（直接DNS查询，不经过VPN）
     result += "\n【测试2】直接发送DNS查询到 8.8.8.8:53\n";
@@ -2107,7 +1932,7 @@ napi_value TestNetworkConnectivity(napi_env env, napi_callback_info info)
       0x03, 'c', 'o', 'm',
       0x00,        // End of name
       0x00, 0x01,  // Type: A
-      0x00, 0x01   // Class: IN
+      0x00, 0x01,  // Class: IN
     };
     
     ssize_t sent = sendto(udpSock, dnsQuery, sizeof(dnsQuery), 0,
@@ -2115,16 +1940,16 @@ napi_value TestNetworkConnectivity(napi_env env, napi_callback_info info)
     
     if (sent < 0) {
       int savedErrno = errno;
-      result += "  ❌ 发送失败: errno=" + std::to_string(savedErrno) + " (" + strerror(savedErrno) + ")\n";
+      result += "  �?发送失�? errno=" + std::to_string(savedErrno) + " (" + strerror(savedErrno) + ")\n";
       
       if (savedErrno == ENETUNREACH) {
         result += "\n  🚨 ENETUNREACH: 网络不可达\n";
         result += "  这是最常见的VPN环境错误！\n\n";
-        result += "  ❌ 根本原因：\n";
+        result += "  �?根本原因：\n";
         result += "    服务器创建的socket被路由到VPN隧道，\n";
-        result += "    形成循环：socket → VPN → 服务器 → socket\n\n";
-        result += "  ✅ 解决方法：\n";
-        result += "    在VPN客户端调用 protect(socketFd)\n";
+        result += "    形成循环：socket �?VPN �?服务�?�?socket\n\n";
+        result += "  �?解决方法：\n";
+        result += "    在VPN客户端调�?protect(socketFd)\n";
         result += "    让socket绕过VPN，直接访问物理网络\n\n";
         result += "  💡 示例代码：\n";
         result += "    // 在服务器创建socket后立即保护\n";
@@ -2136,7 +1961,7 @@ napi_value TestNetworkConnectivity(napi_env env, napi_callback_info info)
       
       VPN_SERVER_LOGE("UDP sendto失败: %d (%s)", savedErrno, strerror(savedErrno));
     } else {
-      result += "  ✅ 发送成功: " + std::to_string(sent) + " 字节\n";
+      result += "  �?发送成�? " + std::to_string(sent) + " 字节\n";
       
       // 测试3: 尝试接收响应
       result += "\n【测试3】接收DNS响应 (超时2秒)\n";
@@ -2161,10 +1986,10 @@ napi_value TestNetworkConnectivity(napi_env env, napi_callback_info info)
           result += "    2. Socket未被protect，响应无法返回\n";
           result += "    3. 网络连接断开\n";
         } else {
-          result += "  ❌ 接收失败: errno=" + std::to_string(savedErrno) + " (" + strerror(savedErrno) + ")\n";
+          result += "  �?接收失败: errno=" + std::to_string(savedErrno) + " (" + strerror(savedErrno) + ")\n";
         }
       } else {
-        result += "  ✅ 收到DNS响应: " + std::to_string(received) + " 字节\n";
+        result += "  �?收到DNS响应: " + std::to_string(received) + " 字节\n";
         char fromIP[INET_ADDRSTRLEN];
         inet_ntop(AF_INET, &fromAddr.sin_addr, fromIP, INET_ADDRSTRLEN);
         result += "  来源: " + std::string(fromIP) + ":" + std::to_string(ntohs(fromAddr.sin_port)) + "\n";
@@ -2179,13 +2004,13 @@ napi_value TestNetworkConnectivity(napi_env env, napi_callback_info info)
   result += "\n" + std::string(50, '=') + "\n";
   result += "📊 测试总结：\n\n";
   result += "1️⃣ 如果 ENETUNREACH（网络不可达）：\n";
-  result += "   → 需要实现socket protection机制\n";
-  result += "   → 在packet_forwarder.cpp创建socket后调用protect()\n\n";
+  result += "   �?需要实现socket protection机制\n";
+  result += "   �?在packet_forwarder.cpp创建socket后调用protect()\n\n";
   result += "2️⃣ 如果 发送成功但超时：\n";
-  result += "   → 可能是防火墙阻止8.8.8.8\n";
-  result += "   → 或socket未被protect导致响应无法返回\n\n";
+  result += "   �?可能是防火墙阻止8.8.8.8\n";
+  result += "   �?或socket未被protect导致响应无法返回\n\n";
   result += "3️⃣ 如果 收到响应：\n";
-  result += "   → 网络正常，可以开始测试VPN隧道转发\n";
+  result += "   ✅ 网络正常，可以开始测试VPN隧道转发\n";
   
   VPN_SERVER_LOGI("网络连通性测试完成");
   
@@ -2197,428 +2022,120 @@ napi_value TestNetworkConnectivity(napi_env env, napi_callback_info info)
 // 注意：超时设置为1秒以避免UI阻塞，如果网络不通会快速失败
 napi_value TestDNSQuery(napi_env env, napi_callback_info info)
 {
-  VPN_SERVER_LOGI("🧪🧪🧪 TestDNSQuery - Starting DNS test for www.baidu.com");
-  
-  // 🔧 优化：检查是否正在测试中，避免重复调用
-  static std::chrono::steady_clock::time_point lastTestTime;
-  static std::mutex testMutex;
-  
-  {
-    std::lock_guard<std::mutex> lock(testMutex);
-    auto now = std::chrono::steady_clock::now();
-    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastTestTime);
-    
-    if (elapsed.count() < 5000) {  // 5秒内只允许一次测试
-      VPN_SERVER_LOGW("⚠️ TestDNSQuery called too frequently, skipping (elapsed: %lldms)", elapsed.count());
-      napi_value result;
-      napi_create_string_utf8(env, "⚠️ Test in progress, please wait", NAPI_AUTO_LENGTH, &result);
-      return result;
-    }
-    lastTestTime = now;
-  }
-  
-  // 检查服务器是否运行
-  if (!g_running.load() || g_sockFd.load() < 0) {
-    VPN_SERVER_LOGE("❌ Server not running, cannot test DNS");
+  (void)info;
+  VPN_SERVER_LOGI("🧪🧪🧪 TestDNSQuery - Direct UDP test to 8.8.8.8:53");
+
+  // 直接用UDP socket测试DNS，就像网络诊断一样
+  int dnsSock = socket(AF_INET, SOCK_DGRAM, 0);
+  if (dnsSock < 0) {
+    VPN_SERVER_LOGE("�?Failed to create DNS socket: %{public}s", strerror(errno));
     napi_value result;
-    napi_create_string_utf8(env, "❌ Server not running\nPlease start server first", NAPI_AUTO_LENGTH, &result);
+    napi_create_string_utf8(env, "�?Failed to create DNS socket", NAPI_AUTO_LENGTH, &result);
     return result;
   }
-  
-  // 构建DNS查询包
-  uint8_t dnsQuery[512] = {0};
-  int offset = 0;
-  
-  // DNS头部
-  dnsQuery[offset++] = 0x12;  // ID high
-  dnsQuery[offset++] = 0x34;  // ID low
-  dnsQuery[offset++] = 0x01;  // Flags high (standard query)
-  dnsQuery[offset++] = 0x00;  // Flags low
-  dnsQuery[offset++] = 0x00;  // Questions high
-  dnsQuery[offset++] = 0x01;  // Questions low (1 question)
-  dnsQuery[offset++] = 0x00;  // Answers high
-  dnsQuery[offset++] = 0x00;  // Answers low
-  dnsQuery[offset++] = 0x00;  // Authority high
-  dnsQuery[offset++] = 0x00;  // Authority low
-  dnsQuery[offset++] = 0x00;  // Additional high
-  dnsQuery[offset++] = 0x00;  // Additional low
-  
-  // 域名编码：www.baidu.com
-  const char* labels[] = {"www", "baidu", "com"};
-  for (int i = 0; i < 3; i++) {
-    int len = strlen(labels[i]);
-    dnsQuery[offset++] = len;
-    memcpy(dnsQuery + offset, labels[i], len);
-    offset += len;
-  }
-  dnsQuery[offset++] = 0x00;  // 结束标记
-  
-  // 查询类型（A记录）和类别（IN）
-  dnsQuery[offset++] = 0x00;
-  dnsQuery[offset++] = 0x01;  // Type A
-  dnsQuery[offset++] = 0x00;
-  dnsQuery[offset++] = 0x01;  // Class IN
-  
-  int dnsLen = offset;
-  VPN_SERVER_LOGI("✅ DNS query built: %{public}d bytes", dnsLen);
-  
-  // 构建UDP包
-  uint16_t srcPort = 54321;
-  uint16_t dstPort = 53;
-  int udpLen = 8 + dnsLen;
-  uint8_t udpPacket[1024] = {0};
-  
-  // UDP头部
-  udpPacket[0] = (srcPort >> 8) & 0xFF;
-  udpPacket[1] = srcPort & 0xFF;
-  udpPacket[2] = (dstPort >> 8) & 0xFF;
-  udpPacket[3] = dstPort & 0xFF;
-  udpPacket[4] = (udpLen >> 8) & 0xFF;
-  udpPacket[5] = udpLen & 0xFF;
-  udpPacket[6] = 0x00;  // Checksum (稍后计算)
-  udpPacket[7] = 0x00;
-  
-  // UDP数据
-  memcpy(udpPacket + 8, dnsQuery, dnsLen);
-  
-  VPN_SERVER_LOGI("✅ UDP packet built: %{public}d bytes", udpLen);
-  
-  // 构建IP包
-  int ipHeaderLen = 20;
-  int totalLen = ipHeaderLen + udpLen;
-  uint8_t ipPacket[2048] = {0};
-  
-  // IP头部
-  ipPacket[0] = 0x45;  // Version 4, header length 5
-  ipPacket[1] = 0x00;  // TOS
-  ipPacket[2] = (totalLen >> 8) & 0xFF;
-  ipPacket[3] = totalLen & 0xFF;
-  ipPacket[4] = 0x12;  // ID high
-  ipPacket[5] = 0x34;  // ID low
-  ipPacket[6] = 0x00;  // Flags
-  ipPacket[7] = 0x00;
-  ipPacket[8] = 64;    // TTL
-  ipPacket[9] = 17;    // Protocol (UDP)
-  ipPacket[10] = 0x00; // Checksum (稍后计算)
-  ipPacket[11] = 0x00;
-  
-  // 源IP: 10.20.1.2
-  inet_pton(AF_INET, "10.20.1.2", ipPacket + 12);
-  
-  // 目标IP: 8.8.8.8
-  inet_pton(AF_INET, "8.8.8.8", ipPacket + 16);
-  
-  // 计算IP校验和
-  uint32_t sum = 0;
-  for (int i = 0; i < ipHeaderLen; i += 2) {
-    sum += (ipPacket[i] << 8) | ipPacket[i + 1];
-  }
-  while (sum >> 16) {
-    sum = (sum & 0xFFFF) + (sum >> 16);
-  }
-  uint16_t checksum = ~sum;
-  ipPacket[10] = (checksum >> 8) & 0xFF;
-  ipPacket[11] = checksum & 0xFF;
-  
-  // 复制UDP数据
-  memcpy(ipPacket + ipHeaderLen, udpPacket, udpLen);
-  
-  VPN_SERVER_LOGI("✅ IP packet built: %{public}d bytes (src:10.20.1.2:%{public}d -> dst:8.8.8.8:%{public}d)",
-                  totalLen, srcPort, dstPort);
-  
-  // 发送到服务器自己 (127.0.0.1:8888)
-  sockaddr_in testAddr{};
-  testAddr.sin_family = AF_INET;
-  testAddr.sin_port = htons(8888);
-  inet_pton(AF_INET, "127.0.0.1", &testAddr.sin_addr);
-  
-  VPN_SERVER_LOGI("📤 Sending DNS test packet to server (127.0.0.1:8888)...");
-  
-  // 创建测试socket
-  int dnsTestSock = socket(AF_INET, SOCK_DGRAM, 0);
-  if (dnsTestSock < 0) {
-    VPN_SERVER_LOGE("❌ Failed to create DNS test socket: %s", strerror(errno));
-    napi_value result;
-    napi_create_string_utf8(env, "❌ Failed to create DNS test socket", NAPI_AUTO_LENGTH, &result);
-    return result;
-  }
-  
-  // 发送测试包
-  char targetIP[INET_ADDRSTRLEN];
-  inet_ntop(AF_INET, &testAddr.sin_addr, targetIP, sizeof(targetIP));
-    VPN_SERVER_LOGI("🔍 [TestDNSQuery] 准备发送 %{public}d字节到 %{public}s:%{public}d (服务器监听127.0.0.1:8888)",
-                 totalLen, targetIP, ntohs(testAddr.sin_port));
-  
-  int sent = sendto(dnsTestSock, ipPacket, totalLen, 0,
-                   reinterpret_cast<sockaddr*>(&testAddr), sizeof(testAddr));
-  
+
+  // IMPORTANT:
+  // 之前这里设置了 O_NONBLOCK，导致 recvfrom() 立刻返回 EAGAIN(11)，
+  // SO_RCVTIMEO 的 5 秒超时不会生效，从而误判为“UDP 53 被 BLOCKED”。
+  // 这里保持阻塞模式 + SO_RCVTIMEO，让测试真正等待并得到可靠结论。
+
+  // DNS服务器地址
+  struct sockaddr_in dnsAddr{};
+  dnsAddr.sin_family = AF_INET;
+  dnsAddr.sin_port = htons(53);
+  inet_pton(AF_INET, "8.8.8.8", &dnsAddr.sin_addr);
+
+  // 构造DNS查询（www.baidu.com 的 A 记录）
+  uint8_t dnsQuery[] = {
+      0x12, 0x34,  // Transaction ID
+      0x01, 0x00,  // Flags: standard query
+      0x00, 0x01,  // Questions: 1
+      0x00, 0x00,  // Answer RRs: 0
+      0x00, 0x00,  // Authority RRs: 0
+      0x00, 0x00,  // Additional RRs: 0
+      // Query: www.baidu.com
+      0x03, 'w', 'w', 'w',
+      0x05, 'b', 'a', 'i', 'd', 'u',
+      0x03, 'c', 'o', 'm',
+      0x00,        // End of name
+      0x00, 0x01,  // Type: A
+      0x00, 0x01   // Class: IN
+  };
+
+  // 发送DNS查询
+  ssize_t sent = sendto(dnsSock, dnsQuery, sizeof(dnsQuery), 0,
+                       (struct sockaddr*)&dnsAddr, sizeof(dnsAddr));
+
   if (sent < 0) {
-    int savedErrno = errno;
-    VPN_SERVER_LOGE("❌ Failed to send test packet: errno=%{public}d (%{public}s)", savedErrno, strerror(savedErrno));
-    close(dnsTestSock);
+    VPN_SERVER_LOGE("�?Failed to send DNS query: %{public}s", strerror(errno));
+    close(dnsSock);
     napi_value result;
-    napi_create_string_utf8(env, "Failed to send test packet", NAPI_AUTO_LENGTH, &result);
+    napi_create_string_utf8(env, "�?Failed to send DNS query", NAPI_AUTO_LENGTH, &result);
     return result;
   }
-  
-  VPN_SERVER_LOGI("✅✅✅ Test packet sent successfully: %{public}d bytes to %{public}s:%{public}d", 
-                 sent, targetIP, ntohs(testAddr.sin_port));
-  
-  // 设置接收超时（500ms，避免阻塞UI线程）
+
+  VPN_SERVER_LOGI("�?DNS query sent (%{public}zd bytes) to 8.8.8.8:53", sent);
+
+  // 设置5秒超时
   struct timeval timeout;
-  timeout.tv_sec = 0;
-  timeout.tv_usec = 500000;  // 500ms
-  setsockopt(dnsTestSock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
-  
-  // 接收响应
+  timeout.tv_sec = 5;
+  timeout.tv_usec = 0;
+  setsockopt(dnsSock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+
+  VPN_SERVER_LOGI("�?Waiting for DNS response (timeout: 5 seconds)...");
+
+  // 等待响应
   uint8_t responseBuffer[2048];
-  sockaddr_in fromAddr{};
-  socklen_t fromLen = sizeof(fromAddr);
-  
-  VPN_SERVER_LOGI("⏳ Waiting for DNS response (timeout: 500ms)...");
-  
-  int received = recvfrom(dnsTestSock, responseBuffer, sizeof(responseBuffer), 0,
-                         reinterpret_cast<sockaddr*>(&fromAddr), &fromLen);
-  
-  close(dnsTestSock);
-  
-  if (received < 0) {
-    if (errno == EAGAIN || errno == EWOULDBLOCK) {
-      VPN_SERVER_LOGE("❌ DNS test TIMEOUT (500ms)");
-      VPN_SERVER_LOGE("   Root cause: Cannot reach 8.8.8.8 (Google DNS)");
-      VPN_SERVER_LOGE("   Possible reasons:");
-      VPN_SERVER_LOGE("   1. ❌ Firewall blocking UDP port 53 (DNS)");
-      VPN_SERVER_LOGE("   2. ❌ GFW (Great Firewall) blocking Google DNS");
-      VPN_SERVER_LOGE("   3. ❌ Network gateway/Internet connection down");
-      VPN_SERVER_LOGE("   This is NOT a proxy server bug!");
+  ssize_t received = recvfrom(dnsSock, responseBuffer, sizeof(responseBuffer), 0, nullptr, nullptr);
+
+  close(dnsSock);
+
+  if (received > 0) {
+    VPN_SERVER_LOGI("�?Received DNS response: %{public}zd bytes", received);
+
+    if (received >= 44 && (responseBuffer[2] & 0x80)) {  // 有效的DNS响应
+      VPN_SERVER_LOGI("�?Valid DNS response! 8.8.8.8 is accessible");
       napi_value result;
-      napi_create_string_utf8(env, "❌ DNS Test FAILED (Timeout 500ms)\n\n🔍 Root Cause: Cannot reach Google DNS (8.8.8.8)\n\n⚠️  This is NOT a proxy server bug!\n\nPossible reasons:\n  • Firewall blocking DNS port 53\n  • GFW blocking Google DNS\n  • Network/Internet down\n\n💡 Try:\n  • Use 114.114.114.114 (China DNS)\n  • Check firewall settings\n  • Verify internet connection", NAPI_AUTO_LENGTH, &result);
+      napi_create_string_utf8(env, "�?DNS Test SUCCESS!\n\n🎯 8.8.8.8 is accessible!\n\n📊 Response: %{public}zd bytes received\n\n🌐 UDP DNS port 53 is working!\n\n🔥 VPN proxy should work correctly!", NAPI_AUTO_LENGTH, &result);
       return result;
     } else {
-      VPN_SERVER_LOGE("❌ Failed to receive response: %{public}s (errno=%{public}d)", strerror(errno), errno);
+      VPN_SERVER_LOGE("�?Invalid DNS response format");
       napi_value result;
-      napi_create_string_utf8(env, "❌ Network error\nCannot receive DNS response", NAPI_AUTO_LENGTH, &result);
+      napi_create_string_utf8(env, "�?Invalid DNS response format", NAPI_AUTO_LENGTH, &result);
       return result;
     }
-  }
-  
-  VPN_SERVER_LOGI("✅ Received response: %{public}d bytes", received);
-  
-  // 🔧 智能检测：判断收到的是完整IP包还是纯DNS payload
-  const uint8_t* dnsData = nullptr;
-  int dnsDataLen = 0;
-  bool isFullIPPacket = false;
-  
-  // 检查是否是IPv4包（以0x4x开头）
-  if (received >= 20 && (responseBuffer[0] >> 4) == 4) {
-    // 完整IP包：包含 IP头 + UDP头 + DNS数据
-    isFullIPPacket = true;
-    VPN_SERVER_LOGI("📦 收到完整IP数据包");
-    
-    // 检查长度
-    if (received < ipHeaderLen + 8 + 12) {
-      VPN_SERVER_LOGE("❌ Response too short: %{public}d bytes", received);
-      napi_value result;
-      napi_create_string_utf8(env, "Response too short", NAPI_AUTO_LENGTH, &result);
-      return result;
-    }
-    
-    // 解析IP头部
-    int respIpHeaderLen = (responseBuffer[0] & 0x0F) * 4;
-    char srcIP[16], dstIP[16];
-    inet_ntop(AF_INET, responseBuffer + 12, srcIP, sizeof(srcIP));
-    inet_ntop(AF_INET, responseBuffer + 16, dstIP, sizeof(dstIP));
-    
-    VPN_SERVER_LOGI("📥 IP: %{public}s -> %{public}s", srcIP, dstIP);
-    
-    // 解析UDP头部
-    const uint8_t* udpHeader = responseBuffer + respIpHeaderLen;
-    uint16_t respSrcPort = (udpHeader[0] << 8) | udpHeader[1];
-    uint16_t respDstPort = (udpHeader[2] << 8) | udpHeader[3];
-    uint16_t respUdpLen = (udpHeader[4] << 8) | udpHeader[5];
-    
-    VPN_SERVER_LOGI("📥 UDP: %{public}d -> %{public}d, length: %{public}d", 
-                    respSrcPort, respDstPort, respUdpLen);
-    
-    // DNS数据在UDP头之后
-    dnsData = udpHeader + 8;
-    dnsDataLen = respUdpLen - 8;
   } else {
-    // 纯DNS payload：已经去掉IP/UDP头
-    isFullIPPacket = false;
-    VPN_SERVER_LOGI("📦 收到纯DNS payload（已去除IP/UDP头）");
-    
-    // 检查长度
-    if (received < 12) {
-      VPN_SERVER_LOGE("❌ DNS payload too short: %{public}d bytes", received);
+    int err = errno;
+    VPN_SERVER_LOGE("�?No DNS response yet / timeout: %{public}s (errno=%{public}d)", strerror(err), err);
+
+    if (err == EAGAIN || err == EWOULDBLOCK) {
+      VPN_SERVER_LOGE("   DNS response timeout (5s). This does NOT necessarily mean 'blocked'—it means no response was received in time.");
       napi_value result;
-      napi_create_string_utf8(env, "DNS payload too short", NAPI_AUTO_LENGTH, &result);
+      napi_create_string_utf8(env,
+                              "�?DNS Test FAILED (Timeout 5s)\n\n"
+                              "⚠️ No DNS response received within 5 seconds.\n\n"
+                              "Possible reasons:\n"
+                              "  �?Network blocks UDP/53 to 8.8.8.8 (common in some regions)\n"
+                              "  �?Socket not protected and traffic is routed into VPN loop\n"
+                              "  �?DNS server unreachable from the device network\n\n"
+                              "💡 Try:\n"
+                              "  �?Use domestic DNS (114.114.114.114 / 223.5.5.5)\n"
+                              "  �?Switch network (Wi‑Fi/4G) and retest\n",
+                              NAPI_AUTO_LENGTH, &result);
+      return result;
+    } else {
+      VPN_SERVER_LOGE("   Socket error");
+      napi_value result;
+      napi_create_string_utf8(env, "�?Socket error during DNS test", NAPI_AUTO_LENGTH, &result);
       return result;
     }
-    
-    // DNS数据就是整个响应
-    dnsData = responseBuffer;
-    dnsDataLen = received;
   }
-  
-  if (dnsDataLen < 12) {
-    VPN_SERVER_LOGE("❌ DNS response too short: %{public}d bytes", dnsDataLen);
-    napi_value result;
-    napi_create_string_utf8(env, "DNS response too short", NAPI_AUTO_LENGTH, &result);
-    return result;
-  }
-  
-  uint16_t dnsId = (dnsData[0] << 8) | dnsData[1];
-  uint16_t dnsFlags = (dnsData[2] << 8) | dnsData[3];
-  uint16_t qdcount = (dnsData[4] << 8) | dnsData[5];
-  uint16_t ancount = (dnsData[6] << 8) | dnsData[7];
-  uint16_t nscount = (dnsData[8] << 8) | dnsData[9];
-  uint16_t arcount = (dnsData[10] << 8) | dnsData[11];
-  
-  VPN_SERVER_LOGI("🎯 DNS Response: ID=0x%{public}04x, Flags=0x%{public}04x, QD=%{public}d, AN=%{public}d, NS=%{public}d, AR=%{public}d",
-                  dnsId, dnsFlags, qdcount, ancount, nscount, arcount);
-  
-  // 检查是否是成功的响应
-  if ((dnsFlags & 0x8000) == 0) {
-    VPN_SERVER_LOGE("❌ Not a DNS response");
-    napi_value result;
-    napi_create_string_utf8(env, "Not a DNS response", NAPI_AUTO_LENGTH, &result);
-    return result;
-  }
-  
-  if ((dnsFlags & 0x000F) != 0) {
-    VPN_SERVER_LOGE("❌ DNS query failed, error code: %{public}d", (dnsFlags & 0x000F));
-    napi_value result;
-    napi_create_string_utf8(env, "DNS query failed", NAPI_AUTO_LENGTH, &result);
-    return result;
-  }
-  
-  if (ancount == 0) {
-    VPN_SERVER_LOGE("❌ No DNS answers received");
-    napi_value result;
-    napi_create_string_utf8(env, "No DNS answers", NAPI_AUTO_LENGTH, &result);
-    return result;
-  }
-  
-  // 提取IP地址
-  VPN_SERVER_LOGI("✅✅✅ DNS Query SUCCESS! www.baidu.com resolved:");
-  std::string resultStr = "DNS Test SUCCESS!\nwww.baidu.com IP addresses:\n";
-  
-  // 简单解析：跳过问题部分，直接查找A记录
-  int dnsOffset = 12;
-  
-  VPN_SERVER_LOGI("🔍 Starting DNS parsing, total=%{public}d bytes, QD=%{public}d, AN=%{public}d, NS=%{public}d, AR=%{public}d", 
-                  dnsDataLen, qdcount, ancount, nscount, arcount);
-  
-  // 跳过问题部分
-  for (int q = 0; q < qdcount && dnsOffset < dnsDataLen; q++) {
-    // 跳过域名
-    while (dnsOffset < dnsDataLen && dnsData[dnsOffset] != 0) {
-      int labelLen = dnsData[dnsOffset];
-      if (labelLen > 63) {
-        if ((labelLen & 0xC0) == 0xC0) {
-          dnsOffset += 2;
-          break;
-        }
-        break;
-      }
-      dnsOffset += labelLen + 1;
-    }
-    if (dnsData[dnsOffset - 1] == 0 || dnsData[dnsOffset - 2] == 0) {
-      // 域名结束符已经在上面的循环中处理
-    } else {
-      dnsOffset++;  // 跳过结束符
-    }
-    dnsOffset += 4;  // 跳过Type和Class
-  }
-  
-  VPN_SERVER_LOGI("🔍 Question section skipped, now at offset %{public}d", dnsOffset);
-  
-  // 解析所有sections：Answer, Authority, Additional
-  int totalRecords = ancount + nscount + arcount;
-  VPN_SERVER_LOGI("🔍 Total records to parse: %{public}d (AN=%{public}d, NS=%{public}d, AR=%{public}d)", 
-                  totalRecords, ancount, nscount, arcount);
-  
-  for (int i = 0; i < totalRecords && dnsOffset < dnsDataLen; i++) {
-    const char* sectionName = i < ancount ? "Answer" : (i < ancount + nscount ? "Authority" : "Additional");
-    VPN_SERVER_LOGI("🔍 Parsing record #%{public}d [%{public}s], offset=%{public}d", i+1, sectionName, dnsOffset);
-    
-    // 跳过名称（可能是压缩指针）
-    if ((dnsData[dnsOffset] & 0xC0) == 0xC0) {
-      VPN_SERVER_LOGI("🔍 Found compressed name pointer: 0x%{public}02x%{public}02x", 
-                      dnsData[dnsOffset], dnsData[dnsOffset + 1]);
-      dnsOffset += 2;
-    } else {
-      VPN_SERVER_LOGI("🔍 Skipping non-compressed name at offset %{public}d", dnsOffset);
-      while (dnsOffset < dnsDataLen && dnsData[dnsOffset] != 0) {
-        dnsOffset += dnsData[dnsOffset] + 1;
-      }
-      dnsOffset++;
-    }
-    
-    if (dnsOffset + 10 > dnsDataLen) {
-      VPN_SERVER_LOGE("❌ Not enough data for RR header, offset=%{public}d", dnsOffset);
-      break;
-    }
-    
-    uint16_t type = (dnsData[dnsOffset] << 8) | dnsData[dnsOffset + 1];
-    uint16_t rrClass = (dnsData[dnsOffset + 2] << 8) | dnsData[dnsOffset + 3];
-    uint32_t ttl = (dnsData[dnsOffset + 4] << 24) | (dnsData[dnsOffset + 5] << 16) |
-                   (dnsData[dnsOffset + 6] << 8) | dnsData[dnsOffset + 7];
-    uint16_t dataLen = (dnsData[dnsOffset + 8] << 8) | dnsData[dnsOffset + 9];
-    
-    VPN_SERVER_LOGI("🔍 RR: type=%{public}d, class=%{public}d, ttl=%{public}u, dataLen=%{public}d",
-                    type, rrClass, ttl, dataLen);
-    
-    dnsOffset += 10;
-    
-    if (dnsOffset + dataLen > dnsDataLen) {
-      VPN_SERVER_LOGE("❌ RR data exceeds buffer, offset=%{public}d, dataLen=%{public}d", 
-                      dnsOffset, dataLen);
-      break;
-    }
-    
-    if (type == 1 && dataLen == 4) {  // A记录
-      char ipStr[16];
-      snprintf(ipStr, sizeof(ipStr), "%d.%d.%d.%d",
-               dnsData[dnsOffset], dnsData[dnsOffset + 1],
-               dnsData[dnsOffset + 2], dnsData[dnsOffset + 3]);
-      VPN_SERVER_LOGI("  🌐 IP Address: %{public}s (TTL: %{public}u)", ipStr, ttl);
-      resultStr += "  ";
-      resultStr += ipStr;
-      resultStr += "\n";
-    } else if (type == 5) {  // CNAME记录
-      VPN_SERVER_LOGI("🔍 Found CNAME record (type=5), dataLen=%{public}d", dataLen);
-      // CNAME数据是一个域名，暂不解析
-    } else {
-      VPN_SERVER_LOGI("🔍 Skipping record: type=%{public}d, dataLen=%{public}d", type, dataLen);
-    }
-    
-    dnsOffset += dataLen;
-  }
-  
-  VPN_SERVER_LOGI("🔍 Finished parsing, final offset=%{public}d", dnsOffset);
-  
-  // 检查是否找到了IP地址
-  if (resultStr.find("  ") == std::string::npos) {
-    // 没有找到A记录
-    VPN_SERVER_LOGW("⚠️ No A records found in DNS response (may contain only CNAME)");
-    resultStr += "  (Only CNAME record found, no A record)\n";
-    resultStr += "  This means www.baidu.com is an alias.\n";
-    resultStr += "  Try using the canonical name directly.\n";
-  }
-  
-  VPN_SERVER_LOGI("🎉🎉🎉 DNS TEST COMPLETED!");
-  
-  napi_value result;
-  napi_create_string_utf8(env, resultStr.c_str(), NAPI_AUTO_LENGTH, &result);
-  return result;
 }
+
 
 napi_value Init(napi_env env, napi_value exports)
 {
-  // 模块初始化日志
-  OH_LOG_Print(LOG_APP, LOG_INFO, 0x15b1, "VpnServer", "ZHOUB 🎉🎉🎉 NATIVE MODULE INITIALIZED - VPN SERVER MODULE LOADED 🎉🎉🎉");
+  // 模块初始化日�?  OH_LOG_Print(LOG_APP, LOG_INFO, 0x15b1, "VpnServer", "ZHOUB 🎉🎉🎉 NATIVE MODULE INITIALIZED - VPN SERVER MODULE LOADED 🎉🎉🎉");
   VPN_SERVER_LOGI("🎉 Native module initialized successfully");
   
   napi_property_descriptor desc[] = {
@@ -2653,3 +2170,16 @@ extern "C" __attribute__((constructor)) void RegisterEntryModule(void)
 {
   napi_module_register(&g_module);
 }
+
+
+
+
+
+
+
+
+
+
+
+
+

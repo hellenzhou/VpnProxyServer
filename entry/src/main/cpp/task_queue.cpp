@@ -18,7 +18,8 @@
 
 bool TaskQueueManager::submitForwardTask(const uint8_t* data, int dataSize,
                                         const PacketInfo& packetInfo,
-                                        const sockaddr_in& clientAddr) {
+                                        const sockaddr_in& clientAddr,
+                                        int tunnelFd) {
     // 🐛 修复：更严格的边界检查
     if (!data || dataSize <= 0 || dataSize > sizeof(ForwardTask::data)) {
         TASK_LOGE("❌ Invalid forward task: data=%p, dataSize=%{public}d (max=%{public}zu)",
@@ -31,6 +32,7 @@ bool TaskQueueManager::submitForwardTask(const uint8_t* data, int dataSize,
     task.forwardTask.dataSize = dataSize;
     task.forwardTask.packetInfo = packetInfo;
     task.forwardTask.clientAddr = clientAddr;
+    task.forwardTask.tunnelFd = tunnelFd;
 
     if (!forwardQueue_.tryPush(task)) {
         TASK_LOGE("⚠️ Forward queue full, dropping packet");

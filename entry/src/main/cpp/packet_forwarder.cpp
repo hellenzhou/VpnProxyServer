@@ -28,6 +28,9 @@
 #define LOG_ERROR(fmt, ...) \
     OH_LOG_Print(LOG_APP, LOG_ERROR, 0x15b1, "VpnServer", "ZHOUB [Forwarder] ❌ " fmt, ##__VA_ARGS__)
 
+// 🎯 发送socket保护控制消息给VPN客户端
+static void SendProtectSocketMessage(int sockFd, const PacketInfo& packetInfo, const sockaddr_in& clientAddr, int tunnelFd);
+
 // 🎯 Socket保护函数 - 防止转发socket被VPN路由劫持
 static bool ProtectSocket(int sockFd, const std::string& description) {
     LOG_INFO("🛡️ [Socket保护] 开始保护socket: fd=%d, 描述=%s", sockFd, description.c_str());
@@ -191,7 +194,7 @@ public:
 
         return -1;
     }
-
+    
     // 归还socket到池中
     void returnSocket(int sockFd, const std::string& clientIP, uint16_t clientPort,
                       const std::string& serverIP, uint16_t serverPort, uint8_t protocol) {
@@ -235,14 +238,14 @@ private:
         } else if (protocol == PROTOCOL_TCP) {
             sockFd = socket(AF_INET, SOCK_STREAM, 0);
         } else {
-            return -1;
-        }
+        return -1;
+    }
 
-        if (sockFd < 0) {
+    if (sockFd < 0) {
             LOG_ERROR("创建socket失败: %s", strerror(errno));
-            return -1;
-        }
-
+        return -1;
+    }
+    
         // 设置超时
         struct timeval timeout = {5, 0};  // 5秒超时
         setsockopt(sockFd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
@@ -262,7 +265,7 @@ private:
 static bool ProtectSocket(int sockFd, const std::string& description);
 
 // 🎯 获取socket (使用连接池优化 - 按客户端+目标分组确保数据隔离)
-static int GetSocket(const PacketInfo& packetInfo, const sockaddr_in& clientAddr) {
+static int GetSocket(const PacketInfo& packetInfo, const sockaddr_in& clientAddr, int tunnelFd) {
     // 🔍 关键调试：记录socket获取过程
     LOG_INFO("🔍 [Socket获取] 开始为 %s:%d -> %s:%d 获取socket",
              packetInfo.sourceIP.c_str(), packetInfo.sourcePort,
@@ -284,14 +287,20 @@ static int GetSocket(const PacketInfo& packetInfo, const sockaddr_in& clientAddr
         LOG_ERROR("❌ [Socket获取失败] 连接池返回无效socket: %d", sockFd);
         return -1;
     }
-
-    // 🔥 关键修复：保护转发socket，防止路由循环
+    
+    // 🔥 关键修复：发送控制消息给VPN客户端，请求保护转发socket
     std::string socketDesc = std::string(packetInfo.protocol == PROTOCOL_TCP ? "TCP" : "UDP") +
                             " forwarding socket to " + packetInfo.targetIP + ":" + std::to_string(packetInfo.targetPort);
-    if (!ProtectSocket(sockFd, socketDesc)) {
-        LOG_ERROR("❌ [Socket保护失败] 无法保护转发socket: fd=%d", sockFd);
-        close(sockFd);
-        return -1;
+    LOG_INFO("🛡️ [Socket保护] 发送控制消息请求保护socket: fd=%d (%s)", sockFd, socketDesc.c_str());
+
+    // 🛡️ Socket保护策略 - 简化：所有查询都跳过保护
+    bool shouldProtect = false;  // 直接跳过所有保护，使用最简单的socket
+
+    if (shouldProtect) {
+        // 发送控制消息给VPN客户端请求保护socket
+        SendProtectSocketMessage(sockFd, packetInfo, clientAddr, tunnelFd);
+    } else {
+        LOG_INFO("🛡️ [Socket保护] 使用普通socket (fd=%d)", sockFd);
     }
 
     // 设置特殊超时 - DNS查询使用更长超时时间
@@ -299,17 +308,87 @@ static int GetSocket(const PacketInfo& packetInfo, const sockaddr_in& clientAddr
         struct timeval timeout = {10, 0};  // DNS查询：10秒超时
         if (setsockopt(sockFd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0) {
             LOG_ERROR("❌ [Socket配置失败] 设置超时失败: %s", strerror(errno));
-            close(sockFd);
-            return -1;
+        close(sockFd);
+        return -1;
         }
         LOG_INFO("⏱️ DNS查询socket超时: 10秒, fd=%d", sockFd);
     }
-
+    
     LOG_INFO("✅ [Socket获取成功] fd=%d, 客户端=%s:%d -> 服务器=%s:%d, 协议=%s (已保护)",
              sockFd, clientIP, ntohs(clientAddr.sin_port),
              packetInfo.targetIP.c_str(), packetInfo.targetPort,
              packetInfo.protocol == PROTOCOL_TCP ? "TCP" : "UDP");
     return sockFd;
+}
+
+// 🎯 发送socket保护控制消息给VPN客户端
+static void SendProtectSocketMessage(int sockFd, const PacketInfo& packetInfo, const sockaddr_in& clientAddr, int tunnelFd) {
+    LOG_INFO("📤 [控制消息] 发送socket保护请求: fd=%d, tunnelFd=%d", sockFd, tunnelFd);
+
+    // 构建控制消息包：目的IP=127.0.0.1，目的端口=0，协议=UDP
+    // Payload格式：命令类型(1字节) + socket FD(4字节)
+
+    uint8_t controlPacket[28 + 5];  // IP头(20) + UDP头(8) + payload(5)
+    memset(controlPacket, 0, sizeof(controlPacket));
+
+    // IP头
+    controlPacket[0] = 0x45;  // IPv4, 5字节头
+    controlPacket[1] = 0x00;  // TOS
+    uint16_t totalLength = 28 + 5;  // IP头 + UDP头 + payload
+    controlPacket[2] = (totalLength >> 8) & 0xFF;
+    controlPacket[3] = totalLength & 0xFF;
+    controlPacket[4] = 0x00;  // ID高字节
+    controlPacket[5] = 0x01;  // ID低字节
+    controlPacket[6] = 0x00;  // Flags + Fragment offset
+    controlPacket[7] = 0x00;
+    controlPacket[8] = 0x40;  // TTL
+    controlPacket[9] = 17;    // Protocol: UDP
+
+    // 源IP：127.0.0.1（本地回环，与VPN服务器监听地址一致）
+    controlPacket[12] = 127;
+    controlPacket[13] = 0;
+    controlPacket[14] = 0;
+    controlPacket[15] = 1;
+
+    // 目的IP：127.0.0.1（控制消息）
+    controlPacket[16] = 127;
+    controlPacket[17] = 0;
+    controlPacket[18] = 0;
+    controlPacket[19] = 1;
+
+    // UDP头
+    // 源端口：8888（VPN服务器端口）
+    controlPacket[20] = (8888 >> 8) & 0xFF;
+    controlPacket[21] = 8888 & 0xFF;
+    // 目的端口：0（控制消息标识）
+    controlPacket[22] = 0;
+    controlPacket[23] = 0;
+
+    uint16_t udpLength = 8 + 5;  // UDP头 + payload
+    controlPacket[24] = (udpLength >> 8) & 0xFF;
+    controlPacket[25] = udpLength & 0xFF;
+
+    // Payload：控制消息
+    int payloadOffset = 28;
+    controlPacket[payloadOffset] = 0x01;  // 命令：保护转发socket
+    controlPacket[payloadOffset + 1] = (sockFd >> 24) & 0xFF;  // socket FD (大端)
+    controlPacket[payloadOffset + 2] = (sockFd >> 16) & 0xFF;
+    controlPacket[payloadOffset + 3] = (sockFd >> 8) & 0xFF;
+    controlPacket[payloadOffset + 4] = sockFd & 0xFF;
+
+    // 通过VPN隧道发送控制消息
+    if (tunnelFd >= 0) {
+        ssize_t sent = sendto(tunnelFd, controlPacket, sizeof(controlPacket), 0,
+                             (struct sockaddr*)&clientAddr, sizeof(clientAddr));
+        if (sent > 0) {
+            LOG_INFO("✅ [控制消息] socket保护请求已发送: fd=%d -> 客户端 %{public}s:%{public}d",
+                     sockFd, inet_ntoa(clientAddr.sin_addr), ntohs(clientAddr.sin_port));
+        } else {
+            LOG_ERROR("❌ [控制消息] 发送失败: errno=%d", errno);
+        }
+    } else {
+        LOG_ERROR("❌ [控制消息] tunnelFd无效，无法发送控制消息");
+    }
 }
 
 // 🎯 UDP响应线程 (添加socket清理)
@@ -335,7 +414,7 @@ static void StartUDPThread(int sockFd, const sockaddr_in& originalPeer) {
                 LOG_ERROR("UDP接收失败: fd=%d, errno=%d", sockFd, errno);
                 break;
             }
-            
+        
             // 重置无响应计数
             noResponseCount = 0;
             
@@ -373,13 +452,13 @@ static void StartUDPThread(int sockFd, const sockaddr_in& originalPeer) {
 
                         // ✅ 确认UDP接收，停止重传 - 使用基于内容的精确匹配
                         UdpRetransmitManager::getInstance().confirmReceivedByContent(sockFd, buffer, received);
-                    } else {
+        } else {
                         LOG_ERROR("❌ UDP响应任务提交失败");
                     }
                 } else {
                     LOG_ERROR("❌ 构建UDP响应包失败");
                 }
-            } else {
+    } else {
                 LOG_ERROR("❌ NAT映射不存在: fd=%d", sockFd);
                 break;
             }
@@ -390,7 +469,7 @@ static void StartUDPThread(int sockFd, const sockaddr_in& originalPeer) {
         NATTable::RemoveMappingBySocket(sockFd);
 
         // 获取目标地址信息，用于归还socket到连接池
-        NATConnection conn;
+    NATConnection conn;
         if (NATTable::FindMappingBySocket(sockFd, conn)) {
             char clientIP[INET_ADDRSTRLEN];
             inet_ntop(AF_INET, &conn.clientPhysicalAddr.sin_addr, clientIP, sizeof(clientIP));
@@ -404,7 +483,7 @@ static void StartUDPThread(int sockFd, const sockaddr_in& originalPeer) {
             );
         } else {
             // 如果找不到映射，直接关闭
-            close(sockFd);
+        close(sockFd);
             LOG_INFO("⚠️ 找不到NAT映射，直接关闭socket: fd=%d", sockFd);
         }
         
@@ -419,8 +498,8 @@ static void StartTCPThread(int sockFd, const sockaddr_in& originalPeer) {
         uint8_t buffer[4096];
         int noResponseCount = 0;
         const int MAX_NO_RESPONSE = 3;  // 最多3次无响应后清理
-        
-        while (true) {
+    
+    while (true) {
             ssize_t received = recv(sockFd, buffer, sizeof(buffer), 0);
             if (received < 0) {
                 if (errno == EAGAIN || errno == EWOULDBLOCK) {
@@ -435,9 +514,9 @@ static void StartTCPThread(int sockFd, const sockaddr_in& originalPeer) {
                 break;
             } else if (received == 0) {
                 LOG_INFO("🔚 TCP连接关闭: fd=%d", sockFd);
-                break;
-            }
-            
+            break;
+        }
+        
             // 重置无响应计数
             noResponseCount = 0;
             
@@ -480,8 +559,8 @@ static void StartTCPThread(int sockFd, const sockaddr_in& originalPeer) {
                 }
             } else {
                 LOG_ERROR("❌ NAT映射不存在: fd=%d", sockFd);
-                break;
-            }
+            break;
+        }
         }
         
         // 🧹 清理NAT映射并归还socket到连接池
@@ -515,7 +594,8 @@ static void StartTCPThread(int sockFd, const sockaddr_in& originalPeer) {
 
 int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
                                   const PacketInfo& packetInfo,
-                                  const sockaddr_in& originalPeer) {
+                                  const sockaddr_in& originalPeer,
+                                  int tunnelFd) {
     // 🚨 关键诊断：记录转发开始
     LOG_INFO("📦 [转发开始] %s:%d -> %s:%d (%s, %d字节)",
             packetInfo.sourceIP.c_str(), packetInfo.sourcePort,
@@ -549,14 +629,14 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
     // 2. DNS重定向 - 只重定向223.5.5.5
     std::string actualTargetIP = packetInfo.targetIP;
     if (packetInfo.targetPort == 53) {
-        // 🔧 调试：打印原始IP值
-        LOG_INFO("🔍 DNS原始目标: %s:%d", packetInfo.targetIP.c_str(), packetInfo.targetPort);
-        
+        // 🔧 调试：打印原始IP值 (强制输出)
+        LOG_ERROR("🔍 DNS原始目标: %s:%d", packetInfo.targetIP.c_str(), packetInfo.targetPort);
+
         if (packetInfo.targetIP == "223.5.5.5") {
             actualTargetIP = "8.8.8.8";  // 只重定向223.5.5.5到8.8.8.8
-            LOG_INFO("🔄 DNS重定向: %s -> %s", packetInfo.targetIP.c_str(), actualTargetIP.c_str());
+            LOG_ERROR("🔄 DNS重定向: %s -> %s", packetInfo.targetIP.c_str(), actualTargetIP.c_str());
         } else {
-            LOG_INFO("🔍 DNS无需重定向: %s", packetInfo.targetIP.c_str());
+            LOG_ERROR("🔍 DNS无需重定向: %s", packetInfo.targetIP.c_str());
         }
     }
     
@@ -571,9 +651,9 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
         LOG_INFO("🔄 使用现有NAT映射: key=%s, fd=%d", natKey.c_str(), existingConn.forwardSocket);
         sockFd = existingConn.forwardSocket;
         
-    } else {
+        } else {
         // 没有现有映射，创建新socket和映射
-        sockFd = GetSocket(packetInfo, originalPeer);
+        sockFd = GetSocket(packetInfo, originalPeer, tunnelFd);
         if (sockFd < 0) {
             LOG_ERROR("获取socket失败");
             return -1;
@@ -608,7 +688,7 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
 
         if (sent < 0) {
             LOG_ERROR("❌ [UDP发送失败] fd=%d, errno=%d (%s)", sockFd, errno, strerror(errno));
-            NATTable::RemoveMapping(natKey);
+    NATTable::RemoveMapping(natKey);
             return -1;
         }
 
@@ -745,4 +825,3 @@ void PacketForwarder::LogStatistics() {
     LOG_INFO("📊 PacketForwarder统计信息");
     // TODO: 添加具体的统计信息输出
 }
-

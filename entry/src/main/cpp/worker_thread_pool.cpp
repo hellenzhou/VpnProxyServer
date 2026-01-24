@@ -157,7 +157,8 @@ void WorkerThreadPool::forwardWorkerThread() {
             fwdTask.data,
             fwdTask.dataSize,
             fwdTask.packetInfo,
-            fwdTask.clientAddr
+            fwdTask.clientAddr,
+            fwdTask.tunnelFd
         );
 
         if (sockFd >= 0) {

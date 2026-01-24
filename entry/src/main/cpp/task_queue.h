@@ -19,8 +19,9 @@ struct ForwardTask {
     int dataSize;             // 数据包大小
     PacketInfo packetInfo;    // 解析后的包信息
     sockaddr_in clientAddr;   // 客户端地址
-    
-    ForwardTask() : dataSize(0) {}
+    int tunnelFd;             // VPN隧道FD（用于发送控制消息）
+
+    ForwardTask() : dataSize(0), tunnelFd(-1) {}
 };
 
 // 响应发送任务
@@ -80,9 +81,10 @@ public:
     }
     
     // 提交转发任务
-    bool submitForwardTask(const uint8_t* data, int dataSize, 
+    bool submitForwardTask(const uint8_t* data, int dataSize,
                           const PacketInfo& packetInfo,
-                          const sockaddr_in& clientAddr);
+                          const sockaddr_in& clientAddr,
+                          int tunnelFd);
     
     // 提交响应任务
     bool submitResponseTask(const uint8_t* data, int dataSize,

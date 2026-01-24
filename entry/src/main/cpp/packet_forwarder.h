@@ -10,9 +10,10 @@
 class PacketForwarder {
 public:
     // 转发数据包到真实服务器
-    static int ForwardPacket(const uint8_t* data, int dataSize, 
-                           const PacketInfo& packetInfo, 
-                           const sockaddr_in& originalPeer);
+    static int ForwardPacket(const uint8_t* data, int dataSize,
+                           const PacketInfo& packetInfo,
+                           const sockaddr_in& originalPeer,
+                           int tunnelFd);
     
 private:
     // 创建socket
