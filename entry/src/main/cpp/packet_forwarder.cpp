@@ -142,7 +142,7 @@ static bool ConnectWithTimeout(int sockFd, const sockaddr* targetAddr, socklen_t
     return true;
 }
 
-// Minimal TCP header parser for IPv4 packets
+// Minimal TCP header parser for IPv4/IPv6 packets
 struct ParsedTcp {
     bool ok = false;
     uint8_t ipHeaderLen = 0;
@@ -154,34 +154,90 @@ struct ParsedTcp {
     uint8_t flags = 0;
 };
 
-static ParsedTcp ParseTcpFromIpv4(const uint8_t* data, int dataSize)
+static ParsedTcp ParseTcpFromIp(const uint8_t* data, int dataSize)
 {
     ParsedTcp t;
-    if (!data || dataSize < 40) return t; // min IPv4(20)+TCP(20)
+    if (!data || dataSize < 40) return t; // min IPv4(20)+TCP(20) or IPv6(40)
     uint8_t version = (data[0] >> 4) & 0x0F;
-    if (version != 4) return t;
-    uint8_t ipHL = (data[0] & 0x0F) * 4;
-    if (ipHL < 20 || dataSize < ipHL + 20) return t;
-    if (data[9] != PROTOCOL_TCP) return t;
-    int off = ipHL;
+    if (version == 4) {
+        uint8_t ipHL = (data[0] & 0x0F) * 4;
+        if (ipHL < 20 || dataSize < ipHL + 20) return t;
+        if (data[9] != PROTOCOL_TCP) return t;
+        int off = ipHL;
 
-    t.ipHeaderLen = ipHL;
-    t.srcPort = (static_cast<uint16_t>(data[off + 0]) << 8) | data[off + 1];
-    t.dstPort = (static_cast<uint16_t>(data[off + 2]) << 8) | data[off + 3];
-    t.seq = (static_cast<uint32_t>(data[off + 4]) << 24) |
-            (static_cast<uint32_t>(data[off + 5]) << 16) |
-            (static_cast<uint32_t>(data[off + 6]) << 8)  |
-            (static_cast<uint32_t>(data[off + 7]));
-    t.ack = (static_cast<uint32_t>(data[off + 8]) << 24) |
-            (static_cast<uint32_t>(data[off + 9]) << 16) |
-            (static_cast<uint32_t>(data[off + 10]) << 8) |
-            (static_cast<uint32_t>(data[off + 11]));
-    t.flags = data[off + 13];
-    uint8_t dataOffsetWords = (data[off + 12] >> 4) & 0x0F;
-    int tcpHL = static_cast<int>(dataOffsetWords) * 4;
-    if (tcpHL < 20 || dataSize < off + tcpHL) return t;
-    t.tcpHeaderLen = static_cast<uint8_t>(tcpHL);
-    t.ok = true;
+        t.ipHeaderLen = ipHL;
+        t.srcPort = (static_cast<uint16_t>(data[off + 0]) << 8) | data[off + 1];
+        t.dstPort = (static_cast<uint16_t>(data[off + 2]) << 8) | data[off + 3];
+        t.seq = (static_cast<uint32_t>(data[off + 4]) << 24) |
+                (static_cast<uint32_t>(data[off + 5]) << 16) |
+                (static_cast<uint32_t>(data[off + 6]) << 8)  |
+                (static_cast<uint32_t>(data[off + 7]));
+        t.ack = (static_cast<uint32_t>(data[off + 8]) << 24) |
+                (static_cast<uint32_t>(data[off + 9]) << 16) |
+                (static_cast<uint32_t>(data[off + 10]) << 8) |
+                (static_cast<uint32_t>(data[off + 11]));
+        t.flags = data[off + 13];
+        uint8_t dataOffsetWords = (data[off + 12] >> 4) & 0x0F;
+        int tcpHL = static_cast<int>(dataOffsetWords) * 4;
+        if (tcpHL < 20 || dataSize < off + tcpHL) return t;
+        t.tcpHeaderLen = static_cast<uint8_t>(tcpHL);
+        t.ok = true;
+        return t;
+    }
+
+    if (version == 6) {
+        if (dataSize < 40) return t;
+        uint8_t nextHeader = data[6];
+        int off = 40;
+        int hops = 0;
+        const int maxHops = 8;
+        while (hops < maxHops) {
+            if (nextHeader == 0 || nextHeader == 43 || nextHeader == 50 ||
+                nextHeader == 51 || nextHeader == 60) {
+                if (dataSize < off + 2) return t;
+                uint8_t next = data[off];
+                uint8_t hdrExtLen = data[off + 1];
+                int extLen = (hdrExtLen + 1) * 8;
+                off += extLen;
+                if (off > dataSize) return t;
+                nextHeader = next;
+                hops++;
+                continue;
+            } else if (nextHeader == 44) { // Fragment
+                if (dataSize < off + 8) return t;
+                uint8_t next = data[off];
+                off += 8;
+                if (off > dataSize) return t;
+                nextHeader = next;
+                hops++;
+                continue;
+            }
+            break;
+        }
+        if (hops >= maxHops) return t;
+        if (nextHeader != PROTOCOL_TCP) return t;
+        if (dataSize < off + 20) return t;
+
+        t.ipHeaderLen = static_cast<uint8_t>(off);
+        t.srcPort = (static_cast<uint16_t>(data[off + 0]) << 8) | data[off + 1];
+        t.dstPort = (static_cast<uint16_t>(data[off + 2]) << 8) | data[off + 3];
+        t.seq = (static_cast<uint32_t>(data[off + 4]) << 24) |
+                (static_cast<uint32_t>(data[off + 5]) << 16) |
+                (static_cast<uint32_t>(data[off + 6]) << 8)  |
+                (static_cast<uint32_t>(data[off + 7]));
+        t.ack = (static_cast<uint32_t>(data[off + 8]) << 24) |
+                (static_cast<uint32_t>(data[off + 9]) << 16) |
+                (static_cast<uint32_t>(data[off + 10]) << 8) |
+                (static_cast<uint32_t>(data[off + 11]));
+        t.flags = data[off + 13];
+        uint8_t dataOffsetWords = (data[off + 12] >> 4) & 0x0F;
+        int tcpHL = static_cast<int>(dataOffsetWords) * 4;
+        if (tcpHL < 20 || dataSize < off + tcpHL) return t;
+        t.tcpHeaderLen = static_cast<uint8_t>(tcpHL);
+        t.ok = true;
+        return t;
+    }
+
     return t;
 }
 
@@ -840,7 +896,7 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
     
     // TCP control packets often have payloadSize==0 (SYN/ACK/FIN/RST). We must NOT drop them.
     if (packetInfo.protocol == PROTOCOL_TCP && payloadSize <= 0) {
-        ParsedTcp tcp = ParseTcpFromIpv4(data, dataSize);
+        ParsedTcp tcp = ParseTcpFromIp(data, dataSize);
         if (tcp.ok) {
             LOG_ERROR("TCP_ZERO_PAYLOAD %s:%u -> %s:%u dataSize=%d payloadSize=%d flags=0x%02x(%s) seq=%u ack=%u ipHL=%u tcpHL=%u",
                       packetInfo.sourceIP.c_str(), static_cast<unsigned>(tcp.srcPort),
@@ -960,7 +1016,7 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
         
     } else if (packetInfo.protocol == PROTOCOL_TCP) {
     // Minimal TCP state machine: handle SYN/ACK/FIN control packets from client, and translate payload to a stream socket.
-    ParsedTcp tcp = ParseTcpFromIpv4(data, dataSize);
+    ParsedTcp tcp = ParseTcpFromIp(data, dataSize);
     if (!tcp.ok) {
         LOG_ERROR("❌ [TCP解析失败] 非IPv4/TCP或头部不完整: dataSize=%d", dataSize);
         NATTable::RemoveMapping(natKey);

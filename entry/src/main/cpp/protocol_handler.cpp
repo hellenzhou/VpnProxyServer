@@ -109,7 +109,6 @@ PacketInfo ProtocolHandler::ParseIPPacket(const uint8_t* data, int dataSize) {
             switch (nextHeader) {
                 case 0:  // Hop-by-Hop Options
                 case 43: // Routing
-                case 44: // Fragment
                 case 50: // ESP
                 case 51: // AH
                 case 60: { // Destination Options
@@ -117,14 +116,27 @@ PacketInfo ProtocolHandler::ParseIPPacket(const uint8_t* data, int dataSize) {
                         PROTOCOL_LOGI("IPv6 extension header too small");
                         return info;
                     }
+                    // 扩展头的 Next Header 在当前扩展头首字节
+                    uint8_t next = data[payloadOffset];
                     // 扩展头长度单位是8字节，不包括第一个8字节
                     uint8_t extHeaderLen = data[payloadOffset + 1];
                     payloadOffset += (extHeaderLen + 1) * 8;
-                    if (payloadOffset + 1 > dataSize) {
+                    if (payloadOffset > dataSize) {
                         PROTOCOL_LOGI("IPv6 extension header extends beyond packet");
                         return info;
                     }
-                    nextHeader = data[payloadOffset];
+                    nextHeader = next;
+                    hops++;
+                    break;
+                }
+                case 44: { // Fragment
+                    if (payloadOffset + 8 > dataSize) {
+                        PROTOCOL_LOGI("IPv6 fragment header too small");
+                        return info;
+                    }
+                    uint8_t next = data[payloadOffset];
+                    payloadOffset += 8;
+                    nextHeader = next;
                     hops++;
                     break;
                 }
