@@ -47,6 +47,25 @@ static std::string TcpFlagsToString(uint8_t flags)
     return s;
 }
 
+static std::string FormatSockaddr(const sockaddr_in& addr)
+{
+    char ip[INET_ADDRSTRLEN] = {0};
+    inet_ntop(AF_INET, &addr.sin_addr, ip, sizeof(ip));
+    return std::string(ip) + ":" + std::to_string(ntohs(addr.sin_port));
+}
+
+static std::string GetSocketAddrString(int sockFd, bool peer)
+{
+    sockaddr_in addr{};
+    socklen_t len = sizeof(addr);
+    int rc = peer ? getpeername(sockFd, reinterpret_cast<sockaddr*>(&addr), &len)
+                  : getsockname(sockFd, reinterpret_cast<sockaddr*>(&addr), &len);
+    if (rc != 0) {
+        return "unknown";
+    }
+    return FormatSockaddr(addr);
+}
+
 // Minimal TCP header parser for IPv4 packets
 struct ParsedTcp {
     bool ok = false;
@@ -168,8 +187,10 @@ static bool ProtectSocket(int sockFd, const std::string& description) {
         // 在开发/测试环境中，我们选择继续运行，即使保护失败
         // 在生产环境中，应该返回false并拒绝使用这个socket
         protectionSuccess = true;  // 临时妥协，让系统能运行
+        LOG_ERROR("SOCKET_PROTECT_EFFECTIVE=0 fd=%d desc=%s", sockFd, description.c_str());
     } else {
         LOG_INFO("✅ [Socket保护] Socket保护成功: fd=%d (%s)", sockFd, description.c_str());
+        LOG_INFO("SOCKET_PROTECT_EFFECTIVE=1 fd=%d desc=%s", sockFd, description.c_str());
     }
 
     return protectionSuccess;
@@ -361,6 +382,9 @@ static int GetSocket(const PacketInfo& packetInfo, const sockaddr_in& clientAddr
     std::string socketDesc = std::string(packetInfo.protocol == PROTOCOL_TCP ? "TCP" : "UDP") +
                             " forwarding socket to " + packetInfo.targetIP + ":" + std::to_string(packetInfo.targetPort);
     LOG_INFO("🛡️ [Socket保护] 发送控制消息请求保护socket: fd=%d (%s)", sockFd, socketDesc.c_str());
+
+    // 本地尝试保护socket（避免服务器自身流量被VPN劫持形成回环）
+    ProtectSocket(sockFd, socketDesc);
 
     // 🛡️ Socket保护策略
     // NOTE:
@@ -580,7 +604,10 @@ static void StartTCPThread(int sockFd, const sockaddr_in& originalPeer) {
                 if (errno == EAGAIN || errno == EWOULDBLOCK) {
                     noResponseCount++;
                     if (noResponseCount == 1 || noResponseCount == MAX_NO_RESPONSE) {
-                        LOG_ERROR("TCP_RECV_TIMEOUT fd=%d count=%d", sockFd, noResponseCount);
+                        std::string localAddr = GetSocketAddrString(sockFd, false);
+                        std::string peerAddr = GetSocketAddrString(sockFd, true);
+                        LOG_ERROR("TCP_RECV_TIMEOUT fd=%d count=%d local=%s peer=%s",
+                                  sockFd, noResponseCount, localAddr.c_str(), peerAddr.c_str());
                     }
                     if (noResponseCount >= MAX_NO_RESPONSE) {
                         LOG_INFO("🔚 TCP无响应次数过多，清理socket: fd=%d", sockFd);

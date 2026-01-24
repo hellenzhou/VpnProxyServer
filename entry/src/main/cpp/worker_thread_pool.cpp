@@ -100,7 +100,7 @@ void WorkerThreadPool::forwardWorkerThread() {
     int iteration = 0;
     int processedTasks = 0;
 
-    WORKER_LOGI("🚀🚀🚀 Forward worker LOOP STARTED - running_=%d", running_.load() ? 1 : 0);
+    WORKER_LOGE("FWD_WORKER_STARTED running=%d", running_.load() ? 1 : 0);
 
     while (running_.load()) {
         iteration++;
@@ -112,9 +112,18 @@ void WorkerThreadPool::forwardWorkerThread() {
         }
 
         // 从队列获取任务（100ms超时）
+        if (iteration % 200 == 0) {
+            WORKER_LOGE("FWD_WORKER_ALIVE iter=%d queue=%zu running=%d",
+                        iteration,
+                        taskQueue.getForwardQueueSize(),
+                        running_.load() ? 1 : 0);
+        }
         auto taskOpt = taskQueue.popForwardTask(std::chrono::milliseconds(100));
 
         if (!taskOpt.has_value()) {
+            if (taskQueue.getForwardQueueSize() > 0) {
+                WORKER_LOGE("FWD_POP_EMPTY queue=%zu", taskQueue.getForwardQueueSize());
+            }
             // 每10秒输出一次等待状态
             if (iteration % 100000 == 0) {  // 1000次/秒 * 100秒 = 100000
                 WORKER_LOGI("⏳ Forward worker waiting for tasks... (iteration=%d, processed=%d)",
