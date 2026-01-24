@@ -67,6 +67,72 @@ static std::string GetSocketAddrString(int sockFd, bool peer)
     return FormatSockaddr(addr);
 }
 
+static bool SetBlockingMode(int sockFd, bool blocking)
+{
+    int flags = fcntl(sockFd, F_GETFL, 0);
+    if (flags < 0) {
+        return false;
+    }
+    if (blocking) {
+        flags &= ~O_NONBLOCK;
+    } else {
+        flags |= O_NONBLOCK;
+    }
+    return fcntl(sockFd, F_SETFL, flags) == 0;
+}
+
+static bool ConnectWithTimeout(int sockFd, const sockaddr_in& targetAddr, int timeoutMs)
+{
+    int flags = fcntl(sockFd, F_GETFL, 0);
+    if (flags < 0) {
+        LOG_ERROR("TCP connect: failed to get socket flags: fd=%d errno=%d", sockFd, errno);
+        return false;
+    }
+    if (fcntl(sockFd, F_SETFL, flags | O_NONBLOCK) < 0) {
+        LOG_ERROR("TCP connect: failed to set O_NONBLOCK: fd=%d errno=%d", sockFd, errno);
+        return false;
+    }
+
+    int rc = connect(sockFd, reinterpret_cast<const sockaddr*>(&targetAddr), sizeof(targetAddr));
+    if (rc == 0) {
+        // Connected immediately
+        fcntl(sockFd, F_SETFL, flags);
+        return true;
+    }
+    if (errno != EINPROGRESS) {
+        LOG_ERROR("TCP connect: immediate failure: fd=%d errno=%d (%s)", sockFd, errno, strerror(errno));
+        fcntl(sockFd, F_SETFL, flags);
+        return false;
+    }
+
+    fd_set writefds;
+    FD_ZERO(&writefds);
+    FD_SET(sockFd, &writefds);
+    struct timeval tv;
+    tv.tv_sec = timeoutMs / 1000;
+    tv.tv_usec = (timeoutMs % 1000) * 1000;
+
+    int sel = select(sockFd + 1, nullptr, &writefds, nullptr, &tv);
+    if (sel <= 0) {
+        LOG_ERROR("TCP_CONNECT_TIMEOUT fd=%d timeoutMs=%d", sockFd, timeoutMs);
+        fcntl(sockFd, F_SETFL, flags);
+        return false;
+    }
+
+    int soError = 0;
+    socklen_t len = sizeof(soError);
+    if (getsockopt(sockFd, SOL_SOCKET, SO_ERROR, &soError, &len) < 0 || soError != 0) {
+        LOG_ERROR("TCP connect: failed after select: fd=%d errno=%d (%s)", sockFd,
+                  soError ? soError : errno, strerror(soError ? soError : errno));
+        fcntl(sockFd, F_SETFL, flags);
+        return false;
+    }
+
+    // Restore original flags
+    fcntl(sockFd, F_SETFL, flags);
+    return true;
+}
+
 // Minimal TCP header parser for IPv4 packets
 struct ParsedTcp {
     bool ok = false;
@@ -887,11 +953,29 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
     if (isNewMapping) {
         LOG_INFO("🔗 [TCP连接] 正在连接到 %s:%d (fd=%d)...",
                  actualTargetIP.c_str(), packetInfo.targetPort, sockFd);
-        if (connect(sockFd, (struct sockaddr*)&targetAddr, sizeof(targetAddr)) < 0) {
-            LOG_ERROR("❌ [TCP连接失败] fd=%d, 目标=%s:%d, errno=%d (%s)",
-                      sockFd, actualTargetIP.c_str(), packetInfo.targetPort, errno, strerror(errno));
-            LOG_ERROR("TCP_CONNECT_FAIL fd=%d errno=%d", sockFd, errno);
+        if (!ConnectWithTimeout(sockFd, targetAddr, 3000)) {
+            LOG_ERROR("❌ [TCP连接失败/超时] fd=%d, 目标=%s:%d", sockFd, actualTargetIP.c_str(), packetInfo.targetPort);
+            LOG_ERROR("TCP_CONNECT_FAIL fd=%d", sockFd);
+
+            // Best-effort: send RST back to client to avoid hanging
+            uint8_t rstPkt[128];
+            uint32_t ackVal = tcp.seq + 1; // SYN consumes one seq
+            int rstSize = PacketBuilder::BuildTcpResponsePacket(
+                rstPkt, sizeof(rstPkt),
+                nullptr, 0,
+                packetInfo,
+                0, ackVal,
+                TCP_RST | TCP_ACK
+            );
+            if (rstSize > 0) {
+                TaskQueueManager::getInstance().submitResponseTask(
+                    rstPkt, rstSize, originalPeer, sockFd, PROTOCOL_TCP
+                );
+                LOG_INFO("📤 [TCP失败] 已回RST给客户端: ack=%u", ackVal);
+            }
+
             NATTable::RemoveMapping(natKey);
+            close(sockFd);
             return -1;
         }
         LOG_INFO("✅ [TCP连接成功] fd=%d 已连接到 %s:%d", sockFd, actualTargetIP.c_str(), packetInfo.targetPort);

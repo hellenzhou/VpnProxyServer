@@ -1046,10 +1046,20 @@ void WorkerLoop()
     VPN_SERVER_LOGI("ZHOUB [RX] %{public}d bytes from %{public}s (前16字节: %{public}s)", 
                    n, clientKey.c_str(), hexData.substr(0, 32).c_str());
     
-    // 🔥 检查是否是测试包（非IP包）
-    if (n < 20 || (buf[0] >> 4) != 4) {
-        VPN_SERVER_LOGI("ZHOUB [DEBUG] 检测到非IP包或测试包: %d字节", n);
-        continue;  // 跳过非IP包，防止崩溃
+    // 🔥 版本识别日志：IPv4/IPv6/非IP
+    uint8_t ipVersion = (n >= 1) ? ((buf[0] >> 4) & 0x0F) : 0;
+    if (ipVersion == 4) {
+        VPN_SERVER_LOGI("ZHOUB [VER] IPv4 packet: %{public}d bytes", n);
+    } else if (ipVersion == 6) {
+        VPN_SERVER_LOGI("ZHOUB [VER] IPv6 packet: %{public}d bytes", n);
+    } else {
+        VPN_SERVER_LOGI("ZHOUB [VER] Non-IP packet: ver=%{public}u size=%{public}d", ipVersion, n);
+    }
+
+    // 🔥 检查是否是测试包（非IPv4包）
+    if (n < 20 || ipVersion != 4) {
+        VPN_SERVER_LOGI("ZHOUB [DEBUG] 跳过非IPv4包: ver=%{public}u size=%{public}d", ipVersion, n);
+        continue;  // 仅处理IPv4
     }
     
     // 🔥 检查是否是TestDNSQuery发送的测试包（包含IP头，首位是0x45）
