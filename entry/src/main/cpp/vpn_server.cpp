@@ -883,7 +883,7 @@ void WorkerLoop()
     inet_ntop(AF_INET, &serverAddr.sin_addr, serverIP, sizeof(serverIP));
     VPN_SERVER_LOGI("🔍🔍🔍 服务器监听详�? IP=%{public}s, Port=%{public}d, Socket=%{public}d", 
                    serverIP, ntohs(serverAddr.sin_port), g_sockFd.load());
-    VPN_SERVER_LOGI("🔍🔍🔍 VPN客户端应该连接到: 127.0.0.1:8888");
+    VPN_SERVER_LOGI("🔍🔍🔍 VPN客户端请连接到: 设备真实IP:8888 (服务端绑定0.0.0.0)");
   } else {
     VPN_SERVER_LOGE("�?无法获取服务器监听地址: %{public}s", strerror(errno));
   }
@@ -963,7 +963,7 @@ void WorkerLoop()
       // 🔍 每100次超时记录一次，便于诊断
       static int timeoutCount = 0;
       if (++timeoutCount % 100 == 0) {
-        VPN_SERVER_LOGI("🔍 select timeout #%{public}d (等待数据中... socket=%{public}d, 监听127.0.0.1:8888)", 
+        VPN_SERVER_LOGI("🔍 select timeout #%{public}d (等待数据中... socket=%{public}d, 监听0.0.0.0:8888)",
                        timeoutCount, currentSockFd);
       }
       continue;  // 超时但没有数据，继续循环
@@ -1009,6 +1009,13 @@ void WorkerLoop()
       
       // 其他错误处理
       int savedErrno = errno;
+      if (savedErrno == ECONNABORTED || savedErrno == ECONNRESET) {
+        // UDP可能在对端断开/路由变化时返回这些错误，不应终止主循环
+        VPN_SERVER_LOGE("ZHOUB [ERROR] recvfrom transient error: errno=%{public}d (%{public}s) - continue",
+                        savedErrno, strerror(savedErrno));
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        continue;
+      }
       if (savedErrno == ENOMEM) {
         // 🔧 修复：内存不足不应该导致服务器退出，应该记录并继续
         VPN_SERVER_LOGE("ZHOUB [ERROR] recvfrom内存不足: errno=%{public}d (%{public}s) - 继续运行", 

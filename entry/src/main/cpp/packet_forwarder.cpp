@@ -1041,8 +1041,8 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
 
     // 🔍 关键诊断：记录客户端TCP包的seq/ack与当前状态
     NATTable::WithConnection(natKey, [&](NATConnection& c) {
-        LOG_INFO("TCP_CLIENT_PKT flags=%s seq=%u ack=%u state=%d nextClientSeq=%u nextServerSeq=%u",
-                 TcpFlagsToString(tcp.flags).c_str(), tcp.seq, tcp.ack,
+        LOG_INFO("TCP_CLIENT_PKT key=%s flags=%s seq=%u ack=%u state=%d nextClientSeq=%u nextServerSeq=%u",
+                 natKey.c_str(), TcpFlagsToString(tcp.flags).c_str(), tcp.seq, tcp.ack,
                  static_cast<int>(c.tcpState), c.nextClientSeq, c.nextServerSeq);
     });
 
@@ -1183,28 +1183,39 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
 
     // If this is the ACK completing handshake, mark established
     if (payloadSize <= 0 && isAck && !isSyn) {
+        bool transitioned = false;
+        uint32_t serverIsn = 0;
+        uint32_t expectedServerSeq = 0;
         NATTable::WithConnection(natKey, [&](NATConnection& c) {
+            expectedServerSeq = c.nextServerSeq;
+            serverIsn = c.serverIsn;
             if (c.nextServerSeq != 0 && tcp.ack != c.nextServerSeq) {
-                LOG_ERROR("TCP_ACK_MISMATCH clientAck=%u expectedServerSeq=%u state=%d",
-                          tcp.ack, c.nextServerSeq, static_cast<int>(c.tcpState));
+                LOG_ERROR("TCP_ACK_MISMATCH key=%s clientAck=%u expectedServerSeq=%u state=%d",
+                          natKey.c_str(), tcp.ack, c.nextServerSeq, static_cast<int>(c.tcpState));
             }
             if (c.tcpState == NATConnection::TcpState::SYN_RECEIVED) {
                 // best-effort check: client should ACK our SYN-ACK (ack==serverIsn+1)
                 if (tcp.ack == c.serverIsn + 1) {
                     c.tcpState = NATConnection::TcpState::ESTABLISHED;
                     c.nextClientSeq = tcp.seq; // should be clientIsn+1
+                    transitioned = true;
                 }
             } else if (c.tcpState == NATConnection::TcpState::ESTABLISHED) {
                 // ACKs for server->client data: nothing required for our minimal model
             }
         });
+        if (transitioned) {
+            LOG_INFO("TCP_ESTABLISHED key=%s clientAck=%u serverIsn=%u expectedServerSeq=%u",
+                     natKey.c_str(), tcp.ack, serverIsn, expectedServerSeq);
+        }
         return sockFd;
     }
 
     // Data packet from client
     if (payloadSize > 0) {
         // forward to remote stream socket
-        LOG_INFO("📤 [TCP发送] 发送 %d 字节数据 (fd=%d)...", payloadSize, sockFd);
+        LOG_INFO("📤 [TCP发送] key=%s 发送 %d 字节数据 (fd=%d) seq=%u ack=%u",
+                 natKey.c_str(), payloadSize, sockFd, tcp.seq, tcp.ack);
         ssize_t sent = send(sockFd, payload, payloadSize, 0);
         if (sent < 0) {
             LOG_ERROR("❌ [TCP发送失败] fd=%d, errno=%d (%s)", sockFd, errno, strerror(errno));
