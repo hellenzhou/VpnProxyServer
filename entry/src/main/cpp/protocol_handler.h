@@ -19,6 +19,7 @@ constexpr uint8_t ICMPV6_ROUTER_SOLICITATION = 133;  // 路由器请求
 constexpr uint8_t ICMPV6_ROUTER_ADVERTISEMENT = 134; // 路由器广告
 constexpr uint8_t ICMPV6_NEIGHBOR_SOLICITATION = 135; // 邻居请求（类似ARP）
 constexpr uint8_t ICMPV6_NEIGHBOR_ADVERTISEMENT = 136; // 邻居通告
+constexpr uint8_t ICMPV6_MLDV2_REPORT = 143; // 多播监听报告 (MLDv2)
 
 // 数据包解析结果
 struct PacketInfo {

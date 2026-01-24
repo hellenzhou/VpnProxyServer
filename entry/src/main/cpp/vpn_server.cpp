@@ -1152,12 +1152,12 @@ void WorkerLoop()
       
       // ICMPv6 特殊处理：某些 ICMPv6 消息不需要转发
       if (packetInfo.protocol == PROTOCOL_ICMPV6) {
-        // Router Solicitation/Advertisement 和 Neighbor Solicitation/Advertisement 通常不需要转发
-        // 这些是本地链路层消息
+        // Router/Neighbor/MLD 属于本地链路层消息，不需要转发
         if (packetInfo.icmpv6Type == ICMPV6_ROUTER_SOLICITATION ||
             packetInfo.icmpv6Type == ICMPV6_ROUTER_ADVERTISEMENT ||
             packetInfo.icmpv6Type == ICMPV6_NEIGHBOR_SOLICITATION ||
-            packetInfo.icmpv6Type == ICMPV6_NEIGHBOR_ADVERTISEMENT) {
+            packetInfo.icmpv6Type == ICMPV6_NEIGHBOR_ADVERTISEMENT ||
+            packetInfo.icmpv6Type == ICMPV6_MLDV2_REPORT) {
           VPN_SERVER_LOGI("ℹ️  ICMPv6 %{public}s 是本地链路消息，不需要转发", 
                           ProtocolHandler::GetICMPv6TypeName(packetInfo.icmpv6Type).c_str());
           continue;

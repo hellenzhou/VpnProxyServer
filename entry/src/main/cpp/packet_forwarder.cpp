@@ -878,6 +878,14 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
         return -1;
     }
 
+    if (packetInfo.protocol == PROTOCOL_ICMPV6) {
+        LOG_INFO("ℹ️ [ICMPv6转发] 当前未实现ICMPv6转发，已跳过: Type=%d (%s) -> %s",
+                 packetInfo.icmpv6Type,
+                 ProtocolHandler::GetICMPv6TypeName(packetInfo.icmpv6Type).c_str(),
+                 packetInfo.targetIP.c_str());
+        return 0;
+    }
+
     if (packetInfo.targetIP.empty() || packetInfo.targetPort <= 0) {
         LOG_ERROR("❌ [参数验证失败] 无效目标: IP=%s, Port=%d",
                  packetInfo.targetIP.c_str(), packetInfo.targetPort);

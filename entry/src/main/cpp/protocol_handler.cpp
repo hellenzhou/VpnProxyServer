@@ -294,6 +294,8 @@ std::string ProtocolHandler::GetICMPv6TypeName(uint8_t type) {
             return "Neighbor Solicitation";
         case ICMPV6_NEIGHBOR_ADVERTISEMENT:
             return "Neighbor Advertisement";
+        case ICMPV6_MLDV2_REPORT:
+            return "MLDv2 Report";
         default:
             return "Unknown Type " + std::to_string(type);
     }
