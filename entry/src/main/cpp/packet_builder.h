@@ -41,11 +41,17 @@ public:
     static uint16_t CalculateTCPChecksum(const uint8_t* ipHeader, 
                                          const uint8_t* tcpHeader, 
                                          int tcpLength);
+    static uint16_t CalculateTCPChecksumV6(const uint8_t* ipHeader,
+                                           const uint8_t* tcpHeader,
+                                           int tcpLength);
     
     // 计算UDP校验和
     static uint16_t CalculateUDPChecksum(const uint8_t* ipHeader,
                                          const uint8_t* udpHeader,
                                          int udpLength);
+    static uint16_t CalculateUDPChecksumV6(const uint8_t* ipHeader,
+                                           const uint8_t* udpHeader,
+                                           int udpLength);
     
     // 交换源/目标IP和端口（用于构建响应包）
     static PacketInfo SwapSourceDest(const PacketInfo& original);

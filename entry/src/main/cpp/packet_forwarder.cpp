@@ -57,14 +57,23 @@ static std::string FormatSockaddr(const sockaddr_in& addr)
 
 static std::string GetSocketAddrString(int sockFd, bool peer)
 {
-    sockaddr_in addr{};
+    sockaddr_storage addr{};
     socklen_t len = sizeof(addr);
     int rc = peer ? getpeername(sockFd, reinterpret_cast<sockaddr*>(&addr), &len)
                   : getsockname(sockFd, reinterpret_cast<sockaddr*>(&addr), &len);
     if (rc != 0) {
         return "unknown";
     }
-    return FormatSockaddr(addr);
+    if (addr.ss_family == AF_INET) {
+        return FormatSockaddr(*reinterpret_cast<sockaddr_in*>(&addr));
+    }
+    if (addr.ss_family == AF_INET6) {
+        char ip[INET6_ADDRSTRLEN] = {0};
+        auto* a6 = reinterpret_cast<sockaddr_in6*>(&addr);
+        inet_ntop(AF_INET6, &a6->sin6_addr, ip, sizeof(ip));
+        return std::string(ip) + ":" + std::to_string(ntohs(a6->sin6_port));
+    }
+    return "unknown";
 }
 
 static bool SetBlockingMode(int sockFd, bool blocking)
@@ -81,7 +90,7 @@ static bool SetBlockingMode(int sockFd, bool blocking)
     return fcntl(sockFd, F_SETFL, flags) == 0;
 }
 
-static bool ConnectWithTimeout(int sockFd, const sockaddr_in& targetAddr, int timeoutMs)
+static bool ConnectWithTimeout(int sockFd, const sockaddr* targetAddr, socklen_t addrLen, int timeoutMs)
 {
     int flags = fcntl(sockFd, F_GETFL, 0);
     if (flags < 0) {
@@ -93,7 +102,7 @@ static bool ConnectWithTimeout(int sockFd, const sockaddr_in& targetAddr, int ti
         return false;
     }
 
-    int rc = connect(sockFd, reinterpret_cast<const sockaddr*>(&targetAddr), sizeof(targetAddr));
+    int rc = connect(sockFd, targetAddr, addrLen);
     if (rc == 0) {
         // Connected immediately
         fcntl(sockFd, F_SETFL, flags);
@@ -280,13 +289,15 @@ private:
         std::string serverIP;    // 服务器IP
         uint16_t serverPort;     // 服务器端口
         uint8_t protocol;
+        int addressFamily;
 
         bool operator<(const TargetKey& other) const {
             if (clientIP != other.clientIP) return clientIP < other.clientIP;
             if (clientPort != other.clientPort) return clientPort < other.clientPort;
             if (serverIP != other.serverIP) return serverIP < other.serverIP;
             if (serverPort != other.serverPort) return serverPort < other.serverPort;
-            return protocol < other.protocol;
+            if (protocol != other.protocol) return protocol < other.protocol;
+            return addressFamily < other.addressFamily;
         }
     };
 
@@ -308,9 +319,10 @@ public:
 
     // 获取或创建socket - 按客户端+目标分组，确保数据隔离
     int getSocket(const std::string& clientIP, uint16_t clientPort,
-                  const std::string& serverIP, uint16_t serverPort, uint8_t protocol) {
+                  const std::string& serverIP, uint16_t serverPort, uint8_t protocol,
+                  int addressFamily) {
         std::lock_guard<std::mutex> lock(poolMutex_);
-        TargetKey key{clientIP, clientPort, serverIP, serverPort, protocol};
+        TargetKey key{clientIP, clientPort, serverIP, serverPort, protocol, addressFamily};
 
         // 尝试从池中获取现有socket
         auto& pool = socketPools_[key];
@@ -340,7 +352,7 @@ public:
         }
 
         // 创建新socket
-        int newSock = createNewSocket(protocol);
+        int newSock = createNewSocket(protocol, addressFamily);
         if (newSock >= 0) {
             SocketInfo info(newSock);
             info.inUse = true;
@@ -354,9 +366,10 @@ public:
     
     // 归还socket到池中
     void returnSocket(int sockFd, const std::string& clientIP, uint16_t clientPort,
-                      const std::string& serverIP, uint16_t serverPort, uint8_t protocol) {
+                      const std::string& serverIP, uint16_t serverPort, uint8_t protocol,
+                      int addressFamily) {
         std::lock_guard<std::mutex> lock(poolMutex_);
-        TargetKey key{clientIP, clientPort, serverIP, serverPort, protocol};
+        TargetKey key{clientIP, clientPort, serverIP, serverPort, protocol, addressFamily};
 
         auto& pool = socketPools_[key];
         if (pool.size() < MAX_SOCKETS_PER_TARGET) {
@@ -388,12 +401,13 @@ public:
     }
 
 private:
-    int createNewSocket(uint8_t protocol) {
+    int createNewSocket(uint8_t protocol, int addressFamily) {
         int sockFd;
+        int af = (addressFamily == AF_INET6) ? AF_INET6 : AF_INET;
         if (protocol == PROTOCOL_UDP) {
-            sockFd = socket(AF_INET, SOCK_DGRAM, 0);
+            sockFd = socket(af, SOCK_DGRAM, 0);
         } else if (protocol == PROTOCOL_TCP) {
-            sockFd = socket(AF_INET, SOCK_STREAM, 0);
+            sockFd = socket(af, SOCK_STREAM, 0);
         } else {
         return -1;
     }
@@ -437,7 +451,8 @@ static int GetSocket(const PacketInfo& packetInfo, const sockaddr_in& clientAddr
         ntohs(clientAddr.sin_port),
         packetInfo.targetIP,
         packetInfo.targetPort,
-        packetInfo.protocol
+        packetInfo.protocol,
+        packetInfo.addressFamily
     );
 
     if (sockFd < 0) {

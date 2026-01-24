@@ -64,9 +64,84 @@ bool PacketBuilder::ExtractPayload(const uint8_t* ipPacket, int packetSize,
             return true;
         }
     } else if (version == 6) {
-        // IPv6 - 暂不支持
-        PACKET_BUILDER_LOGE("IPv6 not supported yet");
-        return false;
+        // IPv6
+        if (packetSize < 40) {
+            PACKET_BUILDER_LOGE("IPv6 packet too small: %{public}d", packetSize);
+            return false;
+        }
+        if (info.protocol != PROTOCOL_TCP && info.protocol != PROTOCOL_UDP) {
+            PACKET_BUILDER_LOGE("IPv6 ExtractPayload only supports TCP/UDP (protocol=%{public}d)", info.protocol);
+            return false;
+        }
+
+        // Walk extension headers to find transport header
+        uint8_t nextHeader = ipPacket[6];
+        int offset = 40;
+        int hops = 0;
+        const int maxHops = 8;
+        while (hops < maxHops) {
+            if (nextHeader == 0 || nextHeader == 43 || nextHeader == 60 ||
+                nextHeader == 51 || nextHeader == 50) {
+                if (packetSize < offset + 2) {
+                    PACKET_BUILDER_LOGE("IPv6 extension header too small");
+                    return false;
+                }
+                uint8_t hdrExtLen = ipPacket[offset + 1];
+                int extLen = (hdrExtLen + 1) * 8;
+                nextHeader = ipPacket[offset];
+                offset += extLen;
+                hops++;
+                continue;
+            } else if (nextHeader == 44) { // Fragment
+                if (packetSize < offset + 8) {
+                    PACKET_BUILDER_LOGE("IPv6 fragment header too small");
+                    return false;
+                }
+                nextHeader = ipPacket[offset];
+                offset += 8;
+                hops++;
+                continue;
+            }
+            break;
+        }
+        if (hops >= maxHops) {
+            PACKET_BUILDER_LOGE("IPv6 too many extension headers");
+            return false;
+        }
+
+        if (nextHeader != info.protocol) {
+            PACKET_BUILDER_LOGE("IPv6 nextHeader mismatch: %{public}d vs info.protocol=%{public}d",
+                                nextHeader, info.protocol);
+            return false;
+        }
+
+        int remainingSize = packetSize - offset;
+        if (info.protocol == PROTOCOL_TCP) {
+            if (remainingSize < 20) {
+                PACKET_BUILDER_LOGE("IPv6 TCP header too small");
+                return false;
+            }
+            int tcpHeaderLen = GetTCPHeaderLength(ipPacket + offset);
+            if (tcpHeaderLen < 20 || tcpHeaderLen > remainingSize) {
+                PACKET_BUILDER_LOGE("Invalid IPv6 TCP header length: %{public}d", tcpHeaderLen);
+                return false;
+            }
+            *payloadOut = ipPacket + offset + tcpHeaderLen;
+            *payloadSizeOut = remainingSize - tcpHeaderLen;
+            PACKET_BUILDER_LOGI("✅ Extracted IPv6 TCP payload: %{public}d bytes (TCP header: %{public}d)",
+                               *payloadSizeOut, tcpHeaderLen);
+            return true;
+        } else if (info.protocol == PROTOCOL_UDP) {
+            if (remainingSize < 8) {
+                PACKET_BUILDER_LOGE("IPv6 UDP header too small");
+                return false;
+            }
+            *payloadOut = ipPacket + offset + 8;
+            *payloadSizeOut = remainingSize - 8;
+            PACKET_BUILDER_LOGI("✅ Extracted IPv6 UDP payload: %{public}d bytes (UDP header: 8)",
+                               *payloadSizeOut);
+            return true;
+        }
     }
     
     PACKET_BUILDER_LOGE("Unknown IP version: %{public}d", version);
@@ -82,9 +157,9 @@ int PacketBuilder::BuildResponsePacket(uint8_t* buffer, int bufferSize,
         return -1;
     }
     
-    // 只支持IPv4
-    if (originalRequest.addressFamily != AF_INET) {
-        PACKET_BUILDER_LOGE("Only IPv4 supported");
+    // 仅支持 IPv4/IPv6
+    if (originalRequest.addressFamily != AF_INET && originalRequest.addressFamily != AF_INET6) {
+        PACKET_BUILDER_LOGE("Only IPv4/IPv6 supported");
         return -1;
     }
     
@@ -95,8 +170,7 @@ int PacketBuilder::BuildResponsePacket(uint8_t* buffer, int bufferSize,
     // 目标IP = originalRequest.sourceIP (客户端的VPN虚拟IP，如192.168.0.2)
     // 目标端口 = originalRequest.sourcePort (客户端的端口，如54321)
     
-    // 构建IPv4头（20字节）
-    int ipHeaderLen = 20;
+    int ipHeaderLen = (originalRequest.addressFamily == AF_INET6) ? 40 : 20;
     int transportHeaderLen = (originalRequest.protocol == PROTOCOL_TCP) ? 20 : 8;
     int totalLen = ipHeaderLen + transportHeaderLen + payloadSize;
     
@@ -107,34 +181,54 @@ int PacketBuilder::BuildResponsePacket(uint8_t* buffer, int bufferSize,
     
     memset(buffer, 0, totalLen);
     
-    // IPv4头
-    buffer[0] = 0x45;  // Version 4, Header length 5 (20 bytes)
-    buffer[1] = 0x00;  // TOS
-    buffer[2] = (totalLen >> 8) & 0xFF;  // Total length
-    buffer[3] = totalLen & 0xFF;
-    buffer[4] = 0x00;  // Identification
-    buffer[5] = 0x00;
-    buffer[6] = 0x40;  // Flags: Don't fragment
-    buffer[7] = 0x00;
-    buffer[8] = 0x40;  // TTL: 64
-    buffer[9] = originalRequest.protocol;  // Protocol
-    buffer[10] = 0x00;  // Checksum (will calculate later)
-    buffer[11] = 0x00;
-    
-    // 🔧 修复：源IP = 真实服务器的IP (originalRequest.targetIP)
-    struct in_addr srcAddr;
-    inet_pton(AF_INET, originalRequest.targetIP.c_str(), &srcAddr);
-    memcpy(buffer + 12, &srcAddr, 4);
-    
-    // 🔧 修复：目标IP = 客户端的VPN虚拟IP (originalRequest.sourceIP)
-    struct in_addr dstAddr;
-    inet_pton(AF_INET, originalRequest.sourceIP.c_str(), &dstAddr);
-    memcpy(buffer + 16, &dstAddr, 4);
-    
-    // 计算IP校验和
-    uint16_t ipChecksum = CalculateIPChecksum(buffer, ipHeaderLen);
-    buffer[10] = (ipChecksum >> 8) & 0xFF;
-    buffer[11] = ipChecksum & 0xFF;
+    if (originalRequest.addressFamily == AF_INET6) {
+        // IPv6 header (40 bytes)
+        buffer[0] = 0x60; // Version 6
+        buffer[1] = 0x00;
+        buffer[2] = 0x00;
+        buffer[3] = 0x00; // Traffic class + flow label
+        uint16_t payloadLen = static_cast<uint16_t>(transportHeaderLen + payloadSize);
+        buffer[4] = (payloadLen >> 8) & 0xFF;
+        buffer[5] = payloadLen & 0xFF;
+        buffer[6] = originalRequest.protocol; // Next Header
+        buffer[7] = 0x40; // Hop Limit
+
+        struct in6_addr srcAddr6;
+        inet_pton(AF_INET6, originalRequest.targetIP.c_str(), &srcAddr6);
+        memcpy(buffer + 8, &srcAddr6, 16);
+        struct in6_addr dstAddr6;
+        inet_pton(AF_INET6, originalRequest.sourceIP.c_str(), &dstAddr6);
+        memcpy(buffer + 24, &dstAddr6, 16);
+    } else {
+        // IPv4 header (20 bytes)
+        buffer[0] = 0x45;  // Version 4, Header length 5 (20 bytes)
+        buffer[1] = 0x00;  // TOS
+        buffer[2] = (totalLen >> 8) & 0xFF;  // Total length
+        buffer[3] = totalLen & 0xFF;
+        buffer[4] = 0x00;  // Identification
+        buffer[5] = 0x00;
+        buffer[6] = 0x40;  // Flags: Don't fragment
+        buffer[7] = 0x00;
+        buffer[8] = 0x40;  // TTL: 64
+        buffer[9] = originalRequest.protocol;  // Protocol
+        buffer[10] = 0x00;  // Checksum (will calculate later)
+        buffer[11] = 0x00;
+        
+        // 🔧 修复：源IP = 真实服务器的IP (originalRequest.targetIP)
+        struct in_addr srcAddr;
+        inet_pton(AF_INET, originalRequest.targetIP.c_str(), &srcAddr);
+        memcpy(buffer + 12, &srcAddr, 4);
+        
+        // 🔧 修复：目标IP = 客户端的VPN虚拟IP (originalRequest.sourceIP)
+        struct in_addr dstAddr;
+        inet_pton(AF_INET, originalRequest.sourceIP.c_str(), &dstAddr);
+        memcpy(buffer + 16, &dstAddr, 4);
+        
+        // 计算IP校验和
+        uint16_t ipChecksum = CalculateIPChecksum(buffer, ipHeaderLen);
+        buffer[10] = (ipChecksum >> 8) & 0xFF;
+        buffer[11] = ipChecksum & 0xFF;
+    }
     
     uint8_t* transportHeader = buffer + ipHeaderLen;
     
@@ -161,7 +255,9 @@ int PacketBuilder::BuildResponsePacket(uint8_t* buffer, int bufferSize,
         memcpy(transportHeader + 20, payload, payloadSize);
         
         // 计算TCP校验和
-        uint16_t tcpChecksum = CalculateTCPChecksum(buffer, transportHeader, 20 + payloadSize);
+        uint16_t tcpChecksum = (originalRequest.addressFamily == AF_INET6)
+            ? CalculateTCPChecksumV6(buffer, transportHeader, 20 + payloadSize)
+            : CalculateTCPChecksum(buffer, transportHeader, 20 + payloadSize);
         transportHeader[16] = (tcpChecksum >> 8) & 0xFF;
         transportHeader[17] = tcpChecksum & 0xFF;
         
@@ -184,7 +280,9 @@ int PacketBuilder::BuildResponsePacket(uint8_t* buffer, int bufferSize,
         memcpy(transportHeader + 8, payload, payloadSize);
         
         // 计算UDP校验和
-        uint16_t udpChecksum = CalculateUDPChecksum(buffer, transportHeader, udpLen);
+        uint16_t udpChecksum = (originalRequest.addressFamily == AF_INET6)
+            ? CalculateUDPChecksumV6(buffer, transportHeader, udpLen)
+            : CalculateUDPChecksum(buffer, transportHeader, udpLen);
         transportHeader[6] = (udpChecksum >> 8) & 0xFF;
         transportHeader[7] = udpChecksum & 0xFF;
     }
@@ -213,12 +311,13 @@ int PacketBuilder::BuildTcpResponsePacket(uint8_t* buffer, int bufferSize,
         PACKET_BUILDER_LOGE("TCP payload is null but payloadSize=%{public}d", payloadSize);
         return -1;
     }
-    if (originalRequest.addressFamily != AF_INET || originalRequest.protocol != PROTOCOL_TCP) {
-        PACKET_BUILDER_LOGE("BuildTcpResponsePacket only supports IPv4/TCP");
+    if ((originalRequest.addressFamily != AF_INET && originalRequest.addressFamily != AF_INET6) ||
+        originalRequest.protocol != PROTOCOL_TCP) {
+        PACKET_BUILDER_LOGE("BuildTcpResponsePacket only supports IPv4/IPv6 TCP");
         return -1;
     }
 
-    int ipHeaderLen = 20;
+    int ipHeaderLen = (originalRequest.addressFamily == AF_INET6) ? 40 : 20;
     int tcpHeaderLen = 20;
     int totalLen = ipHeaderLen + tcpHeaderLen + payloadSize;
     if (totalLen > bufferSize) {
@@ -228,29 +327,49 @@ int PacketBuilder::BuildTcpResponsePacket(uint8_t* buffer, int bufferSize,
 
     memset(buffer, 0, totalLen);
 
-    // IPv4 header
-    buffer[0] = 0x45;
-    buffer[1] = 0x00;
-    buffer[2] = (totalLen >> 8) & 0xFF;
-    buffer[3] = totalLen & 0xFF;
-    buffer[4] = 0x00;
-    buffer[5] = 0x00;
-    buffer[6] = 0x40;
-    buffer[7] = 0x00;
-    buffer[8] = 0x40;
-    buffer[9] = PROTOCOL_TCP;
+    if (originalRequest.addressFamily == AF_INET6) {
+        // IPv6 header
+        buffer[0] = 0x60;
+        buffer[1] = 0x00;
+        buffer[2] = 0x00;
+        buffer[3] = 0x00;
+        uint16_t payloadLen = static_cast<uint16_t>(tcpHeaderLen + payloadSize);
+        buffer[4] = (payloadLen >> 8) & 0xFF;
+        buffer[5] = payloadLen & 0xFF;
+        buffer[6] = PROTOCOL_TCP;
+        buffer[7] = 0x40;
 
-    // src = originalRequest.targetIP (real server), dst = originalRequest.sourceIP (client virtual)
-    struct in_addr srcAddr;
-    inet_pton(AF_INET, originalRequest.targetIP.c_str(), &srcAddr);
-    memcpy(buffer + 12, &srcAddr, 4);
-    struct in_addr dstAddr;
-    inet_pton(AF_INET, originalRequest.sourceIP.c_str(), &dstAddr);
-    memcpy(buffer + 16, &dstAddr, 4);
+        struct in6_addr srcAddr6;
+        inet_pton(AF_INET6, originalRequest.targetIP.c_str(), &srcAddr6);
+        memcpy(buffer + 8, &srcAddr6, 16);
+        struct in6_addr dstAddr6;
+        inet_pton(AF_INET6, originalRequest.sourceIP.c_str(), &dstAddr6);
+        memcpy(buffer + 24, &dstAddr6, 16);
+    } else {
+        // IPv4 header
+        buffer[0] = 0x45;
+        buffer[1] = 0x00;
+        buffer[2] = (totalLen >> 8) & 0xFF;
+        buffer[3] = totalLen & 0xFF;
+        buffer[4] = 0x00;
+        buffer[5] = 0x00;
+        buffer[6] = 0x40;
+        buffer[7] = 0x00;
+        buffer[8] = 0x40;
+        buffer[9] = PROTOCOL_TCP;
 
-    uint16_t ipChecksum = CalculateIPChecksum(buffer, ipHeaderLen);
-    buffer[10] = (ipChecksum >> 8) & 0xFF;
-    buffer[11] = ipChecksum & 0xFF;
+        // src = originalRequest.targetIP (real server), dst = originalRequest.sourceIP (client virtual)
+        struct in_addr srcAddr;
+        inet_pton(AF_INET, originalRequest.targetIP.c_str(), &srcAddr);
+        memcpy(buffer + 12, &srcAddr, 4);
+        struct in_addr dstAddr;
+        inet_pton(AF_INET, originalRequest.sourceIP.c_str(), &dstAddr);
+        memcpy(buffer + 16, &dstAddr, 4);
+
+        uint16_t ipChecksum = CalculateIPChecksum(buffer, ipHeaderLen);
+        buffer[10] = (ipChecksum >> 8) & 0xFF;
+        buffer[11] = ipChecksum & 0xFF;
+    }
 
     uint8_t* tcp = buffer + ipHeaderLen;
 
@@ -280,7 +399,9 @@ int PacketBuilder::BuildTcpResponsePacket(uint8_t* buffer, int bufferSize,
         memcpy(tcp + tcpHeaderLen, payload, payloadSize);
     }
 
-    uint16_t tcpChecksum = CalculateTCPChecksum(buffer, tcp, tcpHeaderLen + payloadSize);
+    uint16_t tcpChecksum = (originalRequest.addressFamily == AF_INET6)
+        ? CalculateTCPChecksumV6(buffer, tcp, tcpHeaderLen + payloadSize)
+        : CalculateTCPChecksum(buffer, tcp, tcpHeaderLen + payloadSize);
     tcp[16] = (tcpChecksum >> 8) & 0xFF;
     tcp[17] = tcpChecksum & 0xFF;
 
@@ -343,6 +464,40 @@ uint16_t PacketBuilder::CalculateTCPChecksum(const uint8_t* ipHeader,
     return ~sum;
 }
 
+// IPv6 TCP checksum
+uint16_t PacketBuilder::CalculateTCPChecksumV6(const uint8_t* ipHeader,
+                                               const uint8_t* tcpHeader,
+                                               int tcpLength) {
+    uint32_t sum = 0;
+
+    // Pseudo header: src/dst addresses
+    for (int i = 8; i < 40; i += 2) {
+        sum += (ipHeader[i] << 8) | ipHeader[i + 1];
+    }
+    // Upper-layer length (32-bit)
+    sum += (tcpLength >> 16) & 0xFFFF;
+    sum += tcpLength & 0xFFFF;
+    // Next Header
+    sum += ipHeader[6];
+
+    // TCP header + data
+    for (int i = 0; i < tcpLength; i += 2) {
+        if (i == 16) {
+            continue;
+        }
+        if (i + 1 < tcpLength) {
+            sum += (tcpHeader[i] << 8) | tcpHeader[i + 1];
+        } else {
+            sum += tcpHeader[i] << 8;
+        }
+    }
+
+    while (sum >> 16) {
+        sum = (sum & 0xFFFF) + (sum >> 16);
+    }
+    return static_cast<uint16_t>(~sum);
+}
+
 // 计算UDP校验和
 uint16_t PacketBuilder::CalculateUDPChecksum(const uint8_t* ipHeader,
                                              const uint8_t* udpHeader,
@@ -375,6 +530,40 @@ uint16_t PacketBuilder::CalculateUDPChecksum(const uint8_t* ipHeader,
     }
     
     return ~sum;
+}
+
+// IPv6 UDP checksum
+uint16_t PacketBuilder::CalculateUDPChecksumV6(const uint8_t* ipHeader,
+                                               const uint8_t* udpHeader,
+                                               int udpLength) {
+    uint32_t sum = 0;
+
+    // Pseudo header: src/dst addresses
+    for (int i = 8; i < 40; i += 2) {
+        sum += (ipHeader[i] << 8) | ipHeader[i + 1];
+    }
+    // Upper-layer length (32-bit)
+    sum += (udpLength >> 16) & 0xFFFF;
+    sum += udpLength & 0xFFFF;
+    // Next Header
+    sum += ipHeader[6];
+
+    // UDP header + data
+    for (int i = 0; i < udpLength; i += 2) {
+        if (i == 6) {
+            continue;
+        }
+        if (i + 1 < udpLength) {
+            sum += (udpHeader[i] << 8) | udpHeader[i + 1];
+        } else {
+            sum += udpHeader[i] << 8;
+        }
+    }
+
+    while (sum >> 16) {
+        sum = (sum & 0xFFFF) + (sum >> 16);
+    }
+    return static_cast<uint16_t>(~sum);
 }
 
 // 交换源/目标
