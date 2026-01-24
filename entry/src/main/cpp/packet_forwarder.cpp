@@ -293,8 +293,11 @@ static int GetSocket(const PacketInfo& packetInfo, const sockaddr_in& clientAddr
                             " forwarding socket to " + packetInfo.targetIP + ":" + std::to_string(packetInfo.targetPort);
     LOG_INFO("🛡️ [Socket保护] 发送控制消息请求保护socket: fd=%d (%s)", sockFd, socketDesc.c_str());
 
-    // 🛡️ Socket保护策略 - 简化：所有查询都跳过保护
-    bool shouldProtect = false;  // 直接跳过所有保护，使用最简单的socket
+    // 🛡️ Socket保护策略
+    // NOTE:
+    // - 这里“保护”仅指：通知VPN客户端/扩展能力做 bypass（如果机制可用）
+    // - 即便保护机制不可用，也不应影响基本转发逻辑
+    bool shouldProtect = true;
 
     if (shouldProtect) {
         // 发送控制消息给VPN客户端请求保护socket
@@ -314,7 +317,7 @@ static int GetSocket(const PacketInfo& packetInfo, const sockaddr_in& clientAddr
         LOG_INFO("⏱️ DNS查询socket超时: 10秒, fd=%d", sockFd);
     }
     
-    LOG_INFO("✅ [Socket获取成功] fd=%d, 客户端=%s:%d -> 服务器=%s:%d, 协议=%s (已保护)",
+    LOG_INFO("✅ [Socket获取成功] fd=%d, 客户端=%s:%d -> 服务器=%s:%d, 协议=%s",
              sockFd, clientIP, ntohs(clientAddr.sin_port),
              packetInfo.targetIP.c_str(), packetInfo.targetPort,
              packetInfo.protocol == PROTOCOL_TCP ? "TCP" : "UDP");
@@ -466,13 +469,15 @@ static void StartUDPThread(int sockFd, const sockaddr_in& originalPeer) {
         
         // 🧹 清理NAT映射并归还socket到连接池
         LOG_INFO("🧹 清理UDP线程资源并归还socket: fd=%d", sockFd);
-        NATTable::RemoveMappingBySocket(sockFd);
 
-        // 获取目标地址信息，用于归还socket到连接池
-    NATConnection conn;
-        if (NATTable::FindMappingBySocket(sockFd, conn)) {
+        // 先抓取映射信息（用于归还连接池），再删除映射，避免信息丢失
+        NATConnection conn;
+        bool hasConn = NATTable::FindMappingBySocket(sockFd, conn);
+        if (hasConn) {
             char clientIP[INET_ADDRSTRLEN];
             inet_ntop(AF_INET, &conn.clientPhysicalAddr.sin_addr, clientIP, sizeof(clientIP));
+
+            NATTable::RemoveMappingBySocket(sockFd);
             SocketConnectionPool::getInstance().returnSocket(
                 sockFd,
                 clientIP,
@@ -482,8 +487,9 @@ static void StartUDPThread(int sockFd, const sockaddr_in& originalPeer) {
                 PROTOCOL_UDP
             );
         } else {
+            NATTable::RemoveMappingBySocket(sockFd);
             // 如果找不到映射，直接关闭
-        close(sockFd);
+            close(sockFd);
             LOG_INFO("⚠️ 找不到NAT映射，直接关闭socket: fd=%d", sockFd);
         }
         
@@ -565,13 +571,15 @@ static void StartTCPThread(int sockFd, const sockaddr_in& originalPeer) {
         
         // 🧹 清理NAT映射并归还socket到连接池
         LOG_INFO("🧹 清理TCP线程资源并归还socket: fd=%d", sockFd);
-        NATTable::RemoveMappingBySocket(sockFd);
 
-        // 获取目标地址信息，用于归还socket到连接池
+        // 先抓取映射信息（用于归还连接池），再删除映射，避免信息丢失
         NATConnection conn;
-        if (NATTable::FindMappingBySocket(sockFd, conn)) {
+        bool hasConn = NATTable::FindMappingBySocket(sockFd, conn);
+        if (hasConn) {
             char clientIP[INET_ADDRSTRLEN];
             inet_ntop(AF_INET, &conn.clientPhysicalAddr.sin_addr, clientIP, sizeof(clientIP));
+
+            NATTable::RemoveMappingBySocket(sockFd);
             SocketConnectionPool::getInstance().returnSocket(
                 sockFd,
                 clientIP,
@@ -581,6 +589,7 @@ static void StartTCPThread(int sockFd, const sockaddr_in& originalPeer) {
                 PROTOCOL_TCP
             );
         } else {
+            NATTable::RemoveMappingBySocket(sockFd);
             // 如果找不到映射，直接关闭
             close(sockFd);
             LOG_INFO("⚠️ 找不到NAT映射，直接关闭socket: fd=%d", sockFd);
@@ -645,6 +654,7 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
     
     NATConnection existingConn;
     int sockFd;
+    bool isNewMapping = false;
     
     if (NATTable::FindMapping(natKey, existingConn)) {
         // 映射已存在，使用现有socket
@@ -661,6 +671,7 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
         
         NATTable::CreateMapping(natKey, originalPeer, packetInfo, sockFd);
         LOG_INFO("✅ 创建新NAT映射: %s -> fd=%d", natKey.c_str(), sockFd);
+        isNewMapping = true;
     }
     
     // 5. 发送数据
@@ -672,8 +683,8 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
 
         struct sockaddr_in targetAddr{};
         targetAddr.sin_family = AF_INET;
-        // ✅ 修复：targetPort已经是主机字节序，不需要再htons
-        targetAddr.sin_port = packetInfo.targetPort;
+        // sockaddr_in 端口必须是网络字节序
+        targetAddr.sin_port = htons(static_cast<uint16_t>(packetInfo.targetPort));
         if (inet_pton(AF_INET, actualTargetIP.c_str(), &targetAddr.sin_addr) <= 0) {
             LOG_ERROR("❌ [UDP转发] 无效目标地址: %s", actualTargetIP.c_str());
             NATTable::RemoveMapping(natKey);
@@ -696,7 +707,7 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
                  sockFd, sent, actualTargetIP.c_str(), packetInfo.targetPort);
 
         // 6. 启动响应线程 - 只在创建新映射时启动
-        if (!NATTable::FindMapping(natKey, existingConn)) {
+        if (isNewMapping) {
             StartUDPThread(sockFd, originalPeer);
             LOG_INFO("🚀 [UDP响应线程] 新建响应处理线程 (fd=%d)", sockFd);
         } else {
@@ -763,25 +774,30 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
         // TCP转发实现
         struct sockaddr_in targetAddr{};
         targetAddr.sin_family = AF_INET;
-        targetAddr.sin_port = htons(packetInfo.targetPort);
+        targetAddr.sin_port = htons(static_cast<uint16_t>(packetInfo.targetPort));
         if (inet_pton(AF_INET, actualTargetIP.c_str(), &targetAddr.sin_addr) <= 0) {
             LOG_ERROR("❌ [TCP转发] 无效目标地址: %s", actualTargetIP.c_str());
             NATTable::RemoveMapping(natKey);
             return -1;
         }
 
-        // 连接到目标服务器
-        LOG_INFO("🔗 [TCP连接] 正在连接到 %s:%d (fd=%d)...",
-                 actualTargetIP.c_str(), packetInfo.targetPort, sockFd);
+        // 连接到目标服务器（仅在新建映射时执行；复用连接不应重复connect）
+        if (isNewMapping) {
+            LOG_INFO("🔗 [TCP连接] 正在连接到 %s:%d (fd=%d)...",
+                     actualTargetIP.c_str(), packetInfo.targetPort, sockFd);
 
-        if (connect(sockFd, (struct sockaddr*)&targetAddr, sizeof(targetAddr)) < 0) {
-            LOG_ERROR("❌ [TCP连接失败] fd=%d, 目标=%s:%d, errno=%d (%s)",
-                     sockFd, actualTargetIP.c_str(), packetInfo.targetPort, errno, strerror(errno));
-            NATTable::RemoveMapping(natKey);
-            return -1;
+            if (connect(sockFd, (struct sockaddr*)&targetAddr, sizeof(targetAddr)) < 0) {
+                LOG_ERROR("❌ [TCP连接失败] fd=%d, 目标=%s:%d, errno=%d (%s)",
+                         sockFd, actualTargetIP.c_str(), packetInfo.targetPort, errno, strerror(errno));
+                NATTable::RemoveMapping(natKey);
+                return -1;
+            }
+
+            LOG_INFO("✅ [TCP连接成功] fd=%d 已连接到 %s:%d", sockFd, actualTargetIP.c_str(), packetInfo.targetPort);
+        } else {
+            LOG_INFO("♻️ [TCP连接] 复用现有连接 (fd=%d) -> %s:%d",
+                     sockFd, actualTargetIP.c_str(), packetInfo.targetPort);
         }
-
-        LOG_INFO("✅ [TCP连接成功] fd=%d 已连接到 %s:%d", sockFd, actualTargetIP.c_str(), packetInfo.targetPort);
 
         // 发送TCP数据
         LOG_INFO("📤 [TCP发送] 发送 %d 字节数据 (fd=%d)...", payloadSize, sockFd);
@@ -794,9 +810,13 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
 
         LOG_INFO("✅ [TCP发送成功] fd=%d, 发送了 %zd 字节", sockFd, sent);
 
-        // 启动TCP响应处理
-        StartTCPThread(sockFd, originalPeer);
-        LOG_INFO("🚀 [TCP响应线程] 已启动响应处理线程 (fd=%d)", sockFd);
+        // 启动TCP响应处理（仅新建映射时启动一次）
+        if (isNewMapping) {
+            StartTCPThread(sockFd, originalPeer);
+            LOG_INFO("🚀 [TCP响应线程] 新建响应处理线程 (fd=%d)", sockFd);
+        } else {
+            LOG_INFO("🔄 [TCP响应线程] 复用现有响应处理线程 (fd=%d)", sockFd);
+        }
         
     } else {
         LOG_ERROR("不支持的协议: %d", packetInfo.protocol);
@@ -818,9 +838,7 @@ void PacketForwarder::CleanupAll() {
     NATTable::CleanupExpired(0);  // 清理所有映射
 
     LOG_INFO("✅ 转发器资源清理完成");
-}
-
-// 🎯 输出统计信息（用于调试）
+}// 🎯 输出统计信息（用于调试）
 void PacketForwarder::LogStatistics() {
     LOG_INFO("📊 PacketForwarder统计信息");
     // TODO: 添加具体的统计信息输出

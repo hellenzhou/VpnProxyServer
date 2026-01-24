@@ -1179,9 +1179,12 @@ void WorkerLoop()
       if (!TaskQueueManager::getInstance().submitForwardTask(buf, n, packetInfo, peer, currentSockFd)) {
         VPN_SERVER_LOGE("ZHOUB [FWD✗] Failed to submit task (queue full)");
       } else {
-        VPN_SERVER_LOGI("ZHOUB [FWD→] %{public}s -> %{public}s:%{public}d (queued)",
+        VPN_SERVER_LOGI("ZHOUB [FWD→] %{public}s -> %{public}s:%{public}d (queued) | workerRunning=%{public}d fwdQ=%{public}zu respQ=%{public}zu",
                         ProtocolHandler::GetProtocolName(packetInfo.protocol).c_str(),
-                        packetInfo.targetIP.c_str(), packetInfo.targetPort);
+                        packetInfo.targetIP.c_str(), packetInfo.targetPort,
+                        WorkerThreadPool::getInstance().isRunning() ? 1 : 0,
+                        TaskQueueManager::getInstance().getForwardQueueSize(),
+                        TaskQueueManager::getInstance().getResponseQueueSize());
       }
     }
   }
