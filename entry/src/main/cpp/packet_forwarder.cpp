@@ -23,6 +23,7 @@
 #include <chrono>
 #include <net/if.h>
 #include <random>
+#include <vector>
 
 #define LOG_INFO(fmt, ...) \
     OH_LOG_Print(LOG_APP, LOG_INFO, 0x15b1, "VpnServer", "ZHOUB [Forwarder] " fmt, ##__VA_ARGS__)
@@ -677,9 +678,10 @@ static void StartTCPThread(int sockFd, const sockaddr_in& originalPeer) {
                     c.nextServerSeq += static_cast<uint32_t>(received);
                 });
 
-                uint8_t responsePacket[4096];
+                const size_t responseCapacity = static_cast<size_t>(received) + 64; // IPv4+TCP headers
+                std::vector<uint8_t> responsePacket(responseCapacity);
                 int responseSize = PacketBuilder::BuildTcpResponsePacket(
-                    responsePacket, sizeof(responsePacket),
+                    responsePacket.data(), static_cast<int>(responsePacket.size()),
                     buffer, static_cast<int>(received),
                     origReq,
                     seqToSend, ackToSend,
@@ -689,7 +691,7 @@ static void StartTCPThread(int sockFd, const sockaddr_in& originalPeer) {
                 if (responseSize > 0) {
                     // ✅ 通过工作线程池提交响应任务
                     bool submitted = TaskQueueManager::getInstance().submitResponseTask(
-                        responsePacket, responseSize,
+                        responsePacket.data(), responseSize,
                         originalPeer,  // 客户端地址
                         sockFd,        // 来源socket（用于NAT查找）
                         PROTOCOL_TCP
