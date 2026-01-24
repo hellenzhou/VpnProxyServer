@@ -188,9 +188,10 @@ void WorkerThreadPool::forwardWorkerThread() {
                        fwdTask.packetInfo.targetIP.c_str(), fwdTask.packetInfo.targetPort,
                        sockFd);
 
-            // UDP包记录到重传管理器（只对DNS查询）
+            // UDP包记录到重传管理器（只对IPv4 DNS查询）
             if (fwdTask.packetInfo.protocol == PROTOCOL_UDP &&
-                fwdTask.packetInfo.targetPort == 53) {
+                fwdTask.packetInfo.targetPort == 53 &&
+                fwdTask.packetInfo.addressFamily == AF_INET) {
 
                 uint16_t packetId = UdpRetransmitManager::generatePacketId();
 

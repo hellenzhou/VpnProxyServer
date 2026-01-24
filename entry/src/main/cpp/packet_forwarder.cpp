@@ -659,7 +659,8 @@ static void StartUDPThread(int sockFd, const sockaddr_in& originalPeer) {
                 ntohs(conn.clientPhysicalAddr.sin_port),
                 conn.serverIP,
                 conn.serverPort,
-                PROTOCOL_UDP
+                PROTOCOL_UDP,
+                conn.originalRequest.addressFamily
             );
         } else {
             NATTable::RemoveMappingBySocket(sockFd);
@@ -899,30 +900,55 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
                  packetInfo.sourceIP.c_str(), packetInfo.sourcePort,
                  actualTargetIP.c_str(), packetInfo.targetPort, payloadSize);
 
-        struct sockaddr_in targetAddr{};
-        targetAddr.sin_family = AF_INET;
-        // sockaddr_in 端口必须是网络字节序
-        targetAddr.sin_port = htons(static_cast<uint16_t>(packetInfo.targetPort));
-        if (inet_pton(AF_INET, actualTargetIP.c_str(), &targetAddr.sin_addr) <= 0) {
-            LOG_ERROR("❌ [UDP转发] 无效目标地址: %s", actualTargetIP.c_str());
-            NATTable::RemoveMapping(natKey);
-            return -1;
+        if (packetInfo.addressFamily == AF_INET6) {
+            struct sockaddr_in6 targetAddr{};
+            targetAddr.sin6_family = AF_INET6;
+            targetAddr.sin6_port = htons(static_cast<uint16_t>(packetInfo.targetPort));
+            if (inet_pton(AF_INET6, actualTargetIP.c_str(), &targetAddr.sin6_addr) <= 0) {
+                LOG_ERROR("❌ [UDP转发] 无效目标IPv6地址: %s", actualTargetIP.c_str());
+                NATTable::RemoveMapping(natKey);
+                return -1;
+            }
+
+            LOG_INFO("📤 [UDP发送] 发送到 %s:%d (fd=%d)...",
+                     actualTargetIP.c_str(), packetInfo.targetPort, sockFd);
+
+            ssize_t sent = sendto(sockFd, payload, payloadSize, 0,
+                                 (struct sockaddr*)&targetAddr, sizeof(targetAddr));
+            if (sent < 0) {
+                LOG_ERROR("❌ [UDP发送失败] fd=%d, errno=%d (%s)", sockFd, errno, strerror(errno));
+                NATTable::RemoveMapping(natKey);
+                return -1;
+            }
+
+            LOG_INFO("✅ [UDP发送成功] fd=%d, 发送了 %zd 字节到 %s:%d",
+                     sockFd, sent, actualTargetIP.c_str(), packetInfo.targetPort);
+        } else {
+            struct sockaddr_in targetAddr{};
+            targetAddr.sin_family = AF_INET;
+            // sockaddr_in 端口必须是网络字节序
+            targetAddr.sin_port = htons(static_cast<uint16_t>(packetInfo.targetPort));
+            if (inet_pton(AF_INET, actualTargetIP.c_str(), &targetAddr.sin_addr) <= 0) {
+                LOG_ERROR("❌ [UDP转发] 无效目标地址: %s", actualTargetIP.c_str());
+                NATTable::RemoveMapping(natKey);
+                return -1;
+            }
+
+            LOG_INFO("📤 [UDP发送] 发送到 %s:%d (fd=%d)...",
+                     actualTargetIP.c_str(), packetInfo.targetPort, sockFd);
+
+            ssize_t sent = sendto(sockFd, payload, payloadSize, 0,
+                                 (struct sockaddr*)&targetAddr, sizeof(targetAddr));
+
+            if (sent < 0) {
+                LOG_ERROR("❌ [UDP发送失败] fd=%d, errno=%d (%s)", sockFd, errno, strerror(errno));
+                NATTable::RemoveMapping(natKey);
+                return -1;
+            }
+
+            LOG_INFO("✅ [UDP发送成功] fd=%d, 发送了 %zd 字节到 %s:%d",
+                     sockFd, sent, actualTargetIP.c_str(), packetInfo.targetPort);
         }
-
-        LOG_INFO("📤 [UDP发送] 发送到 %s:%d (fd=%d)...",
-                 actualTargetIP.c_str(), packetInfo.targetPort, sockFd);
-
-        ssize_t sent = sendto(sockFd, payload, payloadSize, 0,
-                             (struct sockaddr*)&targetAddr, sizeof(targetAddr));
-
-        if (sent < 0) {
-            LOG_ERROR("❌ [UDP发送失败] fd=%d, errno=%d (%s)", sockFd, errno, strerror(errno));
-    NATTable::RemoveMapping(natKey);
-            return -1;
-        }
-
-        LOG_INFO("✅ [UDP发送成功] fd=%d, 发送了 %zd 字节到 %s:%d",
-                 sockFd, sent, actualTargetIP.c_str(), packetInfo.targetPort);
 
         // 6. 启动响应线程 - 只在创建新映射时启动
         if (isNewMapping) {
@@ -956,19 +982,34 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
     }
 
     // Establish outgoing TCP connection once for new mapping
-    struct sockaddr_in targetAddr{};
-    targetAddr.sin_family = AF_INET;
-    targetAddr.sin_port = htons(static_cast<uint16_t>(packetInfo.targetPort));
-    if (inet_pton(AF_INET, actualTargetIP.c_str(), &targetAddr.sin_addr) <= 0) {
-        LOG_ERROR("❌ [TCP转发] 无效目标地址: %s", actualTargetIP.c_str());
-        NATTable::RemoveMapping(natKey);
-        return -1;
+    sockaddr_storage targetAddr{};
+    socklen_t targetAddrLen = 0;
+    if (packetInfo.addressFamily == AF_INET6) {
+        auto* addr6 = reinterpret_cast<sockaddr_in6*>(&targetAddr);
+        addr6->sin6_family = AF_INET6;
+        addr6->sin6_port = htons(static_cast<uint16_t>(packetInfo.targetPort));
+        if (inet_pton(AF_INET6, actualTargetIP.c_str(), &addr6->sin6_addr) <= 0) {
+            LOG_ERROR("❌ [TCP转发] 无效目标IPv6地址: %s", actualTargetIP.c_str());
+            NATTable::RemoveMapping(natKey);
+            return -1;
+        }
+        targetAddrLen = sizeof(sockaddr_in6);
+    } else {
+        auto* addr4 = reinterpret_cast<sockaddr_in*>(&targetAddr);
+        addr4->sin_family = AF_INET;
+        addr4->sin_port = htons(static_cast<uint16_t>(packetInfo.targetPort));
+        if (inet_pton(AF_INET, actualTargetIP.c_str(), &addr4->sin_addr) <= 0) {
+            LOG_ERROR("❌ [TCP转发] 无效目标地址: %s", actualTargetIP.c_str());
+            NATTable::RemoveMapping(natKey);
+            return -1;
+        }
+        targetAddrLen = sizeof(sockaddr_in);
     }
 
     if (isNewMapping) {
         LOG_INFO("🔗 [TCP连接] 正在连接到 %s:%d (fd=%d)...",
                  actualTargetIP.c_str(), packetInfo.targetPort, sockFd);
-        if (!ConnectWithTimeout(sockFd, targetAddr, 3000)) {
+        if (!ConnectWithTimeout(sockFd, reinterpret_cast<sockaddr*>(&targetAddr), targetAddrLen, 3000)) {
             LOG_ERROR("❌ [TCP连接失败/超时] fd=%d, 目标=%s:%d", sockFd, actualTargetIP.c_str(), packetInfo.targetPort);
             LOG_ERROR("TCP_CONNECT_FAIL fd=%d", sockFd);
 
