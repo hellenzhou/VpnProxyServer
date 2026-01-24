@@ -568,7 +568,7 @@ static void StartUDPThread(int sockFd, const sockaddr_in& originalPeer) {
 // 🎯 TCP响应线程
 static void StartTCPThread(int sockFd, const sockaddr_in& originalPeer) {
     std::thread([sockFd, originalPeer]() {
-        LOG_INFO("🚀 TCP线程启动: fd=%d", sockFd);
+        LOG_ERROR("TCP_THREAD_STARTED fd=%d", sockFd);
         
         uint8_t buffer[4096];
         int noResponseCount = 0;
@@ -579,6 +579,9 @@ static void StartTCPThread(int sockFd, const sockaddr_in& originalPeer) {
             if (received < 0) {
                 if (errno == EAGAIN || errno == EWOULDBLOCK) {
                     noResponseCount++;
+                    if (noResponseCount == 1 || noResponseCount == MAX_NO_RESPONSE) {
+                        LOG_ERROR("TCP_RECV_TIMEOUT fd=%d count=%d", sockFd, noResponseCount);
+                    }
                     if (noResponseCount >= MAX_NO_RESPONSE) {
                         LOG_INFO("🔚 TCP无响应次数过多，清理socket: fd=%d", sockFd);
                         break;
@@ -680,6 +683,7 @@ static void StartTCPThread(int sockFd, const sockaddr_in& originalPeer) {
         }
         
         // 🧹 清理NAT映射并关闭socket (TCP不复用连接池，避免复用到已关闭/半关闭的连接)
+        LOG_ERROR("TCP_THREAD_EXIT fd=%d", sockFd);
         LOG_INFO("🧹 清理TCP线程资源并关闭socket: fd=%d", sockFd);
 
         NATTable::RemoveMappingBySocket(sockFd);
@@ -857,6 +861,7 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
         if (connect(sockFd, (struct sockaddr*)&targetAddr, sizeof(targetAddr)) < 0) {
             LOG_ERROR("❌ [TCP连接失败] fd=%d, 目标=%s:%d, errno=%d (%s)",
                       sockFd, actualTargetIP.c_str(), packetInfo.targetPort, errno, strerror(errno));
+            LOG_ERROR("TCP_CONNECT_FAIL fd=%d errno=%d", sockFd, errno);
             NATTable::RemoveMapping(natKey);
             return -1;
         }
@@ -890,6 +895,7 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
             LOG_ERROR("❌ [TCP握手] 构建SYN-ACK失败");
         }
 
+        LOG_ERROR("TCP_THREAD_LAUNCH fd=%d", sockFd);
         StartTCPThread(sockFd, originalPeer);
         LOG_INFO("🚀 [TCP响应线程] 新建响应处理线程 (fd=%d)", sockFd);
 

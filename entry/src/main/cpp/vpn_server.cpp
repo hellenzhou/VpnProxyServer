@@ -1403,10 +1403,11 @@ napi_value StartServer(napi_env env, napi_callback_info info)
 
   sockaddr_in addr {};
   addr.sin_family = AF_INET;
-  addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);  // 🔧 改回127.0.0.1，之前这个配置是正常的
+  // 绑定到0.0.0.0，确保跨进程/跨应用UDP都能到达
+  addr.sin_addr.s_addr = htonl(INADDR_ANY);
   addr.sin_port = htons(static_cast<uint16_t>(port));
 
-  VPN_SERVER_LOGI("🔗 Binding to 127.0.0.1:%{public}d (loopback) - 接收本地数据包", port);
+  VPN_SERVER_LOGI("🔗 Binding to 0.0.0.0:%{public}d (INADDR_ANY) - 接收所有本地数据包", port);
 
   if (bind(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) < 0) {
     VPN_SERVER_LOGE("❌ Failed to bind socket to port %{public}d: %{public}s", port, strerror(errno));

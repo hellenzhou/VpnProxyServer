@@ -145,6 +145,16 @@ void WorkerThreadPool::forwardWorkerThread() {
                    fwdTask.packetInfo.targetIP.c_str(), fwdTask.packetInfo.targetPort,
                    fwdTask.dataSize);
 
+        // 更前断点：仅前20次打印，确认已进入ForwardPacket调用
+        if (processedTasks <= 20) {
+            WORKER_LOGE("FWD_CALL #%d proto=%s %s:%d -> %s:%d size=%d",
+                        processedTasks,
+                        fwdTask.packetInfo.protocol == PROTOCOL_TCP ? "TCP" : "UDP",
+                        fwdTask.packetInfo.sourceIP.c_str(), fwdTask.packetInfo.sourcePort,
+                        fwdTask.packetInfo.targetIP.c_str(), fwdTask.packetInfo.targetPort,
+                        fwdTask.dataSize);
+        }
+
         // 🔍 调试：记录任务处理开始
         WORKER_LOGI("🔄 开始处理转发任务: %s %s:%d -> %s:%d (%d字节)",
                    fwdTask.packetInfo.protocol == PROTOCOL_TCP ? "TCP" : "UDP",

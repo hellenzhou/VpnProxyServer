@@ -34,6 +34,13 @@ bool TaskQueueManager::submitForwardTask(const uint8_t* data, int dataSize,
     task.forwardTask.clientAddr = clientAddr;
     task.forwardTask.tunnelFd = tunnelFd;
 
+    // 更前的断点：确认任务已构建准备入队
+    TASK_LOGE("FWD_QUEUE_PUSH proto=%d %s:%d -> %s:%d size=%d",
+              packetInfo.protocol,
+              packetInfo.sourceIP.c_str(), packetInfo.sourcePort,
+              packetInfo.targetIP.c_str(), packetInfo.targetPort,
+              dataSize);
+
     if (!forwardQueue_.tryPush(task)) {
         TASK_LOGE("⚠️ Forward queue full, dropping packet");
         return false;
@@ -76,6 +83,11 @@ Optional<Task> TaskQueueManager::popForwardTask(std::chrono::milliseconds timeou
     
     if (result.has_value()) {
         popCount++;
+
+        // 更前断点：仅前20次弹出记录，避免日志爆炸
+        if (popCount <= 20) {
+            TASK_LOGE("FWD_QUEUE_POP #%d queue=%zu", popCount, forwardQueue_.size());
+        }
         
         // 🔧 详细日志模式：每个任务都记录（调试用）
         TASK_LOGV("📤 [VERBOSE] popForwardTask #%d, queue: %zu", popCount, forwardQueue_.size());
