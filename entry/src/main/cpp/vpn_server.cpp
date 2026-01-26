@@ -1656,14 +1656,21 @@ napi_value StopServer(napi_env env, napi_callback_info info)
   // 🔥 关键修复：先设置停止标志，让所有线程知道要退出
   g_running.store(false);
   
+  // 🚨 关键修复：先停止工作线程池，防止新任务被处理
+  VPN_SERVER_LOGI("ZHOUB [STOP] 步骤1: 停止工作线程池...");
+  WorkerThreadPool::getInstance().stop();
+  VPN_SERVER_LOGI("ZHOUB [STOP] ✅ 工作线程池已停止");
+  
   // 🚨 关键修复：先关闭主socket，让WorkerLoop立即退出
+  VPN_SERVER_LOGI("ZHOUB [STOP] 步骤2: 关闭主socket...");
   int sockFd = g_sockFd.exchange(-1);  // 原子交换
   if (sockFd >= 0) {
     close(sockFd);
-    VPN_SERVER_LOGI("ZHOUB [STOP] 主socket已关闭，WorkerLoop将退出");
+    VPN_SERVER_LOGI("ZHOUB [STOP] ✅ 主socket已关闭，WorkerLoop将退出");
   }
   
   // 🚨 关键修复：强制关闭所有活跃的转发socket，让TCP/UDP线程退出
+  VPN_SERVER_LOGI("ZHOUB [STOP] 步骤3: 关闭所有活跃的转发socket...");
   std::vector<int> activeSockets = NATTable::GetAllActiveSockets();
   VPN_SERVER_LOGI("ZHOUB [STOP] 发现 %zu 个活跃的转发socket，开始强制关闭...", activeSockets.size());
   int closedCount = 0;
@@ -1694,10 +1701,40 @@ napi_value StopServer(napi_env env, napi_callback_info info)
   }
   VPN_SERVER_LOGI("ZHOUB [STOP] 转发socket清理完成: 成功关闭%d个，错误%d个", closedCount, errorCount);
   
-  // 等待一小段时间，让TCP/UDP线程检测到socket关闭并退出
-  std::this_thread::sleep_for(std::chrono::milliseconds(200));
+  // 🎯 优雅停止：等待TCP/UDP线程退出（带超时和轮询检查）
+  VPN_SERVER_LOGI("ZHOUB [STOP] 步骤4: 等待TCP/UDP线程退出...");
+  auto tcpUdpWaitStart = std::chrono::steady_clock::now();
+  const auto tcpUdpWaitTimeout = std::chrono::milliseconds(2000);  // 最多等待2秒
+  int pollCount = 0;
   
-  // 停止工作线程�?  WorkerThreadPool::getInstance().stop();
+  // 轮询检查是否还有活跃的socket（表示线程可能还在运行）
+  while ((std::chrono::steady_clock::now() - tcpUdpWaitStart) < tcpUdpWaitTimeout) {
+    std::vector<int> remainingSockets = NATTable::GetAllActiveSockets();
+    if (remainingSockets.empty()) {
+      // 没有活跃socket，线程应该都已退出
+      break;
+    }
+    
+    pollCount++;
+    if (pollCount % 5 == 0) {  // 每500ms记录一次
+      VPN_SERVER_LOGI("ZHOUB [STOP] 等待中... 仍有 %zu 个活跃socket", remainingSockets.size());
+    }
+    
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  }
+  
+  auto tcpUdpWaitElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+      std::chrono::steady_clock::now() - tcpUdpWaitStart).count();
+  
+  std::vector<int> finalSockets = NATTable::GetAllActiveSockets();
+  if (finalSockets.empty()) {
+    VPN_SERVER_LOGI("ZHOUB [STOP] ✅ TCP/UDP线程已全部退出 (等待了%lld ms)", tcpUdpWaitElapsed);
+  } else {
+    VPN_SERVER_LOGE("ZHOUB [STOP] ⚠️ 仍有 %zu 个socket未关闭，可能线程未完全退出 (等待了%lld ms)", 
+                    finalSockets.size(), tcpUdpWaitElapsed);
+  }
+  
+  // 清理任务队列�?  WorkerThreadPool::getInstance().stop();
   VPN_SERVER_LOGI("�?Worker thread pool stopped");
   
   // 清理任务队列
@@ -1727,7 +1764,26 @@ napi_value StopServer(napi_env env, napi_callback_info info)
   // wait for worker thread to exit
   if (g_worker.joinable()) {
     VPN_SERVER_LOGI("�?Waiting for worker thread to exit...");
-    g_worker.join();  // 🔧 应该join而不是detach
+    // 🎯 优雅停止：使用超时等待，避免无限阻塞
+    auto workerWaitStart = std::chrono::steady_clock::now();
+    const auto workerWaitTimeout = std::chrono::seconds(3);  // 最多等待3秒
+    
+    // 使用超时等待，避免无限阻塞
+    while (g_worker.joinable() && 
+           (std::chrono::steady_clock::now() - workerWaitStart) < workerWaitTimeout) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    
+    auto workerWaitElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - workerWaitStart).count();
+    
+    if (g_worker.joinable()) {
+      // 超时后强制detach，避免无限等待
+      VPN_SERVER_LOGE("ZHOUB [STOP] ⚠️ WorkerLoop线程超时，强制detach (等待了%lld ms)", workerWaitElapsed);
+      g_worker.detach();
+    } else {
+      VPN_SERVER_LOGI("ZHOUB [STOP] ✅ WorkerLoop线程已退出 (等待了%lld ms)", workerWaitElapsed);
+    }
     VPN_SERVER_LOGI("�?Worker thread stopped");
   }
   
