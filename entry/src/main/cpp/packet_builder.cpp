@@ -233,12 +233,18 @@ int PacketBuilder::BuildResponsePacket(uint8_t* buffer, int bufferSize,
         
         // 🔧 修复：源IP = 真实服务器的IP (originalRequest.targetIP)
         struct in_addr srcAddr;
-        inet_pton(AF_INET, originalRequest.targetIP.c_str(), &srcAddr);
+        if (inet_pton(AF_INET, originalRequest.targetIP.c_str(), &srcAddr) <= 0) {
+            PACKET_BUILDER_LOGE("Invalid IPv4 target address: %{public}s", originalRequest.targetIP.c_str());
+            return -1;
+        }
         memcpy(buffer + 12, &srcAddr, 4);
         
         // 🔧 修复：目标IP = 客户端的VPN虚拟IP (originalRequest.sourceIP)
         struct in_addr dstAddr;
-        inet_pton(AF_INET, originalRequest.sourceIP.c_str(), &dstAddr);
+        if (inet_pton(AF_INET, originalRequest.sourceIP.c_str(), &dstAddr) <= 0) {
+            PACKET_BUILDER_LOGE("Invalid IPv4 source address: %{public}s", originalRequest.sourceIP.c_str());
+            return -1;
+        }
         memcpy(buffer + 16, &dstAddr, 4);
         
         // 计算IP校验和
