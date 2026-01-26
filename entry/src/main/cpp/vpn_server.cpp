@@ -1251,6 +1251,9 @@ void WorkerLoop()
       }
     }
   }
+  
+  // 🎯 优雅停止：记录线程退出
+  VPN_SERVER_LOGI("ZHOUB [WorkerLoop] 🔚 WorkerLoop线程退出，函数即将返回");
 }
 
 napi_value StartServer(napi_env env, napi_callback_info info)
@@ -1768,10 +1771,25 @@ napi_value StopServer(napi_env env, napi_callback_info info)
     auto workerWaitStart = std::chrono::steady_clock::now();
     const auto workerWaitTimeout = std::chrono::seconds(3);  // 最多等待3秒
     
+    // 🎯 优雅停止：使用更频繁的检查，快速检测线程退出
     // 使用超时等待，避免无限阻塞
+    int checkCount = 0;
     while (g_worker.joinable() && 
            (std::chrono::steady_clock::now() - workerWaitStart) < workerWaitTimeout) {
+      checkCount++;
+      // 每10次检查（1秒）记录一次状态
+      if (checkCount % 10 == 0) {
+        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - workerWaitStart).count();
+        VPN_SERVER_LOGI("ZHOUB [STOP] 等待WorkerLoop线程退出中... (已等待%lld ms, joinable=%s)", 
+                       elapsed, g_worker.joinable() ? "true" : "false");
+      }
       std::this_thread::sleep_for(std::chrono::milliseconds(100));
+      
+      // 🔧 改进：再次检查joinable()，如果线程已退出立即退出循环
+      if (!g_worker.joinable()) {
+        break;
+      }
     }
     
     auto workerWaitElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
