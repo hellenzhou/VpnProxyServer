@@ -3,6 +3,7 @@
  */
 
 #include "nat_table.h"
+#include <vector>
 #include <hilog/log.h>
 #include <sstream>
 #include <arpa/inet.h>
@@ -347,4 +348,20 @@ void NATTable::Clear() {
     
     LOG_ERROR("ZHOUB 🚨🚨🚨 已清空所有映射: %zu条", count);
     NAT_LOGI("🧹 Cleared all NAT mappings");
+}
+
+// 🚨 获取所有活跃的转发socket（用于强制关闭）
+std::vector<int> NATTable::GetAllActiveSockets() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<int> sockets;
+    sockets.reserve(socketToKey_.size());
+    
+    for (const auto& pair : socketToKey_) {
+        if (pair.first >= 0) {  // 有效的socket fd
+            sockets.push_back(pair.first);
+        }
+    }
+    
+    LOG_INFO("ZHOUB [清理] 获取到 %zu 个活跃的转发socket", sockets.size());
+    return sockets;
 }

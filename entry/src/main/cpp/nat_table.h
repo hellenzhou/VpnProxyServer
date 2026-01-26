@@ -98,6 +98,9 @@ public:
     // 获取映射数量
     static int GetMappingCount();
     
+    // 🚨 强制关闭所有活跃的转发socket（用于服务器停止时清理资源）
+    static std::vector<int> GetAllActiveSockets();
+    
     // 清空所有映射
     static void Clear();
     

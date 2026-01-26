@@ -1,4 +1,4 @@
-﻿#include <napi/native_api.h>
+#include <napi/native_api.h>
 #include <hilog/log.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -118,8 +118,9 @@ bool ParseIPPacket(const uint8_t* data, int dataSize, std::string& targetIP, int
         protocol = data[9];
 
         // 只处理TCP (protocol=6) �?UDP (protocol=17)
-        if (protocol != PROTOCOL_TCP && protocol != PROTOCOL_UDP) {
-            VPN_SERVER_LOGW("Unsupported IPv4 protocol: %{public}d (only TCP=6, UDP=17 supported)", protocol);
+        // 🚨 修复：支持TCP、UDP和ICMP（ICMPv6是IPv6专用）
+        if (protocol != PROTOCOL_TCP && protocol != PROTOCOL_UDP && protocol != PROTOCOL_ICMP) {
+            VPN_SERVER_LOGW("Unsupported IPv4 protocol: %{public}d (only TCP=6, UDP=17, ICMP=1 supported)", protocol);
             return false;
         }
 
@@ -1043,6 +1044,10 @@ void WorkerLoop()
     std::string peerAddr = inet_ntoa(peer.sin_addr);
     int peerPort = ntohs(peer.sin_port);
     
+    // 🔥 ZHOUB日志：立即打印客户端IP/端口，确认数据包来源
+    VPN_SERVER_LOGI("ZHOUB [RX_CLIENT] 收到数据包: %{public}s:%{public}d, 大小: %{public}d字节", 
+                   peerAddr.c_str(), peerPort, n);
+    
     std::string clientKey = peerAddr + ":" + std::to_string(peerPort);
     
     std::string dataStr(reinterpret_cast<char*>(buf), std::min(n, BUFFER_SIZE));
@@ -1137,7 +1142,10 @@ void WorkerLoop()
       
       // 添加数据包到缓冲区（用于UI显示）
       std::string targetInfo;
-      if (packetInfo.protocol == PROTOCOL_ICMPV6) {
+      if (packetInfo.protocol == PROTOCOL_ICMP) {
+        targetInfo = packetInfo.targetIP + " (ICMP:Type=" + std::to_string(packetInfo.icmpv6Type) + 
+                     " Code=" + std::to_string(packetInfo.icmpv6Code) + ")";
+      } else if (packetInfo.protocol == PROTOCOL_ICMPV6) {
         targetInfo = packetInfo.targetIP + " (ICMPv6:" + ProtocolHandler::GetICMPv6TypeName(packetInfo.icmpv6Type) + ")";
       } else {
         targetInfo = packetInfo.targetIP + ":" + std::to_string(packetInfo.targetPort);
@@ -1157,8 +1165,11 @@ void WorkerLoop()
                        ProtocolHandler::GetProtocolName(packetInfo.protocol).c_str(), n);
       }
       
-      // ICMPv6 特殊处理：某些 ICMPv6 消息不需要转发
-      if (packetInfo.protocol == PROTOCOL_ICMPV6) {
+      // 🚨 修复：ICMP/ICMPv6 特殊处理
+      if (packetInfo.protocol == PROTOCOL_ICMP) {
+        VPN_SERVER_LOGI("🔄 [ICMP转发] ICMP 消息: Type=%{public}d Code=%{public}d -> %{public}s", 
+                        packetInfo.icmpv6Type, packetInfo.icmpv6Code, packetInfo.targetIP.c_str());
+      } else if (packetInfo.protocol == PROTOCOL_ICMPV6) {
         // Router/Neighbor/MLD 属于本地链路层消息，不需要转发
         if (packetInfo.icmpv6Type == ICMPV6_ROUTER_SOLICITATION ||
             packetInfo.icmpv6Type == ICMPV6_ROUTER_ADVERTISEMENT ||
@@ -1219,6 +1230,9 @@ void WorkerLoop()
 
 napi_value StartServer(napi_env env, napi_callback_info info)
 {
+  // 🔥 性能追踪：记录开始时间
+  auto startTotal = std::chrono::steady_clock::now();
+  
   // 使用系统日志，确保能看到
   OH_LOG_Print(LOG_APP, LOG_INFO, 0x15b1, "VpnServer", "ZHOUB 🚀🚀🚀 StartServer FUNCTION CALLED - VPN SERVER STARTING NOW 🚀🚀🚀");
   VPN_SERVER_LOGI("🚀🚀🚀 StartServer FUNCTION CALLED - VPN SERVER STARTING NOW 🚀🚀🚀");
@@ -1243,6 +1257,7 @@ napi_value StartServer(napi_env env, napi_callback_info info)
 
   // 如果服务器已经在运行，先停止它
   if (g_running.load()) {
+    auto stopOldStart = std::chrono::steady_clock::now();
     VPN_SERVER_LOGI("⚠️ Server already running, stopping old instance...");
     g_running.store(false);
     
@@ -1259,20 +1274,27 @@ napi_value StartServer(napi_env env, napi_callback_info info)
         
         // 等待线程自然退出，最多等待2秒
         auto start = std::chrono::steady_clock::now();
-        while (g_running.load() && 
+        while (!g_running.load() &&  // 🔧 修复：应该是 !g_running，因为已经设置为false
                std::chrono::steady_clock::now() - start < std::chrono::seconds(2)) {
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }
         
+        auto waitElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - start).count();
+        
         if (g_worker.joinable()) {
             g_worker.detach();  // 如果超时才detach
-            VPN_SERVER_LOGI("⚠️ Worker thread timeout, detached");
+            VPN_SERVER_LOGI("⚠️ Worker thread timeout, detached (waited %lld ms)", waitElapsed);
         } else {
-            VPN_SERVER_LOGI("✅ Worker thread exited cleanly");
+            VPN_SERVER_LOGI("✅ Worker thread exited cleanly (waited %lld ms)", waitElapsed);
         }
     }
     // 给旧线程一点时间退出（非阻塞）
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    
+    auto stopOldElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - stopOldStart).count();
+    VPN_SERVER_LOGI("⏱️ [性能] 停止旧服务器耗时: %lld ms", stopOldElapsed);
   }
 
   VPN_SERVER_LOGI("ZHOUB [START] VPN Server on port %{public}d", port);
@@ -1288,8 +1310,12 @@ napi_value StartServer(napi_env env, napi_callback_info info)
 
   // 停止旧的工作线程池（如果存在）
   if (WorkerThreadPool::getInstance().isRunning()) {
+    auto stopPoolStart = std::chrono::steady_clock::now();
     VPN_SERVER_LOGI("⚠️ Worker thread pool already running, stopping it...");
     WorkerThreadPool::getInstance().stop();
+    auto stopPoolElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - stopPoolStart).count();
+    VPN_SERVER_LOGI("⏱️ [性能] 停止工作线程池耗时: %lld ms", stopPoolElapsed);
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
   }
   
@@ -1596,9 +1622,55 @@ napi_value StopServer(napi_env env, napi_callback_info info)
     return ret;
   }
 
+  // 🔥 性能追踪：记录开始时间
+  auto stopTotalStart = std::chrono::steady_clock::now();
+  
   VPN_SERVER_LOGI("ZHOUB [STOP] Stopping server...");
   VPN_SERVER_LOGI("⚠️ 重要提醒：服务器停止后，请手动停止HarmonyOS的VPN连接以避免客户端继续发送数据包");
+  
+  // 🔥 关键修复：先设置停止标志，让所有线程知道要退出
   g_running.store(false);
+  
+  // 🚨 关键修复：先关闭主socket，让WorkerLoop立即退出
+  int sockFd = g_sockFd.exchange(-1);  // 原子交换
+  if (sockFd >= 0) {
+    close(sockFd);
+    VPN_SERVER_LOGI("ZHOUB [STOP] 主socket已关闭，WorkerLoop将退出");
+  }
+  
+  // 🚨 关键修复：强制关闭所有活跃的转发socket，让TCP/UDP线程退出
+  std::vector<int> activeSockets = NATTable::GetAllActiveSockets();
+  VPN_SERVER_LOGI("ZHOUB [STOP] 发现 %zu 个活跃的转发socket，开始强制关闭...", activeSockets.size());
+  int closedCount = 0;
+  int errorCount = 0;
+  for (int fd : activeSockets) {
+    if (fd >= 0) {
+      // 先shutdown，中断recv/send操作
+      if (shutdown(fd, SHUT_RDWR) < 0) {
+        // shutdown失败是正常的（socket可能已经关闭），忽略ENOTCONN和EBADF错误
+        if (errno != ENOTCONN && errno != EBADF) {
+          VPN_SERVER_LOGE("ZHOUB [STOP] shutdown socket失败: fd=%d, errno=%d (%s)", 
+                         fd, errno, strerror(errno));
+        }
+      }
+      // 再close，释放资源
+      if (close(fd) < 0) {
+        // close失败是正常的（socket可能已经关闭），只记录非EBADF错误
+        if (errno != EBADF) {
+          VPN_SERVER_LOGE("ZHOUB [STOP] close socket失败: fd=%d, errno=%d (%s)", 
+                         fd, errno, strerror(errno));
+          errorCount++;
+        }
+      } else {
+        closedCount++;
+        VPN_SERVER_LOGI("ZHOUB [STOP] 强制关闭转发socket: fd=%d", fd);
+      }
+    }
+  }
+  VPN_SERVER_LOGI("ZHOUB [STOP] 转发socket清理完成: 成功关闭%d个，错误%d个", closedCount, errorCount);
+  
+  // 等待一小段时间，让TCP/UDP线程检测到socket关闭并退出
+  std::this_thread::sleep_for(std::chrono::milliseconds(200));
   
   // 停止工作线程�?  WorkerThreadPool::getInstance().stop();
   VPN_SERVER_LOGI("�?Worker thread pool stopped");
@@ -1615,37 +1687,13 @@ napi_value StopServer(napi_env env, napi_callback_info info)
   // 这个Clear调用会清空所有NAT映射，导致UDP响应失败
   // NATTable::Clear();
   // VPN_SERVER_LOGI("�?NAT table cleared");
-  LOG_ERROR("ZHOUB 🚨🚨🚨 BUG修复：移除StopServer中的NATTable::Clear()调用");
-
-  // broadcast server stop message (best-effort)
-  int stopSockFd = g_sockFd.load();
-  if (stopSockFd >= 0) {
-    // stop message payload
-    const char* stopMsg = "SERVER_STOPPED";
-    sockaddr_in broadcastAddr {};
-    broadcastAddr.sin_family = AF_INET;
-    broadcastAddr.sin_addr.s_addr = htonl(INADDR_BROADCAST);
-    broadcastAddr.sin_port = htons(8888);
-
-    // enable broadcast option
-    int broadcastEnable = 1;
-    setsockopt(stopSockFd, SOL_SOCKET, SO_BROADCAST, &broadcastEnable, sizeof(broadcastEnable));
-
-    // send broadcast
-    ssize_t sent = sendto(stopSockFd, stopMsg, strlen(stopMsg), 0,
-                         (struct sockaddr*)&broadcastAddr, sizeof(broadcastAddr));
-    if (sent > 0) {
-      VPN_SERVER_LOGI("ZHOUB [STOP] Server stopping broadcast sent to clients");
-    }
-  }
-
-  // 🔧 atomic 变量不需要锁保护
-  // 关闭socket，这会中断recvfrom/select调用
-  int sockFd = g_sockFd.exchange(-1);  // 原子交换
-  if (sockFd >= 0) {
-    close(sockFd);
-    VPN_SERVER_LOGI("ZHOUB [STOP] Socket closed");
-  }
+  // 🚨 关键修复：清理PacketForwarder的所有socket和NAT映射
+  PacketForwarder::CleanupAll();
+  VPN_SERVER_LOGI("✅ PacketForwarder resources cleaned up");
+  
+  // 🚨 关键修复：清理所有NAT映射（此时所有socket已关闭）
+  NATTable::Clear();
+  VPN_SERVER_LOGI("✅ NAT table cleared");
   
   // 🔄 清理线程�?  CleanupThreadPool();
   VPN_SERVER_LOGI("�?Thread pool cleaned up");
@@ -1681,6 +1729,10 @@ napi_value StopServer(napi_env env, napi_callback_info info)
     std::lock_guard<std::mutex> lock(g_dataBufferMutex);
     g_dataBuffer.clear();
   }
+
+  auto stopTotalElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+      std::chrono::steady_clock::now() - stopTotalStart).count();
+  VPN_SERVER_LOGI("⏱️ [性能] StopServer 总耗时: %lld ms", stopTotalElapsed);
 
   napi_value ret;
   napi_create_int32(env, 0, &ret);

@@ -47,11 +47,12 @@ PacketInfo ProtocolHandler::ParseIPPacket(const uint8_t* data, int dataSize) {
                      data[9], 
                      info.protocol == PROTOCOL_TCP ? "TCP" : 
                      info.protocol == PROTOCOL_UDP ? "UDP" : 
-                     info.protocol == PROTOCOL_ICMPV6 ? "ICMPv6" : "UNKNOWN");
+                     info.protocol == PROTOCOL_ICMP ? "ICMP" : 
+                     "UNKNOWN");
         
-        // 只处理TCP、UDP和ICMPv6
-        if (info.protocol != PROTOCOL_TCP && info.protocol != PROTOCOL_UDP && info.protocol != PROTOCOL_ICMPV6) {
-            PROTOCOL_LOGI("Unsupported protocol: %d", info.protocol);
+        // 🚨 修复：IPv4数据包只处理TCP、UDP和ICMP（ICMPv6是IPv6专用，不应该出现在IPv4中）
+        if (info.protocol != PROTOCOL_TCP && info.protocol != PROTOCOL_UDP && info.protocol != PROTOCOL_ICMP) {
+            PROTOCOL_LOGI("Unsupported IPv4 protocol: %d (only TCP=6, UDP=17, ICMP=1 supported)", info.protocol);
             return info;
         }
         
@@ -62,7 +63,7 @@ PacketInfo ProtocolHandler::ParseIPPacket(const uint8_t* data, int dataSize) {
         info.sourceIP = srcIP;  // 保存源IP（VPN虚拟IP）
         info.targetIP = dstIP;
         
-        // 获取端口
+        // 获取端口或ICMP类型
         int payloadOffset = ipHeaderLen;
         if (info.protocol == PROTOCOL_TCP) {
             if (dataSize < payloadOffset + 20) {
@@ -86,6 +87,21 @@ PacketInfo ProtocolHandler::ParseIPPacket(const uint8_t* data, int dataSize) {
             info.sourcePort = ntohs(rawSrcPort);
             info.targetPort = ntohs(rawDstPort);
             PROTOCOL_LOGI("🔍 UDP端口解析: 源端口=%d, 目标端口=%d", info.sourcePort, info.targetPort);
+        } else if (info.protocol == PROTOCOL_ICMP) {
+            // 🚨 新增：IPv4 ICMP解析
+            if (dataSize < payloadOffset + 4) {
+                PROTOCOL_LOGI("ICMP packet too small");
+                return info;
+            }
+            // ICMP头部: Type(1) + Code(1) + Checksum(2) + ...
+            // 使用icmpv6Type/Code字段存储ICMP类型和代码（兼容现有结构）
+            info.icmpv6Type = data[payloadOffset + 0];  // ICMP Type
+            info.icmpv6Code = data[payloadOffset + 1];  // ICMP Code
+            // ICMP没有端口概念，设置为0
+            info.sourcePort = 0;
+            info.targetPort = 0;
+            PROTOCOL_LOGI("🔍 [ICMP] Parsed ICMP message: Type=%d, Code=%d, Src=%s, Dst=%s", 
+                         info.icmpv6Type, info.icmpv6Code, srcIP, dstIP);
         }
         
         info.isValid = true;
@@ -231,8 +247,8 @@ bool ProtocolHandler::ValidatePacket(const PacketInfo& info) {
         return false;
     }
     
-    // ICMPv6 没有端口的概念，不需要验证端口
-    if (info.protocol == PROTOCOL_ICMPV6) {
+    // ICMP/ICMPv6 没有端口的概念，不需要验证端口
+    if (info.protocol == PROTOCOL_ICMP || info.protocol == PROTOCOL_ICMPV6) {
         return true;
     }
     
@@ -250,6 +266,8 @@ bool ProtocolHandler::ValidatePacket(const PacketInfo& info) {
 
 std::string ProtocolHandler::GetProtocolName(uint8_t protocol) {
     switch (protocol) {
+        case PROTOCOL_ICMP:
+            return "ICMP";
         case PROTOCOL_TCP:
             return "TCP";
         case PROTOCOL_UDP:

@@ -176,10 +176,12 @@ static ParsedTcp ParseTcpFromIp(const uint8_t* data, int dataSize)
                 (static_cast<uint32_t>(data[off + 9]) << 16) |
                 (static_cast<uint32_t>(data[off + 10]) << 8) |
                 (static_cast<uint32_t>(data[off + 11]));
-        t.flags = data[off + 13];
+        // 🚨 修复：在访问 data[off + 12] 和 data[off + 13] 之前检查边界
+        if (dataSize < off + 14) return t;  // 至少需要14字节才能读取TCP头的基本字段
         uint8_t dataOffsetWords = (data[off + 12] >> 4) & 0x0F;
         int tcpHL = static_cast<int>(dataOffsetWords) * 4;
         if (tcpHL < 20 || dataSize < off + tcpHL) return t;
+        t.flags = data[off + 13];
         t.tcpHeaderLen = static_cast<uint8_t>(tcpHL);
         t.ok = true;
         return t;
@@ -198,8 +200,9 @@ static ParsedTcp ParseTcpFromIp(const uint8_t* data, int dataSize)
                 uint8_t next = data[off];
                 uint8_t hdrExtLen = data[off + 1];
                 int extLen = (hdrExtLen + 1) * 8;
+                // 🚨 修复：在增加 off 之前检查边界，避免越界
+                if (off + extLen > dataSize) return t;
                 off += extLen;
-                if (off > dataSize) return t;
                 nextHeader = next;
                 hops++;
                 continue;
@@ -229,10 +232,12 @@ static ParsedTcp ParseTcpFromIp(const uint8_t* data, int dataSize)
                 (static_cast<uint32_t>(data[off + 9]) << 16) |
                 (static_cast<uint32_t>(data[off + 10]) << 8) |
                 (static_cast<uint32_t>(data[off + 11]));
-        t.flags = data[off + 13];
+        // 🚨 修复：在访问 data[off + 12] 和 data[off + 13] 之前检查边界
+        if (dataSize < off + 14) return t;  // 至少需要14字节才能读取TCP头的基本字段
         uint8_t dataOffsetWords = (data[off + 12] >> 4) & 0x0F;
         int tcpHL = static_cast<int>(dataOffsetWords) * 4;
         if (tcpHL < 20 || dataSize < off + tcpHL) return t;
+        t.flags = data[off + 13];
         t.tcpHeaderLen = static_cast<uint8_t>(tcpHL);
         t.ok = true;
         return t;
@@ -733,28 +738,52 @@ static void StartTCPThread(int sockFd, const sockaddr_in& originalPeer) {
     std::thread([sockFd, originalPeer]() {
         LOG_ERROR("TCP_THREAD_STARTED fd=%d", sockFd);
         
+        // 🔥 关键修复：确保TCP socket是阻塞模式，以便完整接收所有数据
+        // 非阻塞模式会导致recv()立即返回EAGAIN，可能丢失数据
+        if (!SetBlockingMode(sockFd, true)) {
+            LOG_ERROR("❌ 设置TCP socket为阻塞模式失败: fd=%d", sockFd);
+            close(sockFd);
+            return;
+        }
+        LOG_INFO("✅ TCP socket已设置为阻塞模式: fd=%d", sockFd);
+        
+        // 设置接收超时（30秒），避免无限期阻塞
+        struct timeval timeout;
+        timeout.tv_sec = 30;
+        timeout.tv_usec = 0;
+        if (setsockopt(sockFd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0) {
+            LOG_ERROR("⚠️ 设置TCP接收超时失败: fd=%d, errno=%d", sockFd, errno);
+        } else {
+            LOG_INFO("✅ TCP接收超时已设置为30秒: fd=%d", sockFd);
+        }
+        
         uint8_t buffer[4096];
         int noResponseCount = 0;
-        const int MAX_NO_RESPONSE = 3;  // 最多3次无响应后清理
+        const int MAX_NO_RESPONSE = 10;  // 🔥 增加无响应次数限制（阻塞模式下应该很少触发）
     
     while (true) {
             ssize_t received = recv(sockFd, buffer, sizeof(buffer), 0);
             if (received < 0) {
-                if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                // 🔥 阻塞模式下，超时返回ETIMEDOUT，非阻塞模式返回EAGAIN/EWOULDBLOCK
+                if (errno == EAGAIN || errno == EWOULDBLOCK || errno == ETIMEDOUT) {
                     noResponseCount++;
                     if (noResponseCount == 1 || noResponseCount == MAX_NO_RESPONSE) {
                         std::string localAddr = GetSocketAddrString(sockFd, false);
                         std::string peerAddr = GetSocketAddrString(sockFd, true);
-                        LOG_ERROR("TCP_RECV_TIMEOUT fd=%d count=%d local=%s peer=%s",
-                                  sockFd, noResponseCount, localAddr.c_str(), peerAddr.c_str());
+                        LOG_ERROR("TCP_RECV_TIMEOUT fd=%d count=%d errno=%d (%s) local=%s peer=%s",
+                                  sockFd, noResponseCount, errno, strerror(errno),
+                                  localAddr.c_str(), peerAddr.c_str());
                     }
                     if (noResponseCount >= MAX_NO_RESPONSE) {
                         LOG_INFO("🔚 TCP无响应次数过多，清理socket: fd=%d", sockFd);
                         break;
                     }
+                    // 🔥 阻塞模式下，超时后应该继续等待，而不是立即退出
+                    // 但为了避免无限等待，我们使用超时计数
                     continue;
                 }
-                LOG_ERROR("TCP接收失败: fd=%d, errno=%d", sockFd, errno);
+                // 其他错误（如连接重置、网络不可达等）应该退出
+                LOG_ERROR("TCP接收失败: fd=%d, errno=%d (%s)", sockFd, errno, strerror(errno));
                 break;
             } else if (received == 0) {
                 LOG_INFO("🔚 TCP连接关闭(远端FIN): fd=%d", sockFd);
@@ -765,12 +794,18 @@ static void StartTCPThread(int sockFd, const sockaddr_in& originalPeer) {
                     uint32_t seqToSend = 0;
                     uint32_t ackToSend = 0;
                     PacketInfo origReq = conn.originalRequest;
-                    NATTable::WithConnectionBySocket(sockFd, [&](NATConnection& c) {
+                    // 🚨 修复：检查WithConnectionBySocket返回值，避免在映射不存在时崩溃
+                    bool hasConn = NATTable::WithConnectionBySocket(sockFd, [&](NATConnection& c) {
                         seqToSend = c.nextServerSeq;
                         ackToSend = c.nextClientSeq;
                         c.nextServerSeq += 1; // FIN consumes one seq
                         c.tcpState = NATConnection::TcpState::FIN_SENT;
                     });
+                    if (!hasConn) {
+                        LOG_ERROR("❌ [TCP响应] NAT映射不存在，无法处理FIN响应: fd=%d", sockFd);
+                        close(sockFd);
+                        return;
+                    }
 
                     uint8_t finPkt[128];
                     int finSize = PacketBuilder::BuildTcpResponsePacket(
@@ -810,11 +845,17 @@ static void StartTCPThread(int sockFd, const sockaddr_in& originalPeer) {
                 uint32_t seqToSend = 0;
                 uint32_t ackToSend = 0;
                 PacketInfo origReq = conn.originalRequest;
-                NATTable::WithConnectionBySocket(sockFd, [&](NATConnection& c) {
+                // 🚨 修复：检查WithConnectionBySocket返回值，避免在映射不存在时崩溃
+                bool hasConn = NATTable::WithConnectionBySocket(sockFd, [&](NATConnection& c) {
                     seqToSend = c.nextServerSeq;
                     ackToSend = c.nextClientSeq;
                     c.nextServerSeq += static_cast<uint32_t>(received);
                 });
+                if (!hasConn) {
+                    LOG_ERROR("❌ [TCP响应] NAT映射不存在，无法处理数据响应: fd=%d", sockFd);
+                    close(sockFd);
+                    return;
+                }
 
             LOG_INFO("TCP_SERVER_DATA fd=%d len=%zd seq=%u ack=%u",
                      sockFd, received, seqToSend, ackToSend);
@@ -873,7 +914,7 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
     LOG_INFO("📦 [转发开始] %s:%d -> %s:%d (%s, %d字节)",
             packetInfo.sourceIP.c_str(), packetInfo.sourcePort,
             packetInfo.targetIP.c_str(), packetInfo.targetPort,
-            packetInfo.protocol == PROTOCOL_TCP ? "TCP" : "UDP", dataSize);
+            ProtocolHandler::GetProtocolName(packetInfo.protocol).c_str(), dataSize);
 
     // 🚨 验证输入参数
     if (!data || dataSize <= 0) {
@@ -881,6 +922,13 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
         return -1;
     }
 
+    // 🚨 修复：ICMP/ICMPv6 处理
+    if (packetInfo.protocol == PROTOCOL_ICMP) {
+        LOG_INFO("ℹ️ [ICMP转发] 当前未实现IPv4 ICMP转发，已跳过: Type=%d Code=%d -> %s",
+                 packetInfo.icmpv6Type, packetInfo.icmpv6Code, packetInfo.targetIP.c_str());
+        return 0;
+    }
+    
     if (packetInfo.protocol == PROTOCOL_ICMPV6) {
         LOG_INFO("ℹ️ [ICMPv6转发] 当前未实现ICMPv6转发，已跳过: Type=%d (%s) -> %s",
                  packetInfo.icmpv6Type,
@@ -889,6 +937,7 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
         return 0;
     }
 
+    // TCP/UDP 需要验证端口
     if (packetInfo.targetIP.empty() || packetInfo.targetPort <= 0) {
         LOG_ERROR("❌ [参数验证失败] 无效目标: IP=%s, Port=%d",
                  packetInfo.targetIP.c_str(), packetInfo.targetPort);
@@ -1040,11 +1089,22 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
     const bool isRst = HasTcpFlag(tcp.flags, TCP_RST);
 
     // 🔍 关键诊断：记录客户端TCP包的seq/ack与当前状态
-    NATTable::WithConnection(natKey, [&](NATConnection& c) {
+    // 🚨 修复：WithConnection可能返回false（映射不存在），需要检查返回值
+    bool hasConnection = NATTable::WithConnection(natKey, [&](NATConnection& c) {
         LOG_INFO("TCP_CLIENT_PKT key=%s flags=%s seq=%u ack=%u state=%d nextClientSeq=%u nextServerSeq=%u",
                  natKey.c_str(), TcpFlagsToString(tcp.flags).c_str(), tcp.seq, tcp.ack,
                  static_cast<int>(c.tcpState), c.nextClientSeq, c.nextServerSeq);
     });
+    if (!hasConnection && !isNewMapping) {
+        // 🚨 修复：映射在 FindMapping 和 WithConnection 之间被删除（竞态条件）
+        // 不应该重新创建映射，因为：
+        // 1. 旧的socket可能还在使用（响应线程可能还在运行）
+        // 2. TCP状态会丢失，导致连接状态不一致
+        // 3. 可能创建重复的响应线程
+        // 应该返回错误，让上层重试或丢弃这个包
+        LOG_ERROR("❌ [TCP] NAT映射竞态条件：映射在查找后被删除，返回错误: key=%s", natKey.c_str());
+        return -1;
+    }
 
     // New mapping should only start on SYN (no ACK)
     if (isNewMapping) {
@@ -1113,13 +1173,19 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
         // Initialize TCP state and reply SYN-ACK to client
         uint32_t clientIsn = tcp.seq;
         uint32_t serverIsn = RandomIsn();
-        NATTable::WithConnection(natKey, [&](NATConnection& c) {
+        // 🚨 修复：检查WithConnection返回值（虽然刚创建应该存在，但为安全起见）
+        bool hasConn = NATTable::WithConnection(natKey, [&](NATConnection& c) {
             c.tcpState = NATConnection::TcpState::SYN_RECEIVED;
             c.clientIsn = clientIsn;
             c.serverIsn = serverIsn;
             c.nextClientSeq = clientIsn + 1;
             c.nextServerSeq = serverIsn + 1;
         });
+        if (!hasConn) {
+            LOG_ERROR("❌ [TCP] 新创建的NAT映射不存在，严重错误: key=%s", natKey.c_str());
+            close(sockFd);
+            return -1;
+        }
 
         uint8_t synAckPkt[128];
         int synAckSize = PacketBuilder::BuildTcpResponsePacket(
@@ -1162,10 +1228,15 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
         uint32_t clientFinSeq = tcp.seq;
         uint32_t ackVal = clientFinSeq + 1;
         uint32_t seqVal = 0;
-        NATTable::WithConnection(natKey, [&](NATConnection& c) {
+        // 🚨 修复：检查WithConnection返回值，避免在映射不存在时崩溃
+        bool hasConn = NATTable::WithConnection(natKey, [&](NATConnection& c) {
             c.nextClientSeq = ackVal;
             seqVal = c.nextServerSeq;
         });
+        if (!hasConn) {
+            LOG_ERROR("❌ [TCP] NAT映射不存在，无法处理FIN包: key=%s", natKey.c_str());
+            return -1;
+        }
 
         uint8_t ackPkt[128];
         int ackSize = PacketBuilder::BuildTcpResponsePacket(
@@ -1186,7 +1257,8 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
         bool transitioned = false;
         uint32_t serverIsn = 0;
         uint32_t expectedServerSeq = 0;
-        NATTable::WithConnection(natKey, [&](NATConnection& c) {
+        // 🚨 修复：检查WithConnection返回值，避免在映射不存在时崩溃
+        bool hasConn = NATTable::WithConnection(natKey, [&](NATConnection& c) {
             expectedServerSeq = c.nextServerSeq;
             serverIsn = c.serverIsn;
             if (c.nextServerSeq != 0 && tcp.ack != c.nextServerSeq) {
@@ -1204,6 +1276,10 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
                 // ACKs for server->client data: nothing required for our minimal model
             }
         });
+        if (!hasConn) {
+            LOG_ERROR("❌ [TCP] NAT映射不存在，无法处理ACK包: key=%s", natKey.c_str());
+            return -1;
+        }
         if (transitioned) {
             LOG_INFO("TCP_ESTABLISHED key=%s clientAck=%u serverIsn=%u expectedServerSeq=%u",
                      natKey.c_str(), tcp.ack, serverIsn, expectedServerSeq);
@@ -1227,13 +1303,18 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
         // advance expected client seq and ACK it
         uint32_t seqVal = 0;
         uint32_t ackVal = 0;
-        NATTable::WithConnection(natKey, [&](NATConnection& c) {
+        // 🚨 修复：检查WithConnection返回值，避免在映射不存在时崩溃
+        bool hasConn = NATTable::WithConnection(natKey, [&](NATConnection& c) {
             c.tcpState = NATConnection::TcpState::ESTABLISHED;
             // best-effort: accept sender seq, then advance by payload
             c.nextClientSeq = tcp.seq + static_cast<uint32_t>(payloadSize);
             seqVal = c.nextServerSeq;
             ackVal = c.nextClientSeq;
         });
+        if (!hasConn) {
+            LOG_ERROR("❌ [TCP] NAT映射不存在，无法处理数据包: key=%s", natKey.c_str());
+            return -1;
+        }
 
         uint8_t ackPkt[128];
         int ackSize = PacketBuilder::BuildTcpResponsePacket(
@@ -1252,12 +1333,15 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
     return sockFd;
 
     } else {
-        LOG_ERROR("不支持的协议: %d", packetInfo.protocol);
-        NATTable::RemoveMapping(natKey);
+        // 🚨 修复：不应该到达这里，因为ICMP/ICMPv6已经在前面处理
+        // 如果到达这里，说明协议检查逻辑有BUG
+        LOG_ERROR("❌ [转发错误] 不支持的协议: %d (%s) - 这不应该发生，请检查协议检查逻辑",
+                 packetInfo.protocol, ProtocolHandler::GetProtocolName(packetInfo.protocol).c_str());
+        if (isNewMapping) {
+            NATTable::RemoveMapping(natKey);
+        }
         return -1;
     }
-
-    return sockFd;
 }
 
 // 🎯 清理所有缓存的socket和线程

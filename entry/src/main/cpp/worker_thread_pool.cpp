@@ -17,9 +17,9 @@
   OH_LOG_Print(LOG_APP, LOG_ERROR, 0x15b1, "VpnServer", "ZHOUB [Worker] [%{public}s:%{public}d] " fmt, MAKE_FILE_NAME, __LINE__, ##__VA_ARGS__)
 
 bool WorkerThreadPool::start(int numForwardWorkers, int numResponseWorkers) {
-    WORKER_LOGI("📍 WorkerThreadPool::start() called - numForward=%d, numResponse=%d", 
+    WORKER_LOGE("🚀🚀🚀 [关键] WorkerThreadPool::start() called - numForward=%d, numResponse=%d", 
                 numForwardWorkers, numResponseWorkers);
-    WORKER_LOGI("📍 Current state: running_=%d, forwardWorkers.size=%zu, responseWorkers.size=%zu",
+    WORKER_LOGE("🚀🚀🚀 [关键] Current state: running_=%d, forwardWorkers.size=%zu, responseWorkers.size=%zu",
                 running_.load() ? 1 : 0, forwardWorkers_.size(), responseWorkers_.size());
     
     if (running_.load()) {
@@ -27,40 +27,53 @@ bool WorkerThreadPool::start(int numForwardWorkers, int numResponseWorkers) {
         return false;
     }
     
-    WORKER_LOGI("📍 Setting running_ to true...");
+    WORKER_LOGE("🚀🚀🚀 [关键] Setting running_ to true...");
     running_.store(true);
     
-    WORKER_LOGI("📍 Starting %d forward worker threads...", numForwardWorkers);
+    WORKER_LOGE("🚀🚀🚀 [关键] Starting %d forward worker threads...", numForwardWorkers);
     // 启动转发工作线程
     for (int i = 0; i < numForwardWorkers; ++i) {
-        WORKER_LOGI("📍 Creating forward worker #%d...", i);
-        forwardWorkers_.emplace_back([this, i]() {
-            WORKER_LOGI("🚀 Forward worker #%{public}d thread STARTED (running_=%d)", i, running_.load() ? 1 : 0);
-            forwardWorkerThread();
-            WORKER_LOGI("🔚 Forward worker #%{public}d thread STOPPED", i);
-        });
+        WORKER_LOGE("🚀🚀🚀 [关键] Creating forward worker #%d...", i);
+        try {
+            forwardWorkers_.emplace_back([this, i]() {
+                WORKER_LOGE("🚀🚀🚀 [关键] Forward worker #%d thread STARTED (running_=%d)", i, running_.load() ? 1 : 0);
+                forwardWorkerThread();
+                WORKER_LOGE("🚀🚀🚀 [关键] Forward worker #%d thread STOPPED", i);
+            });
+            WORKER_LOGE("🚀🚀🚀 [关键] Forward worker #%d thread created successfully", i);
+        } catch (const std::exception& e) {
+            WORKER_LOGE("❌❌❌ [严重错误] Failed to create forward worker #%d: %s", i, e.what());
+            return false;
+        }
     }
-    WORKER_LOGI("✅ %d forward workers created", numForwardWorkers);
+    WORKER_LOGE("✅✅✅ [关键] %d forward workers created", numForwardWorkers);
     
-    WORKER_LOGI("📍 Starting %d response worker threads...", numResponseWorkers);
+    WORKER_LOGE("🚀🚀🚀 [关键] Starting %d response worker threads...", numResponseWorkers);
     // 启动响应工作线程
     for (int i = 0; i < numResponseWorkers; ++i) {
-        WORKER_LOGI("📍 Creating response worker #%d...", i);
-        responseWorkers_.emplace_back([this, i]() {
-            WORKER_LOGI("🚀 Response worker #%{public}d thread STARTED (running_=%d)", i, running_.load() ? 1 : 0);
-            responseWorkerThread();
-            WORKER_LOGI("🔚 Response worker #%{public}d thread STOPPED", i);
-        });
+        WORKER_LOGE("🚀🚀🚀 [关键] Creating response worker #%d...", i);
+        try {
+            responseWorkers_.emplace_back([this, i]() {
+                WORKER_LOGE("🚀🚀🚀 [关键] Response worker #%d thread STARTED (running_=%d)", i, running_.load() ? 1 : 0);
+                responseWorkerThread();
+                WORKER_LOGE("🚀🚀🚀 [关键] Response worker #%d thread STOPPED", i);
+            });
+            WORKER_LOGE("🚀🚀🚀 [关键] Response worker #%d thread created successfully", i);
+        } catch (const std::exception& e) {
+            WORKER_LOGE("❌❌❌ [严重错误] Failed to create response worker #%d: %s", i, e.what());
+            return false;
+        }
     }
-    WORKER_LOGI("✅ %d response workers created", numResponseWorkers);
+    WORKER_LOGE("✅✅✅ [关键] %d response workers created", numResponseWorkers);
     
-    WORKER_LOGI("✅✅✅ Worker thread pool FULLY started: %{public}d forward workers, %{public}d response workers",
+    WORKER_LOGE("✅✅✅ [关键] Worker thread pool FULLY started: %d forward workers, %d response workers",
                 numForwardWorkers, numResponseWorkers);
     
     // 给线程一点时间启动
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
     
-    WORKER_LOGI("📍 Final state: running_=%d", running_.load() ? 1 : 0);
+    WORKER_LOGE("🚀🚀🚀 [关键] Final state: running_=%d, forwardWorkers.size=%zu, responseWorkers.size=%zu", 
+                running_.load() ? 1 : 0, forwardWorkers_.size(), responseWorkers_.size());
     
     return true;
 }
@@ -100,7 +113,7 @@ void WorkerThreadPool::forwardWorkerThread() {
     int iteration = 0;
     int processedTasks = 0;
 
-    WORKER_LOGE("FWD_WORKER_STARTED running=%d", running_.load() ? 1 : 0);
+    WORKER_LOGE("🚀🚀🚀 [关键] FWD_WORKER_STARTED running=%d", running_.load() ? 1 : 0);
 
     while (running_.load()) {
         iteration++;
@@ -113,7 +126,7 @@ void WorkerThreadPool::forwardWorkerThread() {
 
         // 从队列获取任务（100ms超时）
         if (iteration % 200 == 0) {
-            WORKER_LOGE("FWD_WORKER_ALIVE iter=%d queue=%zu running=%d",
+            WORKER_LOGE("🚀🚀🚀 [关键] FWD_WORKER_ALIVE iter=%d queue=%zu running=%d",
                         iteration,
                         taskQueue.getForwardQueueSize(),
                         running_.load() ? 1 : 0);
@@ -122,7 +135,7 @@ void WorkerThreadPool::forwardWorkerThread() {
 
         if (!taskOpt.has_value()) {
             if (taskQueue.getForwardQueueSize() > 0) {
-                WORKER_LOGE("FWD_POP_EMPTY queue=%zu", taskQueue.getForwardQueueSize());
+                WORKER_LOGE("🚀🚀🚀 [关键] FWD_POP_EMPTY queue=%zu (队列有数据但pop失败!)", taskQueue.getForwardQueueSize());
             }
             // 每10秒输出一次等待状态
             if (iteration % 100000 == 0) {  // 1000次/秒 * 100秒 = 100000
@@ -156,7 +169,7 @@ void WorkerThreadPool::forwardWorkerThread() {
 
         // 更前断点：仅前20次打印，确认已进入ForwardPacket调用
         if (processedTasks <= 20) {
-            WORKER_LOGE("FWD_CALL #%d proto=%s %s:%d -> %s:%d size=%d",
+            WORKER_LOGE("🚀🚀🚀 [关键] FWD_CALL #%d proto=%s %s:%d -> %s:%d size=%d",
                         processedTasks,
                         fwdTask.packetInfo.protocol == PROTOCOL_TCP ? "TCP" : "UDP",
                         fwdTask.packetInfo.sourceIP.c_str(), fwdTask.packetInfo.sourcePort,

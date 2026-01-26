@@ -4,9 +4,10 @@
 #include <string>
 
 // 协议常量
+constexpr uint8_t PROTOCOL_ICMP = 1;      // IPv4 ICMP (ping)
 constexpr uint8_t PROTOCOL_TCP = 6;
 constexpr uint8_t PROTOCOL_UDP = 17;
-constexpr uint8_t PROTOCOL_ICMPV6 = 58;
+constexpr uint8_t PROTOCOL_ICMPV6 = 58;   // IPv6 ICMPv6 (ping6)
 
 // ICMPv6 消息类型（常见的核心消息）
 constexpr uint8_t ICMPV6_DEST_UNREACHABLE = 1;    // 目标不可达
