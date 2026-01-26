@@ -28,6 +28,7 @@
 #include "thread_pool.h"  // 🔄 添加线程池支持
 #include "protocol_handler.h"
 #include "packet_forwarder.h"
+#include "packet_builder.h"  // 🚨 修复：添加PacketBuilder头文件，用于安全的IP/TCP头长度计算
 #include "nat_table.h"  // NATTable
 
 // 🔄 线程池管理函数声明
@@ -483,10 +484,34 @@ int ForwardToRealServer(const uint8_t* data, int dataSize, const std::string& ta
                 VPN_SERVER_LOGI("IPv4 TCP connection established successfully immediately");
             }
 
+            // 🚨 修复：使用安全的函数计算IP头和TCP头长度，避免越界访问
             // 计算IP头长度
-            int ipHeaderLen = (data[0] & 0x0F) * 4;  // IP头长度 = (IHL字段) * 4字节
-            int tcpHeaderLen = (data[ipHeaderLen + 12] & 0xF0) >> 4;  // TCP头长度 = (偏移字段) * 4字节
-            tcpHeaderLen *= 4;
+            if (dataSize < 1) {
+                VPN_SERVER_LOGE("Invalid TCP packet: too small to read IP header");
+                close(sockFd);
+                return -1;
+            }
+            int ipHeaderLen = PacketBuilder::GetIPHeaderLength(data);
+            if (ipHeaderLen < 20 || ipHeaderLen > dataSize) {
+                VPN_SERVER_LOGE("Invalid IP header length: %{public}d (dataSize=%{public}d)", ipHeaderLen, dataSize);
+                close(sockFd);
+                return -1;
+            }
+            
+            // 计算TCP头长度
+            int remainingSize = dataSize - ipHeaderLen;
+            if (remainingSize < 13) {
+                VPN_SERVER_LOGE("Invalid TCP packet: too small for TCP header (remainingSize=%{public}d)", remainingSize);
+                close(sockFd);
+                return -1;
+            }
+            int tcpHeaderLen = PacketBuilder::GetTCPHeaderLength(data + ipHeaderLen);
+            if (tcpHeaderLen < 20 || tcpHeaderLen > remainingSize) {
+                VPN_SERVER_LOGE("Invalid TCP header length: %{public}d (remainingSize=%{public}d)", tcpHeaderLen, remainingSize);
+                close(sockFd);
+                return -1;
+            }
+            
             int payloadOffset = ipHeaderLen + tcpHeaderLen;
             int payloadSize = dataSize - payloadOffset;
             

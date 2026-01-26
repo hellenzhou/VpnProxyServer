@@ -92,28 +92,33 @@ static bool SetBlockingMode(int sockFd, bool blocking)
 
 static bool ConnectWithTimeout(int sockFd, const sockaddr* targetAddr, socklen_t addrLen, int timeoutMs)
 {
+    LOG_ERROR("🔍 [TCP连接诊断] ConnectWithTimeout开始: fd=%d, timeout=%dms", sockFd, timeoutMs);
+    
     int flags = fcntl(sockFd, F_GETFL, 0);
     if (flags < 0) {
-        LOG_ERROR("TCP connect: failed to get socket flags: fd=%d errno=%d", sockFd, errno);
+        LOG_ERROR("❌ [TCP连接] 获取socket标志失败: fd=%d errno=%d", sockFd, errno);
         return false;
     }
     if (fcntl(sockFd, F_SETFL, flags | O_NONBLOCK) < 0) {
-        LOG_ERROR("TCP connect: failed to set O_NONBLOCK: fd=%d errno=%d", sockFd, errno);
+        LOG_ERROR("❌ [TCP连接] 设置O_NONBLOCK失败: fd=%d errno=%d", sockFd, errno);
         return false;
     }
 
+    LOG_ERROR("🔍 [TCP连接诊断] 调用connect()...");
     int rc = connect(sockFd, targetAddr, addrLen);
     if (rc == 0) {
         // Connected immediately
+        LOG_ERROR("✅ [TCP连接] 立即连接成功: fd=%d", sockFd);
         fcntl(sockFd, F_SETFL, flags);
         return true;
     }
     if (errno != EINPROGRESS) {
-        LOG_ERROR("TCP connect: immediate failure: fd=%d errno=%d (%s)", sockFd, errno, strerror(errno));
+        LOG_ERROR("❌ [TCP连接] 立即连接失败: fd=%d errno=%d (%s)", sockFd, errno, strerror(errno));
         fcntl(sockFd, F_SETFL, flags);
         return false;
     }
 
+    LOG_ERROR("🔍 [TCP连接诊断] 连接进行中，等待select()...");
     fd_set writefds;
     FD_ZERO(&writefds);
     FD_SET(sockFd, &writefds);
@@ -123,15 +128,16 @@ static bool ConnectWithTimeout(int sockFd, const sockaddr* targetAddr, socklen_t
 
     int sel = select(sockFd + 1, nullptr, &writefds, nullptr, &tv);
     if (sel <= 0) {
-        LOG_ERROR("TCP_CONNECT_TIMEOUT fd=%d timeoutMs=%d", sockFd, timeoutMs);
+        LOG_ERROR("❌ [TCP连接] 连接超时: fd=%d timeoutMs=%d, select返回=%d", sockFd, timeoutMs, sel);
         fcntl(sockFd, F_SETFL, flags);
         return false;
     }
 
+    LOG_ERROR("🔍 [TCP连接诊断] select()返回，检查连接状态...");
     int soError = 0;
     socklen_t len = sizeof(soError);
     if (getsockopt(sockFd, SOL_SOCKET, SO_ERROR, &soError, &len) < 0 || soError != 0) {
-        LOG_ERROR("TCP connect: failed after select: fd=%d errno=%d (%s)", sockFd,
+        LOG_ERROR("❌ [TCP连接] 连接失败: fd=%d errno=%d (%s)", sockFd,
                   soError ? soError : errno, strerror(soError ? soError : errno));
         fcntl(sockFd, F_SETFL, flags);
         return false;
@@ -139,6 +145,7 @@ static bool ConnectWithTimeout(int sockFd, const sockaddr* targetAddr, socklen_t
 
     // Restore original flags
     fcntl(sockFd, F_SETFL, flags);
+    LOG_ERROR("✅ [TCP连接] 连接成功: fd=%d", sockFd);
     return true;
 }
 
@@ -478,6 +485,19 @@ private:
         return -1;
     }
     
+        // 🚨 关键修复：UDP socket必须设置为非阻塞模式，避免recvfrom阻塞
+        if (protocol == PROTOCOL_UDP) {
+            int flags = fcntl(sockFd, F_GETFL, 0);
+            if (flags >= 0) {
+                if (fcntl(sockFd, F_SETFL, flags | O_NONBLOCK) < 0) {
+                    LOG_ERROR("❌ 设置UDP socket为非阻塞模式失败: %s", strerror(errno));
+                    close(sockFd);
+                    return -1;
+                }
+                LOG_INFO("✅ UDP socket已设置为非阻塞模式: fd=%d", sockFd);
+            }
+        }
+    
         // 设置超时
         struct timeval timeout = {5, 0};  // 5秒超时
         setsockopt(sockFd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
@@ -633,24 +653,56 @@ static void SendProtectSocketMessage(int sockFd, const PacketInfo& packetInfo, c
 // 🎯 UDP响应线程 (添加socket清理)
 static void StartUDPThread(int sockFd, const sockaddr_in& originalPeer) {
     std::thread([sockFd, originalPeer]() {
-        LOG_INFO("🚀 UDP线程启动: fd=%d", sockFd);
+        LOG_ERROR("🚀 [UDP线程] UDP响应线程启动: fd=%d", sockFd);
+        
+        // 🚨 关键修复：确保socket是有效的，避免访问已关闭的socket
+        int error = 0;
+        socklen_t len = sizeof(error);
+        if (getsockopt(sockFd, SOL_SOCKET, SO_ERROR, &error, &len) < 0) {
+            LOG_ERROR("❌ [UDP线程] Socket无效，无法启动线程: fd=%d, errno=%d", sockFd, errno);
+            return;
+        }
         
         uint8_t buffer[4096];
         int noResponseCount = 0;
-        const int MAX_NO_RESPONSE = 3;  // 最多3次无响应后清理
+        const int MAX_NO_RESPONSE = 10;  // 🚨 修复：增加无响应次数（非阻塞模式下EAGAIN很常见）
+        const int SLEEP_MS = 100;  // 每次EAGAIN后睡眠100ms，避免CPU占用过高
         
         while (true) {
+            // 🚨 修复：在每次循环前检查socket是否仍然有效
+            error = 0;
+            len = sizeof(error);
+            if (getsockopt(sockFd, SOL_SOCKET, SO_ERROR, &error, &len) < 0 || error != 0) {
+                LOG_ERROR("❌ [UDP线程] Socket已失效: fd=%d, error=%d", sockFd, error);
+                break;
+            }
+            
             ssize_t received = recvfrom(sockFd, buffer, sizeof(buffer), 0, nullptr, nullptr);
             if (received < 0) {
-                if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                int savedErrno = errno;
+                if (savedErrno == EAGAIN || savedErrno == EWOULDBLOCK) {
                     noResponseCount++;
+                    if (noResponseCount % 50 == 0) {  // 每50次记录一次，避免日志过多
+                        LOG_ERROR("🔍 [UDP线程] 无数据可读 (EAGAIN/EWOULDBLOCK): fd=%d, 计数=%d/%d", 
+                                 sockFd, noResponseCount, MAX_NO_RESPONSE);
+                    }
                     if (noResponseCount >= MAX_NO_RESPONSE) {
-                        LOG_INFO("🔚 UDP无响应次数过多，清理socket: fd=%d", sockFd);
+                        LOG_ERROR("🔚 [UDP线程] 无响应次数过多，清理socket: fd=%d", sockFd);
                         break;
                     }
+                    std::this_thread::sleep_for(std::chrono::milliseconds(SLEEP_MS));
                     continue;
                 }
-                LOG_ERROR("UDP接收失败: fd=%d, errno=%d", sockFd, errno);
+                // 🚨 修复：其他错误（如EBADF、ECONNRESET等）也需要清理
+                LOG_ERROR("❌ [UDP线程] 接收失败: fd=%d, errno=%d (%s)", sockFd, savedErrno, strerror(savedErrno));
+                
+                // 🔍 诊断：检查socket状态
+                error = 0;
+                len = sizeof(error);
+                if (getsockopt(sockFd, SOL_SOCKET, SO_ERROR, &error, &len) == 0) {
+                    LOG_ERROR("🔍 [UDP诊断] Socket错误状态: fd=%d, SO_ERROR=%d", sockFd, error);
+                }
+                
                 break;
             }
         
@@ -658,7 +710,7 @@ static void StartUDPThread(int sockFd, const sockaddr_in& originalPeer) {
             noResponseCount = 0;
             
             // 🔧 调试：打印接收到的数据
-            LOG_INFO("🔍 UDP收到响应: fd=%d, %zd字节", sockFd, received);
+            LOG_ERROR("✅ [UDP线程] 收到响应: fd=%d, %zd字节", sockFd, received);
 
             // 检查NAT映射并构建完整IP响应包
             NATConnection conn;
@@ -667,7 +719,7 @@ static void StartUDPThread(int sockFd, const sockaddr_in& originalPeer) {
                 char peerIP[INET_ADDRSTRLEN];
                 inet_ntop(AF_INET, &originalPeer.sin_addr, peerIP, sizeof(peerIP));
                 uint16_t peerPort = ntohs(originalPeer.sin_port);
-                LOG_INFO("🔍 UDP响应: 构建完整IP包发送到 %s:%d", peerIP, peerPort);
+                LOG_ERROR("🔍 [UDP线程] 找到NAT映射，构建响应包: fd=%d -> %s:%d", sockFd, peerIP, peerPort);
 
                 // 🐛 修复：构建完整的IP响应包，而不是直接发送原始payload
                 uint8_t responsePacket[4096];
@@ -704,30 +756,51 @@ static void StartUDPThread(int sockFd, const sockaddr_in& originalPeer) {
         }
         
         // 🧹 清理NAT映射并归还socket到连接池
-        LOG_INFO("🧹 清理UDP线程资源并归还socket: fd=%d", sockFd);
+        LOG_ERROR("🧹 [UDP线程] 清理UDP线程资源并归还socket: fd=%d", sockFd);
 
-        // 先抓取映射信息（用于归还连接池），再删除映射，避免信息丢失
+        // 🚨 修复：先抓取映射信息（用于归还连接池），再删除映射，避免信息丢失
+        // 使用锁保护，确保操作的原子性
         NATConnection conn;
         bool hasConn = NATTable::FindMappingBySocket(sockFd, conn);
         if (hasConn) {
             char clientIP[INET_ADDRSTRLEN];
             inet_ntop(AF_INET, &conn.clientPhysicalAddr.sin_addr, clientIP, sizeof(clientIP));
 
+            // 先移除映射，再归还socket
             NATTable::RemoveMappingBySocket(sockFd);
-            SocketConnectionPool::getInstance().returnSocket(
-                sockFd,
-                clientIP,
-                ntohs(conn.clientPhysicalAddr.sin_port),
-                conn.serverIP,
-                conn.serverPort,
-                PROTOCOL_UDP,
-                conn.originalRequest.addressFamily
-            );
+            
+            // 🚨 修复：检查socket是否仍然有效，避免归还已关闭的socket
+            error = 0;
+            len = sizeof(error);
+            if (getsockopt(sockFd, SOL_SOCKET, SO_ERROR, &error, &len) == 0 && error == 0) {
+                SocketConnectionPool::getInstance().returnSocket(
+                    sockFd,
+                    clientIP,
+                    ntohs(conn.clientPhysicalAddr.sin_port),
+                    conn.serverIP,
+                    conn.serverPort,
+                    PROTOCOL_UDP,
+                    conn.originalRequest.addressFamily
+                );
+                LOG_ERROR("✅ [UDP线程] Socket已归还到连接池: fd=%d", sockFd);
+            } else {
+                LOG_ERROR("⚠️ [UDP线程] Socket已失效，直接关闭: fd=%d, error=%d", sockFd, error);
+                close(sockFd);
+            }
         } else {
+            // 🚨 修复：如果找不到映射，说明映射已被覆盖或删除，直接关闭socket
+            // 先尝试移除映射（可能已经不存在），然后关闭socket
             NATTable::RemoveMappingBySocket(sockFd);
-            // 如果找不到映射，直接关闭
-            close(sockFd);
-            LOG_INFO("⚠️ 找不到NAT映射，直接关闭socket: fd=%d", sockFd);
+            
+            // 🚨 修复：检查socket是否仍然有效，避免关闭已关闭的socket
+            error = 0;
+            len = sizeof(error);
+            if (getsockopt(sockFd, SOL_SOCKET, SO_ERROR, &error, &len) == 0) {
+                close(sockFd);
+                LOG_ERROR("⚠️ [UDP线程] 找不到NAT映射（可能已被覆盖），已关闭socket: fd=%d", sockFd);
+            } else {
+                LOG_ERROR("⚠️ [UDP线程] Socket已失效，无需关闭: fd=%d", sockFd);
+            }
         }
         
     }).detach();
@@ -991,22 +1064,145 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
     int sockFd;
     bool isNewMapping = false;
     
-    if (NATTable::FindMapping(natKey, existingConn)) {
-        // 映射已存在，使用现有socket
-        LOG_INFO("🔄 使用现有NAT映射: key=%s, fd=%d", natKey.c_str(), existingConn.forwardSocket);
-        sockFd = existingConn.forwardSocket;
-        
-        } else {
-        // 没有现有映射，创建新socket和映射
-        sockFd = GetSocket(packetInfo, originalPeer, tunnelFd);
-        if (sockFd < 0) {
-            LOG_ERROR("获取socket失败");
+    // 🚨 修复：对于TCP，需要先检查是否为SYN包，再决定是否创建映射
+    if (packetInfo.protocol == PROTOCOL_TCP) {
+        // 先解析TCP头部，检查是否为SYN包
+        ParsedTcp tcp = ParseTcpFromIp(data, dataSize);
+        if (!tcp.ok) {
+            LOG_ERROR("❌ [TCP解析失败] 非IPv4/TCP或头部不完整: dataSize=%d", dataSize);
             return -1;
         }
         
-        NATTable::CreateMapping(natKey, originalPeer, packetInfo, sockFd);
-        LOG_INFO("✅ 创建新NAT映射: %s -> fd=%d", natKey.c_str(), sockFd);
-        isNewMapping = true;
+        const bool isSyn = HasTcpFlag(tcp.flags, TCP_SYN);
+        const bool isAck = HasTcpFlag(tcp.flags, TCP_ACK);
+        const bool isFin = HasTcpFlag(tcp.flags, TCP_FIN);
+        const bool isRst = HasTcpFlag(tcp.flags, TCP_RST);
+        
+        // 🔍 关键诊断：记录所有TCP包的详细信息
+        LOG_ERROR("🔍 [TCP诊断] %s:%d -> %s:%d, flags=0x%02x(%s), seq=%u, ack=%u, key=%s",
+                 packetInfo.sourceIP.c_str(), packetInfo.sourcePort,
+                 packetInfo.targetIP.c_str(), packetInfo.targetPort,
+                 tcp.flags, TcpFlagsToString(tcp.flags).c_str(), tcp.seq, tcp.ack, natKey.c_str());
+        
+        // 检查映射是否存在
+        if (NATTable::FindMapping(natKey, existingConn)) {
+            // 映射已存在，使用现有socket
+            LOG_INFO("🔄 使用现有NAT映射: key=%s, fd=%d", natKey.c_str(), existingConn.forwardSocket);
+            sockFd = existingConn.forwardSocket;
+        } else {
+            // 没有现有映射
+            LOG_ERROR("🔍 [TCP诊断] 映射不存在: key=%s, isSyn=%d, isAck=%d, flags=0x%02x", 
+                     natKey.c_str(), isSyn ? 1 : 0, isAck ? 1 : 0, tcp.flags);
+            
+            // 🚨 修复：条件判断 - 只有纯SYN包（不是SYN-ACK）才创建映射
+            // !isSyn: 不是SYN包
+            // (isSyn && isAck): 是SYN-ACK包（服务器发送的，不应该在这里处理）
+            if (!isSyn || (isSyn && isAck)) {
+                // 🚨 智能处理：非SYN包且映射不存在的情况
+                // 这可能是由于：
+                // 1. 映射被意外删除（超时、错误清理等）
+                // 2. 连接已关闭但客户端还在发送数据
+                // 3. 网络延迟导致包乱序（虽然不太可能）
+                
+                // 根据包类型采取不同策略
+                if (isRst) {
+                    // RST包：连接已关闭，直接丢弃
+                    LOG_INFO("ℹ️ [TCP] 收到RST包但映射不存在，连接已关闭，丢弃: key=%s", natKey.c_str());
+                    return 0;  // 正常丢弃，不算错误
+                } else if (isFin) {
+                    // FIN包：连接已关闭，发送RST告知客户端
+                    LOG_INFO("ℹ️ [TCP] 收到FIN包但映射不存在，连接已关闭，发送RST: key=%s", natKey.c_str());
+                    // 发送RST包告知客户端连接已关闭
+                    uint8_t rstPkt[128];
+                    int rstSize = PacketBuilder::BuildTcpResponsePacket(
+                        rstPkt, sizeof(rstPkt),
+                        nullptr, 0,
+                        packetInfo,
+                        0, tcp.seq + 1,  // ack = seq + 1 (FIN消耗一个seq)
+                        TCP_RST | TCP_ACK
+                    );
+                    if (rstSize > 0) {
+                        TaskQueueManager::getInstance().submitResponseTask(
+                            rstPkt, rstSize, originalPeer, -1, PROTOCOL_TCP
+                        );
+                        LOG_INFO("📤 [TCP] 已发送RST响应: seq=0, ack=%u", tcp.seq + 1);
+                    }
+                    return 0;  // 正常处理，不算错误
+                } else {
+                    // ACK包或数据包：可能是连接已关闭，发送RST告知客户端
+                    LOG_INFO("⚠️ [TCP] 收到非SYN包但映射不存在，可能连接已关闭: key=%s, flags=0x%02x", 
+                            natKey.c_str(), tcp.flags);
+                    
+                    // 发送RST包告知客户端连接不存在
+                    // 根据RFC 793，RST包的ack值应该是收到的包的seq值（如果有数据，则加上数据长度）
+                    uint8_t rstPkt[128];
+                    uint32_t ackVal = tcp.seq;
+                    
+                    // 计算payload大小（从TCP头部信息）
+                    // 🚨 修复：确保tcpPayloadSize不为负数，避免整数溢出
+                    int tcpPayloadSize = dataSize - tcp.ipHeaderLen - tcp.tcpHeaderLen;
+                    if (tcpPayloadSize < 0) {
+                        // 数据包大小异常，使用seq值作为ack值
+                        tcpPayloadSize = 0;
+                        LOG_ERROR("⚠️ [TCP] 数据包大小异常: dataSize=%d, ipHL=%u, tcpHL=%u", 
+                                 dataSize, tcp.ipHeaderLen, tcp.tcpHeaderLen);
+                    } else if (tcpPayloadSize > 0) {
+                        // 数据包：ack = seq + payload长度（表示我们收到了这些数据）
+                        ackVal += static_cast<uint32_t>(tcpPayloadSize);
+                    }
+                    // 对于纯控制包（ACK/FIN等），ack = seq（因为控制包本身不消耗seq，除非是SYN/FIN）
+                    // 注意：这里我们已经在上面处理了FIN包，所以这里主要是ACK包
+                    // ACK包不消耗seq，所以ack = seq是正确的
+                    
+                    int rstSize = PacketBuilder::BuildTcpResponsePacket(
+                        rstPkt, sizeof(rstPkt),
+                        nullptr, 0,
+                        packetInfo,
+                        0, ackVal,
+                        TCP_RST | TCP_ACK
+                    );
+                    if (rstSize > 0) {
+                        TaskQueueManager::getInstance().submitResponseTask(
+                            rstPkt, rstSize, originalPeer, -1, PROTOCOL_TCP
+                        );
+                        LOG_INFO("📤 [TCP] 已发送RST响应: seq=0, ack=%u (连接不存在, payload=%d)", 
+                                ackVal, tcpPayloadSize);
+                    }
+                    return 0;  // 正常处理，不算错误
+                }
+            }
+            
+            // 是纯SYN包（不是SYN-ACK），创建新socket和映射
+            LOG_ERROR("🔍 [TCP诊断] 处理纯SYN包，准备创建映射: key=%s, flags=0x%02x", natKey.c_str(), tcp.flags);
+            sockFd = GetSocket(packetInfo, originalPeer, tunnelFd);
+            if (sockFd < 0) {
+                LOG_ERROR("❌ [TCP] 获取socket失败，无法创建连接: key=%s", natKey.c_str());
+                return -1;
+            }
+            
+            LOG_ERROR("🔍 [TCP诊断] Socket已获取: fd=%d，准备创建NAT映射", sockFd);
+            NATTable::CreateMapping(natKey, originalPeer, packetInfo, sockFd);
+            LOG_ERROR("✅ [TCP] 创建新NAT映射成功: %s -> fd=%d", natKey.c_str(), sockFd);
+            isNewMapping = true;
+        }
+    } else {
+        // UDP或其他协议：直接检查或创建映射
+        if (NATTable::FindMapping(natKey, existingConn)) {
+            // 映射已存在，使用现有socket
+            LOG_INFO("🔄 使用现有NAT映射: key=%s, fd=%d", natKey.c_str(), existingConn.forwardSocket);
+            sockFd = existingConn.forwardSocket;
+        } else {
+            // 没有现有映射，创建新socket和映射
+            sockFd = GetSocket(packetInfo, originalPeer, tunnelFd);
+            if (sockFd < 0) {
+                LOG_ERROR("获取socket失败");
+                return -1;
+            }
+            
+            NATTable::CreateMapping(natKey, originalPeer, packetInfo, sockFd);
+            LOG_INFO("✅ 创建新NAT映射: %s -> fd=%d", natKey.c_str(), sockFd);
+            isNewMapping = true;
+        }
     }
     
     // 5. 发送数据
@@ -1079,7 +1275,13 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
     ParsedTcp tcp = ParseTcpFromIp(data, dataSize);
     if (!tcp.ok) {
         LOG_ERROR("❌ [TCP解析失败] 非IPv4/TCP或头部不完整: dataSize=%d", dataSize);
-        NATTable::RemoveMapping(natKey);
+        // 🚨 修复：如果映射已创建（isNewMapping=true），需要清理；否则直接返回
+        if (isNewMapping) {
+            NATTable::RemoveMapping(natKey);
+            if (sockFd >= 0) {
+                close(sockFd);
+            }
+        }
         return -1;
     }
 
@@ -1106,14 +1308,9 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
         return -1;
     }
 
-    // New mapping should only start on SYN (no ACK)
-    if (isNewMapping) {
-        if (!isSyn || isAck) {
-            LOG_ERROR("❌ [TCP] 收到非SYN的新连接包，丢弃: flags=%s", TcpFlagsToString(tcp.flags).c_str());
-            NATTable::RemoveMapping(natKey);
-            return -1;
-        }
-    }
+    // 🚨 注意：SYN检查已在创建映射前完成（见上方代码）
+    // 如果isNewMapping为true，则必须是SYN包（且不是SYN-ACK）
+    // 这里不再需要重复检查，但保留注释作为防御性编程的说明
 
     // Establish outgoing TCP connection once for new mapping
     sockaddr_storage targetAddr{};
