@@ -12,6 +12,20 @@
 #include <errno.h>
 #include <string.h>
 #include <hilog/log.h>
+
+// ICMP协议常量（如果系统头文件未定义）
+#ifndef IPPROTO_ICMP
+#define IPPROTO_ICMP 1
+#endif
+#ifndef IPPROTO_ICMPV6
+#define IPPROTO_ICMPV6 58
+#endif
+#ifndef IPPROTO_RAW
+#define IPPROTO_RAW 255
+#endif
+#ifndef IP_HDRINCL
+#define IP_HDRINCL 3
+#endif
 #include <map>
 #include <string>
 #include <thread>
@@ -866,6 +880,12 @@ static void StartTCPThread(int sockFd, const sockaddr_in& originalPeer) {
 }
 
 
+// ========== 前向声明 ==========
+static int ForwardICMPPacket(const uint8_t* data, int dataSize,
+                             const PacketInfo& packetInfo,
+                             const sockaddr_in& originalPeer,
+                             int tunnelFd);
+
 // ========== 主转发函数 ==========
 
 int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
@@ -873,13 +893,20 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
                                   const sockaddr_in& originalPeer,
                                   int tunnelFd) {
     // 1. 参数验证
-    if (!data || dataSize <= 0 || packetInfo.targetIP.empty() || packetInfo.targetPort <= 0) {
+    if (!data || dataSize <= 0 || packetInfo.targetIP.empty()) {
         return -1;
     }
+    
+    // ICMP/ICMPv6 没有端口，允许 targetPort 为 0
+    if (packetInfo.protocol != PROTOCOL_ICMP && packetInfo.protocol != PROTOCOL_ICMPV6) {
+        if (packetInfo.targetPort <= 0) {
+            return -1;
+        }
+    }
 
-    // 2. 跳过ICMP/ICMPv6（未实现）
+    // 2. ICMP/ICMPv6 转发处理
     if (packetInfo.protocol == PROTOCOL_ICMP || packetInfo.protocol == PROTOCOL_ICMPV6) {
-        return 0;
+        return ForwardICMPPacket(data, dataSize, packetInfo, originalPeer, tunnelFd);
     }
     
     // 3. 提取payload
@@ -1189,17 +1216,349 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
     return -1;
 }
 
+// 🎯 ICMP 转发函数
+static int ForwardICMPPacket(const uint8_t* data, int dataSize,
+                             const PacketInfo& packetInfo,
+                             const sockaddr_in& originalPeer,
+                             int tunnelFd) {
+    LOG_INFO("🔄 [ICMP转发] 开始转发ICMP包: %s -> %s (Type=%d, Code=%d, %d字节)",
+             packetInfo.sourceIP.c_str(), packetInfo.targetIP.c_str(),
+             packetInfo.icmpv6Type, packetInfo.icmpv6Code, dataSize);
+    
+    // 1. 提取ICMP数据（跳过IP头）
+    uint8_t version = (data[0] >> 4) & 0x0F;
+    int ipHeaderLen = 0;
+    const uint8_t* icmpData = nullptr;
+    int icmpSize = 0;
+    
+    if (version == 4) {
+        // IPv4
+        ipHeaderLen = (data[0] & 0x0F) * 4;
+        if (dataSize < ipHeaderLen + 8) {
+            LOG_ERROR("❌ ICMP包太小: %d字节 (需要至少%d字节)", dataSize, ipHeaderLen + 8);
+            return -1;
+        }
+        icmpData = data + ipHeaderLen;
+        icmpSize = dataSize - ipHeaderLen;
+    } else if (version == 6) {
+        // IPv6 - ICMPv6
+        ipHeaderLen = 40;  // IPv6基本头固定40字节
+        // 跳过扩展头
+        uint8_t nextHeader = data[6];
+        int offset = 40;
+        int hops = 0;
+        const int maxHops = 8;
+        while (hops < maxHops && nextHeader != PROTOCOL_ICMPV6) {
+            if (nextHeader == 0 || nextHeader == 43 || nextHeader == 60 ||
+                nextHeader == 51 || nextHeader == 50) {
+                if (dataSize < offset + 2) break;
+                uint8_t hdrExtLen = data[offset + 1];
+                int extLen = (hdrExtLen + 1) * 8;
+                if (offset + extLen > dataSize) break;
+                // 获取下一个头部（在扩展头中）
+                if (dataSize < offset + extLen) break;
+                nextHeader = data[offset];  // 扩展头的第一个字节是下一个头部
+                offset += extLen;
+                hops++;
+            } else {
+                break;
+            }
+        }
+        if (nextHeader != PROTOCOL_ICMPV6) {
+            LOG_ERROR("❌ 无法找到ICMPv6头");
+            return -1;
+        }
+        ipHeaderLen = offset;
+        if (dataSize < ipHeaderLen + 8) {
+            LOG_ERROR("❌ ICMPv6包太小: %d字节", dataSize);
+            return -1;
+        }
+        icmpData = data + ipHeaderLen;
+        icmpSize = dataSize - ipHeaderLen;
+    } else {
+        LOG_ERROR("❌ 不支持的IP版本: %d", version);
+        return -1;
+    }
+    
+    // 2. 只处理ICMP Echo Request (Type=8) 和 ICMPv6 Echo Request (Type=128)
+    if (packetInfo.icmpv6Type != 8 && packetInfo.icmpv6Type != 128) {
+        LOG_INFO("ℹ️ 跳过非Echo Request的ICMP包: Type=%d", packetInfo.icmpv6Type);
+        return 0;  // 返回0表示已处理（跳过）
+    }
+    
+    LOG_INFO("🔄 [ICMP转发] 转发ICMP包到真实目标: %s -> %s", 
+             packetInfo.sourceIP.c_str(), packetInfo.targetIP.c_str());
+    
+    // 3. 尝试所有可能的方法创建ICMP socket
+    // ⚠️ 重要：ICMP是网络层协议，标准socket（TCP/UDP）无法处理
+    // 必须使用SOCK_RAW，没有完全替代方案
+    // 但我们可以尝试多种方法，并给出详细的错误信息
+    int sockFd = -1;
+    std::string socketMethod = "";
+    
+    if (packetInfo.protocol == PROTOCOL_ICMP) {
+        // IPv4 ICMP: 尝试多种方法
+        
+        // 方法1: IPPROTO_RAW + IP_HDRINCL（最灵活，可以发送完整IP包）
+        sockFd = socket(AF_INET, SOCK_RAW, IPPROTO_RAW);
+        if (sockFd >= 0) {
+            socketMethod = "IPPROTO_RAW";
+            LOG_INFO("✅ 方法1成功: IPPROTO_RAW socket创建成功: fd=%d", sockFd);
+            
+            // 设置IP_HDRINCL选项，允许手动构建IP头
+            int on = 1;
+            if (setsockopt(sockFd, IPPROTO_IP, IP_HDRINCL, &on, sizeof(on)) == 0) {
+                LOG_INFO("✅ IP_HDRINCL选项已设置");
+            } else {
+                LOG_ERROR("⚠️ 设置IP_HDRINCL失败: %s (继续使用，可能系统会自动处理)", strerror(errno));
+            }
+        } else {
+            LOG_ERROR("❌ 方法1失败: IPPROTO_RAW socket创建失败: %s", strerror(errno));
+            
+            // 方法2: IPPROTO_ICMP（标准ICMP原始socket）
+            sockFd = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
+            if (sockFd >= 0) {
+                socketMethod = "IPPROTO_ICMP";
+                LOG_INFO("✅ 方法2成功: IPPROTO_ICMP socket创建成功: fd=%d", sockFd);
+            } else {
+                LOG_ERROR("❌ 方法2失败: IPPROTO_ICMP socket创建失败: %s (errno=%d)", strerror(errno), errno);
+                
+                // 方法3: 尝试SOCK_DGRAM + IPPROTO_ICMP（非标准，某些系统可能支持）
+                LOG_INFO("🔄 尝试方法3: SOCK_DGRAM + IPPROTO_ICMP (非标准方法)");
+                sockFd = socket(AF_INET, SOCK_DGRAM, IPPROTO_ICMP);
+                if (sockFd >= 0) {
+                    socketMethod = "SOCK_DGRAM+IPPROTO_ICMP";
+                    LOG_INFO("✅ 方法3成功: SOCK_DGRAM+IPPROTO_ICMP socket创建成功: fd=%d (非标准方法)", sockFd);
+                } else {
+                    LOG_ERROR("❌ 方法3失败: SOCK_DGRAM+IPPROTO_ICMP socket创建失败: %s (errno=%d)", strerror(errno), errno);
+                    
+                    // 所有方法都失败
+                    LOG_ERROR("❌❌❌ 所有ICMP socket创建方法都失败！");
+                    LOG_ERROR("💡 详细错误信息：");
+                    LOG_ERROR("   - 方法1 (IPPROTO_RAW): 失败");
+                    LOG_ERROR("   - 方法2 (IPPROTO_ICMP): 失败 (errno=%d: %s)", errno, strerror(errno));
+                    LOG_ERROR("   - 方法3 (SOCK_DGRAM+IPPROTO_ICMP): 失败 (errno=%d: %s)", errno, strerror(errno));
+                    LOG_ERROR("💡 可能的原因：");
+                    LOG_ERROR("   1. 缺少root权限或特殊系统权限");
+                    LOG_ERROR("   2. HarmonyOS系统限制SOCK_RAW访问");
+                    LOG_ERROR("   3. 需要申请ohos.permission.MANAGE_VPN权限");
+                    LOG_ERROR("   4. ICMP转发需要系统级VPN扩展能力");
+                    LOG_ERROR("⚠️  ICMP包无法转发，但TCP/UDP转发不受影响");
+                    return -1;
+                }
+            }
+        }
+        
+        LOG_INFO("✅ ICMP socket创建成功: 方法=%s, fd=%d", socketMethod.c_str(), sockFd);
+    } else {
+        // IPv6 ICMPv6: 只能使用SOCK_RAW + IPPROTO_ICMPV6
+        sockFd = socket(AF_INET6, SOCK_RAW, IPPROTO_ICMPV6);
+        if (sockFd < 0) {
+            LOG_ERROR("❌ 创建ICMPv6原始socket失败: %s (可能需要root权限)", strerror(errno));
+            LOG_ERROR("💡 ICMPv6转发需要SOCK_RAW权限，无法替代");
+            return -1;
+        }
+        socketMethod = "IPPROTO_ICMPV6";
+        LOG_INFO("✅ ICMPv6原始socket创建成功: fd=%d (方法: %s)", sockFd, socketMethod.c_str());
+    }
+    
+    // 保护socket（避免被VPN路由劫持）
+    std::string socketDesc = std::string(packetInfo.protocol == PROTOCOL_ICMP ? "ICMP" : "ICMPv6") +
+                            " forwarding socket to " + packetInfo.targetIP;
+    ProtectSocket(sockFd, socketDesc);
+    SendProtectSocketMessage(sockFd, packetInfo, originalPeer, tunnelFd);
+    
+    // 构建目标地址
+    sockaddr_storage targetAddr{};
+    socklen_t addrLen = 0;
+    
+    if (packetInfo.protocol == PROTOCOL_ICMP) {
+        auto* addr4 = reinterpret_cast<sockaddr_in*>(&targetAddr);
+        addr4->sin_family = AF_INET;
+        addr4->sin_port = 0;  // ICMP没有端口
+        if (inet_pton(AF_INET, packetInfo.targetIP.c_str(), &addr4->sin_addr) <= 0) {
+            LOG_ERROR("❌ 无效的目标IP: %s", packetInfo.targetIP.c_str());
+            close(sockFd);
+            return -1;
+        }
+        addrLen = sizeof(sockaddr_in);
+    } else {
+        auto* addr6 = reinterpret_cast<sockaddr_in6*>(&targetAddr);
+        addr6->sin6_family = AF_INET6;
+        addr6->sin6_port = 0;  // ICMPv6没有端口
+        if (inet_pton(AF_INET6, packetInfo.targetIP.c_str(), &addr6->sin6_addr) <= 0) {
+            LOG_ERROR("❌ 无效的目标IPv6: %s", packetInfo.targetIP.c_str());
+            close(sockFd);
+            return -1;
+        }
+        addrLen = sizeof(sockaddr_in6);
+    }
+    
+    // 发送ICMP包到真实目标服务器
+    // 如果使用了IP_HDRINCL，需要发送完整的IP包（包含IP头）
+    // 否则只发送ICMP数据
+    const uint8_t* dataToSend = nullptr;
+    int dataSizeToSend = 0;
+    
+    // 检查是否设置了IP_HDRINCL
+    int ipHdrIncl = 0;
+    socklen_t optLen = sizeof(ipHdrIncl);
+    bool useFullPacket = false;
+    if (packetInfo.protocol == PROTOCOL_ICMP) {
+        if (getsockopt(sockFd, IPPROTO_IP, IP_HDRINCL, &ipHdrIncl, &optLen) == 0 && ipHdrIncl) {
+            useFullPacket = true;
+            // 使用完整IP包（包含IP头）
+            dataToSend = data;
+            dataSizeToSend = dataSize;
+            LOG_INFO("📤 使用完整IP包发送（IP_HDRINCL已设置）: %d字节", dataSizeToSend);
+        } else {
+            // 只发送ICMP数据
+            dataToSend = icmpData;
+            dataSizeToSend = icmpSize;
+            LOG_INFO("📤 只发送ICMP数据: %d字节", dataSizeToSend);
+        }
+    } else {
+        // IPv6: 只发送ICMPv6数据
+        dataToSend = icmpData;
+        dataSizeToSend = icmpSize;
+    }
+    
+    ssize_t sent = sendto(sockFd, dataToSend, dataSizeToSend, 0,
+                         reinterpret_cast<sockaddr*>(&targetAddr), addrLen);
+    if (sent < 0) {
+        LOG_ERROR("❌ 发送ICMP包失败: %s", strerror(errno));
+        close(sockFd);
+        return -1;
+    }
+    
+    LOG_INFO("✅ ICMP包已发送到真实目标: %zd字节 -> %s", sent, packetInfo.targetIP.c_str());
+    
+    // 4. 启动响应接收线程（接收真实服务器的ICMP响应）
+    std::thread([sockFd, originalPeer, packetInfo, icmpData, icmpSize]() {
+        // 设置接收超时（5秒）
+        struct timeval timeout = {5, 0};
+        setsockopt(sockFd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+        
+        uint8_t buffer[4096];
+        sockaddr_storage fromAddr{};
+        socklen_t fromLen = sizeof(fromAddr);
+        
+        // 接收真实服务器的ICMP响应
+        ssize_t received = recvfrom(sockFd, buffer, sizeof(buffer), 0,
+                                   reinterpret_cast<sockaddr*>(&fromAddr), &fromLen);
+        if (received < 0) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK || errno == ETIMEDOUT) {
+                LOG_INFO("⏰ ICMP响应超时（目标服务器可能不可达）");
+            } else {
+                LOG_ERROR("❌ 接收ICMP响应失败: %s", strerror(errno));
+            }
+            close(sockFd);
+            return;
+        }
+        
+        LOG_INFO("📥 收到真实服务器的ICMP响应: %zd字节", received);
+        
+        // 构建完整IP响应包（包含IP头）
+        uint8_t responsePacket[4096];
+        int responseSize = 0;
+        
+        if (packetInfo.protocol == PROTOCOL_ICMP) {
+            // IPv4 ICMP响应
+            // 检查接收到的数据是否包含IP头
+            // SOCK_RAW接收ICMP时，通常返回的数据包含IP头（取决于系统）
+            uint8_t version = (buffer[0] >> 4) & 0x0F;
+            const uint8_t* icmpResponseData = nullptr;
+            int icmpResponseSize = 0;
+            
+            if (version == 4 && received >= 20) {
+                // 数据包含IP头，跳过IP头
+                int ipHeaderLen = (buffer[0] & 0x0F) * 4;
+                if (received >= ipHeaderLen) {
+                    icmpResponseData = buffer + ipHeaderLen;
+                    icmpResponseSize = static_cast<int>(received) - ipHeaderLen;
+                    LOG_INFO("📦 响应数据包含IP头，跳过%d字节", ipHeaderLen);
+                } else {
+                    // IP头不完整，使用全部数据
+                    icmpResponseData = buffer;
+                    icmpResponseSize = static_cast<int>(received);
+                    LOG_INFO("⚠️ IP头不完整，使用全部数据");
+                }
+            } else {
+                // 数据不包含IP头，直接使用
+                icmpResponseData = buffer;
+                icmpResponseSize = static_cast<int>(received);
+                LOG_INFO("📦 响应数据不包含IP头，直接使用");
+            }
+            
+            // 构建新的IP头（用于VPN隧道）
+            responsePacket[0] = 0x45;  // IPv4, 5字节头
+            responsePacket[1] = 0x00;  // TOS
+            uint16_t totalLength = 20 + static_cast<uint16_t>(icmpResponseSize);
+            responsePacket[2] = (totalLength >> 8) & 0xFF;
+            responsePacket[3] = totalLength & 0xFF;
+            responsePacket[4] = 0x00;
+            responsePacket[5] = 0x01;
+            responsePacket[6] = 0x00;
+            responsePacket[7] = 0x00;
+            responsePacket[8] = 0x40;  // TTL
+            responsePacket[9] = PROTOCOL_ICMP;
+            
+            // 源IP = 目标IP（响应来自目标服务器）
+            inet_pton(AF_INET, packetInfo.targetIP.c_str(), &responsePacket[12]);
+            // 目的IP = 源IP（VPN虚拟IP，需要转发回客户端）
+            inet_pton(AF_INET, packetInfo.sourceIP.c_str(), &responsePacket[16]);
+            
+            // 复制ICMP响应数据
+            if (icmpResponseSize > 0 && icmpResponseSize <= 4096 - 20) {
+                memcpy(responsePacket + 20, icmpResponseData, icmpResponseSize);
+            } else {
+                LOG_ERROR("❌ ICMP响应数据大小异常: %d", icmpResponseSize);
+                close(sockFd);
+                return;
+            }
+            
+            // 计算IP校验和
+            uint16_t checksum = 0;
+            for (int i = 0; i < 20; i += 2) {
+                checksum += (static_cast<uint16_t>(responsePacket[i]) << 8) | responsePacket[i + 1];
+            }
+            while (checksum >> 16) {
+                checksum = (checksum & 0xFFFF) + (checksum >> 16);
+            }
+            checksum = ~checksum;
+            responsePacket[10] = (checksum >> 8) & 0xFF;
+            responsePacket[11] = checksum & 0xFF;
+            
+            responseSize = 20 + icmpResponseSize;
+        } else {
+            // IPv6 ICMPv6响应
+            LOG_INFO("ℹ️ IPv6 ICMPv6响应处理");
+            // TODO: 实现完整的IPv6 ICMPv6响应构建
+            close(sockFd);
+            return;
+        }
+        
+        // 提交响应任务（通过VPN隧道发送回客户端）
+        if (responseSize > 0) {
+            TaskQueueManager::getInstance().submitResponseTask(
+                responsePacket, responseSize, originalPeer, sockFd, packetInfo.protocol
+            );
+            LOG_INFO("✅ ICMP响应已转发回VPN客户端: %d字节", responseSize);
+        }
+        
+        close(sockFd);
+    }).detach();
+    
+    return sockFd;
+}
+
 // 🎯 清理所有缓存的socket和线程
 void PacketForwarder::CleanupAll() {
     LOG_INFO("🧹 开始清理所有转发器资源");
 
     // 清理socket连接池
-    SocketConnectionPool::getInstance().cleanup();
-
-    // 清理过期NAT映射
-    NATTable::CleanupExpired(0);  // 清理所有映射
-
-    LOG_INFO("✅ 转发器资源清理完成");
+    SocketConnectionPool::getInstance().cleanup();    // 清理过期NAT映射
+    NATTable::CleanupExpired(0);  // 清理所有映射    LOG_INFO("✅ 转发器资源清理完成");
 }// 🎯 输出统计信息（用于调试）
 void PacketForwarder::LogStatistics() {
     LOG_INFO("📊 PacketForwarder统计信息");
