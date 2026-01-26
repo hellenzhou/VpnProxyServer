@@ -835,6 +835,17 @@ static void StartTCPThread(int sockFd, const sockaddr_in& originalPeer) {
 
             LOG_INFO("TCP_SERVER_DATA fd=%d len=%zd seq=%u ack=%u",
                      sockFd, received, seqToSend, ackToSend);
+            
+            // 🔍🔍🔍 TCP状态详细诊断日志
+            LOG_INFO("🔍🔍🔍 [TCP状态诊断] fd=%d", sockFd);
+            LOG_INFO("  ├─ 代理收到服务器数据: %zd字节", received);
+            LOG_INFO("  ├─ 将要发送给客户端的seq: %u (proxy的nextServerSeq)", seqToSend);
+            LOG_INFO("  ├─ 将要发送给客户端的ack: %u (期望客户端的nextSeq)", ackToSend);
+            LOG_INFO("  ├─ 客户端ISN: %u, 服务器ISN(代理生成): %u", conn.clientIsn, conn.serverIsn);
+            LOG_INFO("  ├─ 响应包: %s:%d -> %s:%d", 
+                     origReq.targetIP.c_str(), origReq.targetPort,
+                     origReq.sourceIP.c_str(), origReq.sourcePort);
+            LOG_INFO("  └─ 标志: [PSH,ACK]");
 
                 const size_t responseCapacity = static_cast<size_t>(received) + 64; // IPv4+TCP headers
                 std::vector<uint8_t> responsePacket(responseCapacity);
@@ -856,7 +867,8 @@ static void StartTCPThread(int sockFd, const sockaddr_in& originalPeer) {
                     );
 
                     if (submitted) {
-                        LOG_INFO("📤 TCP响应任务提交成功: %d字节 -> %s:%d", responseSize, peerIP, peerPort);
+                        LOG_INFO("📤 TCP响应任务提交成功: %d字节 -> %s:%d (seq=%u ack=%u payloadSize=%zd)", 
+                                 responseSize, peerIP, peerPort, seqToSend, ackToSend, received);
                     } else {
                         LOG_ERROR("❌ TCP响应任务提交失败");
                     }
@@ -1107,6 +1119,17 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
             // 初始化TCP状态并发送SYN-ACK
             uint32_t clientIsn = tcp.seq;
             uint32_t serverIsn = RandomIsn();
+            
+            // 🔍🔍🔍 TCP握手诊断
+            LOG_INFO("🔍🔍🔍 [TCP握手-SYN-ACK] fd=%d", sockFd);
+            LOG_INFO("  ├─ 客户端SYN: seq=%u (clientISN)", clientIsn);
+            LOG_INFO("  ├─ 代理生成ISN: %u (serverISN - 注意这是代理生成的，不是真实服务器的!)", serverIsn);
+            LOG_INFO("  ├─ 将发送SYN-ACK: seq=%u ack=%u", serverIsn, clientIsn + 1);
+            LOG_INFO("  ├─ 初始状态: clientNextSeq=%u, serverNextSeq=%u", clientIsn + 1, serverIsn + 1);
+            LOG_INFO("  └─ 目标: %s:%d -> %s:%d", 
+                     packetInfo.targetIP.c_str(), packetInfo.targetPort,
+                     packetInfo.sourceIP.c_str(), packetInfo.sourcePort);
+            
             if (!NATTable::WithConnection(natKey, [&](NATConnection& c) {
                 c.tcpState = NATConnection::TcpState::SYN_RECEIVED;
                 c.clientIsn = clientIsn;
@@ -1127,6 +1150,7 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
                 TaskQueueManager::getInstance().submitResponseTask(
                     synAckPkt, synAckSize, originalPeer, sockFd, PROTOCOL_TCP
                 );
+                LOG_INFO("✅ SYN-ACK已提交发送队列: %d字节", synAckSize);
             }
 
             StartTCPThread(sockFd, originalPeer);
@@ -1180,22 +1204,36 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
 
         // 数据包
         if (tcpPayloadSize > 0) {
+            // 🔍🔍🔍 TCP数据包接收诊断
+            LOG_INFO("🔍🔍🔍 [TCP数据包接收] fd=%d", sockFd);
+            LOG_INFO("  ├─ 客户端发送数据: %d字节 payload", tcpPayloadSize);
+            LOG_INFO("  ├─ 客户端的seq: %u, ack: %u, flags: %s", 
+                     tcp.seq, tcp.ack, TcpFlagsToString(tcp.flags).c_str());
+            
             const uint8_t* tcpPayload = data + tcp.ipHeaderLen + tcp.tcpHeaderLen;
             ssize_t sent = send(sockFd, tcpPayload, tcpPayloadSize, 0);
             if (sent < 0) {
+                LOG_ERROR("❌ 发送数据到真实服务器失败: errno=%d (%s)", errno, strerror(errno));
                 shutdown(sockFd, SHUT_RDWR);
                 NATTable::RemoveMapping(natKey);
                 return -1;
             }
+            
+            LOG_INFO("  ├─ 已转发%zd字节到真实服务器", sent);
 
             uint32_t seqVal = 0;
             uint32_t ackVal = 0;
             NATTable::WithConnection(natKey, [&](NATConnection& c) {
+                LOG_INFO("  ├─ 更新前: clientNextSeq=%u, serverNextSeq=%u", c.nextClientSeq, c.nextServerSeq);
                 c.tcpState = NATConnection::TcpState::ESTABLISHED;
                 c.nextClientSeq = tcp.seq + static_cast<uint32_t>(tcpPayloadSize);
                 seqVal = c.nextServerSeq;
                 ackVal = c.nextClientSeq;
+                LOG_INFO("  ├─ 更新后: clientNextSeq=%u (新ACK值)", c.nextClientSeq);
             });
+            
+            LOG_INFO("  ├─ 发送ACK给客户端: seq=%u ack=%u", seqVal, ackVal);
+            LOG_INFO("  └─ 含义: 确认收到客户端的%d字节数据", tcpPayloadSize);
 
             uint8_t ackPkt[128];
             int ackSize = PacketBuilder::BuildTcpResponsePacket(
