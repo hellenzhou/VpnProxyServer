@@ -187,6 +187,27 @@ void WorkerThreadPool::responseWorkerThread() {
             WORKER_LOGE("响应数据不是有效的IP包");
         }
 
+        // 🔍 流程跟踪：记录响应发送给VPN客户端
+        if (respTask.dataSize >= 20) {
+            uint8_t version = (respTask.data[0] >> 4) & 0x0F;
+            if (version == 4) {
+                char srcIP[INET_ADDRSTRLEN], dstIP[INET_ADDRSTRLEN];
+                snprintf(srcIP, sizeof(srcIP), "%d.%d.%d.%d", 
+                        respTask.data[12], respTask.data[13], respTask.data[14], respTask.data[15]);
+                snprintf(dstIP, sizeof(dstIP), "%d.%d.%d.%d", 
+                        respTask.data[16], respTask.data[17], respTask.data[18], respTask.data[19]);
+                uint8_t protocol = respTask.data[9];
+                
+                char clientIP[INET_ADDRSTRLEN];
+                inet_ntop(AF_INET, &respTask.clientAddr.sin_addr, clientIP, sizeof(clientIP));
+                
+                WORKER_LOGI("🔍 [流程跟踪] 准备发送响应给VPN客户端: %s:%d -> %s:%d (协议=%d, %d字节) -> 客户端%s", 
+                           srcIP, protocol == 6 ? ((respTask.data[20] << 8) | respTask.data[21]) : 0,
+                           dstIP, protocol == 6 ? ((respTask.data[22] << 8) | respTask.data[23]) : 0,
+                           protocol, respTask.dataSize, clientIP);
+            }
+        }
+        
         // 发送完整IP包给客户端
         if (tunnelFd >= 0 && g_running.load()) {
             char clientIP[INET_ADDRSTRLEN];
@@ -198,13 +219,14 @@ void WorkerThreadPool::responseWorkerThread() {
 
             if (sent > 0) {
                 responseTasksProcessed_.fetch_add(1);
+                WORKER_LOGI("🔍 [流程跟踪] 响应已发送给VPN客户端: %d字节 -> %s", sent, clientIP);
             } else {
                 responseTasksFailed_.fetch_add(1);
-                WORKER_LOGE("Failed to send response: errno=%d (%s)", errno, strerror(errno));
+                WORKER_LOGE("🔍 [流程跟踪] 发送响应失败: errno=%d (%s)", errno, strerror(errno));
             }
         } else {
             responseTasksFailed_.fetch_add(1);
-            WORKER_LOGE("Cannot send response: tunnelFd=%d, running=%d", tunnelFd, g_running.load());
+            WORKER_LOGE("🔍 [流程跟踪] 无法发送响应: tunnelFd=%d, running=%d", tunnelFd, g_running.load());
         }
     }
 }

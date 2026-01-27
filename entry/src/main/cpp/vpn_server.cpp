@@ -1018,21 +1018,8 @@ void WorkerLoop()
                         packetCount, (unsigned long)g_bytesSent.load(), (unsigned long)g_bytesReceived.load());
     }
     
-    // 检查是否是心跳包
-    if (n == 4 && dataStr == "ping") {
-      AddDataPacket("ping", clientKey, "heartbeat");
-      
-      // 发送pong响应
-      const char* pongMsg = "pong";
-      int pongLen = strlen(pongMsg);
-      int s = sendto(currentSockFd, pongMsg, pongLen, 0, reinterpret_cast<sockaddr *>(&peer), peerLen);
-      if (s >= 0) {
-        g_packetsSent.fetch_add(1);
-        g_bytesSent.fetch_add(s);
-      } else {
-        VPN_SERVER_LOGE("Failed to send pong response: %{public}s", strerror(errno));
-      }
-    } else {
+    // 处理IP数据包
+    {
       // 使用新的协议处理器解析数据包
       PacketInfo packetInfo = ProtocolHandler::ParseIPPacket(buf, n);
       

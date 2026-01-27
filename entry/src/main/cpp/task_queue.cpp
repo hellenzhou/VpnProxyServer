@@ -34,13 +34,6 @@ bool TaskQueueManager::submitForwardTask(const uint8_t* data, int dataSize,
     task.forwardTask.clientAddr = clientAddr;
     task.forwardTask.tunnelFd = tunnelFd;
 
-    // 更前的断点：确认任务已构建准备入队
-    TASK_LOGE("FWD_QUEUE_PUSH proto=%d %s:%d -> %s:%d size=%d",
-              packetInfo.protocol,
-              packetInfo.sourceIP.c_str(), packetInfo.sourcePort,
-              packetInfo.targetIP.c_str(), packetInfo.targetPort,
-              dataSize);
-
     if (!forwardQueue_.tryPush(task)) {
         TASK_LOGE("⚠️ Forward queue full, dropping packet");
         return false;

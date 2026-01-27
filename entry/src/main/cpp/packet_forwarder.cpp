@@ -488,8 +488,34 @@ static int GetSocket(const PacketInfo& packetInfo, const sockaddr_in& clientAddr
     // 发送控制消息给VPN客户端，请求保护转发socket
     std::string socketDesc = std::string(packetInfo.protocol == PROTOCOL_TCP ? "TCP" : "UDP") +
                             " forwarding socket to " + packetInfo.targetIP + ":" + std::to_string(packetInfo.targetPort);
-    ProtectSocket(sockFd, socketDesc);
+    
+    // 🔍 流程跟踪：记录socket创建和保护（详细诊断）
+    auto protectStartTime = std::chrono::steady_clock::now();
+    LOG_INFO("🔍 [Socket保护诊断] ========== 开始socket保护流程 ==========");
+    LOG_INFO("🔍 [Socket保护诊断] 创建转发socket: fd=%d, 目标=%s:%d, 协议=%s", 
+             sockFd, packetInfo.targetIP.c_str(), packetInfo.targetPort,
+             packetInfo.protocol == PROTOCOL_TCP ? "TCP" : "UDP");
+    LOG_INFO("🔍 [Socket保护诊断] socket作用: 代理服务器转发socket，用于连接真实服务器");
+    LOG_INFO("🔍 [Socket保护诊断] 保护原因: 防止socket流量被VPN路由表捕获，形成环路");
+    
+    // 🚨 关键：先尝试本地保护（可能失败，但不影响）
+    bool localProtect = ProtectSocket(sockFd, socketDesc);
+    if (!localProtect) {
+        LOG_ERROR("🚨 [Socket保护诊断] 本地socket保护失败: fd=%d (但继续发送保护请求给VPN客户端)", sockFd);
+    } else {
+        LOG_INFO("✅ [Socket保护诊断] 本地socket保护成功: fd=%d", sockFd);
+    }
+    
+    // 🚨 关键：发送保护请求给VPN客户端（这是最重要的保护方式）
+    LOG_INFO("🔍 [Socket保护诊断] 发送socket保护请求给VPN客户端: fd=%d", sockFd);
+    LOG_INFO("🔍 [Socket保护诊断] VPN客户端检查频率: 每500ms检查一次保护队列");
     SendProtectSocketMessage(sockFd, packetInfo, clientAddr, tunnelFd);
+    
+    auto protectRequestTime = std::chrono::steady_clock::now();
+    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(protectRequestTime - protectStartTime).count();
+    LOG_INFO("✅ [Socket保护诊断] socket保护请求已发送: fd=%d (耗时%lldms)", sockFd, elapsed);
+    LOG_INFO("🔍 [Socket保护诊断] 预期保护完成时间: 约500-1500ms后 (VPN客户端每500ms检查一次，需要1-3个周期)");
+    LOG_INFO("🔍 [Socket保护诊断] ========================================");
 
     // 设置特殊超时 - DNS查询使用更长超时时间
     if (packetInfo.protocol == PROTOCOL_UDP && packetInfo.targetPort == 53) {
@@ -576,7 +602,23 @@ static void StartUDPThread(int sockFd, const sockaddr_in& originalPeer) {
         const int MAX_NO_RESPONSE = 10;
 
         while (true) {
+            // 🔍 流程跟踪：记录UDP响应接收
+            LOG_INFO("🔍 [流程跟踪] 等待UDP响应 (socket fd=%d)", sockFd);
+            
             ssize_t received = recvfrom(sockFd, buffer, sizeof(buffer), 0, nullptr, nullptr);
+            
+            if (received > 0) {
+                // 🔍 流程跟踪：记录收到UDP响应
+                NATConnection conn;
+                if (NATTable::FindMappingBySocket(sockFd, conn)) {
+                    LOG_INFO("🔍 [流程跟踪] 收到UDP响应: %d字节 (socket fd=%d, 目标=%s:%d)", 
+                             received, sockFd, conn.serverIP.c_str(), conn.serverPort);
+                } else {
+                    LOG_INFO("🔍 [流程跟踪] 收到UDP响应: %d字节 (socket fd=%d, NAT映射不存在)", 
+                             received, sockFd);
+                }
+            }
+            
             if (received < 0) {
                 int savedErrno = errno;
                 if (savedErrno == EAGAIN || savedErrno == EWOULDBLOCK) {
@@ -653,7 +695,28 @@ static void StartTCPThread(int sockFd, const sockaddr_in& originalPeer) {
         const int MAX_NO_RESPONSE = 10;  // 🔥 增加无响应次数限制（阻塞模式下应该很少触发）
     
     while (true) {
+            // 🔍 简化：只在每100次或前5次时记录
+            static thread_local int tcpRecvCount = 0;
+            tcpRecvCount++;
+            if (tcpRecvCount <= 5 || tcpRecvCount % 100 == 0) {
+                LOG_INFO("🔍 等待TCP响应 (fd=%d)", sockFd);
+            }
+            
             ssize_t received = recv(sockFd, buffer, sizeof(buffer), 0);
+            
+            if (received > 0) {
+                // 🔍 简化：只在每100次或前5次时记录
+                NATConnection conn;
+                if (NATTable::FindMappingBySocket(sockFd, conn)) {
+                    if (tcpRecvCount <= 5 || tcpRecvCount % 100 == 0) {
+                        LOG_INFO("🔍 收到TCP响应: %d字节 (fd=%d, 目标=%s:%d)", 
+                                 received, sockFd, conn.serverIP.c_str(), conn.serverPort);
+                    }
+                } else {
+                    LOG_ERROR("🚨 收到TCP响应但NAT映射不存在: %d字节 (fd=%d)", received, sockFd);
+                }
+            }
+            
             if (received < 0) {
                 // 🔥 阻塞模式下，超时返回ETIMEDOUT，非阻塞模式返回EAGAIN/EWOULDBLOCK
                 if (errno == EAGAIN || errno == EWOULDBLOCK || errno == ETIMEDOUT) {
@@ -826,6 +889,9 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
         // TCP: 需要检查是否为SYN包
         ParsedTcp tcp = ParseTcpFromIp(data, dataSize);
         if (!tcp.ok) {
+            LOG_ERROR("🚨 TCP包解析失败: %s:%d -> %s:%d (数据大小=%d)", 
+                     packetInfo.sourceIP.c_str(), packetInfo.sourcePort,
+                     packetInfo.targetIP.c_str(), packetInfo.targetPort, dataSize);
             return -1;
         }
 
@@ -841,6 +907,19 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
             if (!isSyn || (isSyn && isAck)) {
                 // 非SYN包或SYN-ACK包：发送RST告知客户端连接不存在
                 if (!isRst) {
+                    LOG_ERROR("🚨 [TCP连接诊断] ========== 收到非SYN包但连接不存在 ==========");
+                    LOG_ERROR("   包类型: flags=0x%02x (SYN=%d, ACK=%d, RST=%d, FIN=%d)", 
+                             tcp.flags, isSyn, isAck, isRst, isFin);
+                    LOG_ERROR("   源: %s:%d", packetInfo.sourceIP.c_str(), packetInfo.sourcePort);
+                    LOG_ERROR("   目标: %s:%d", packetInfo.targetIP.c_str(), packetInfo.targetPort);
+                    LOG_ERROR("   原因分析:");
+                    LOG_ERROR("     1. 客户端发送了ACK/PSH包，但服务器端没有对应的连接映射");
+                    LOG_ERROR("     2. 可能原因: 之前的SYN包处理失败，NAT映射被移除");
+                    LOG_ERROR("     3. 可能原因: 连接建立超时，映射已过期");
+                    LOG_ERROR("     4. 可能原因: 客户端认为连接已建立，但服务器端连接失败");
+                    LOG_ERROR("   影响: 客户端无法完成TCP握手，浏览器无法访问网站");
+                    LOG_ERROR("   处理: 发送RST包告知客户端连接不存在");
+                    LOG_ERROR("🚨 [TCP连接诊断] ========================================");
                     uint8_t rstPkt[128];
                     uint32_t ackVal = tcp.seq;
                     int tcpPayloadSize = dataSize - tcp.ipHeaderLen - tcp.tcpHeaderLen;
@@ -865,12 +944,17 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
             }
 
             // 创建新映射
+            LOG_INFO("🔍 [TCP连接诊断] 创建新的TCP连接映射: %s:%d -> %s:%d", 
+                     packetInfo.sourceIP.c_str(), packetInfo.sourcePort,
+                     packetInfo.targetIP.c_str(), packetInfo.targetPort);
             sockFd = GetSocket(packetInfo, originalPeer, tunnelFd);
             if (sockFd < 0) {
+                LOG_ERROR("❌ [TCP连接诊断] 创建转发socket失败，无法建立连接");
                 return -1;
             }
             NATTable::CreateMapping(natKey, originalPeer, packetInfo, sockFd);
             isNewMapping = true;
+            LOG_INFO("✅ [TCP连接诊断] NAT映射已创建: socket fd=%d, 映射key=%s", sockFd, natKey.c_str());
         }
     } else {
         // UDP: 直接查找或创建映射
@@ -975,25 +1059,122 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
                 addrLen = sizeof(sockaddr_in);
             }
 
-            // 连接服务器
-            if (!ConnectWithTimeout(sockFd, reinterpret_cast<sockaddr*>(&targetAddr), addrLen, 3000)) {
+            // 🔍 流程跟踪：记录TCP连接尝试（详细诊断）
+            LOG_INFO("🔍 [TCP连接诊断] 开始TCP连接: %s:%d (fd=%d, 源=%s:%d)", 
+                     actualTargetIP.c_str(), packetInfo.targetPort, sockFd,
+                     packetInfo.sourceIP.c_str(), packetInfo.sourcePort);
+            LOG_INFO("🔍 [TCP连接诊断] 连接目的: 代理服务器转发socket -> 真实服务器 %s:%d", 
+                     actualTargetIP.c_str(), packetInfo.targetPort);
+            LOG_INFO("🔍 [TCP连接诊断] 连接作用: 将VPN客户端流量转发到互联网服务器");
+            
+            // 🚨 关键修复：等待socket保护完成
+            // VPN客户端每500ms检查一次保护队列，实际保护可能需要1-2个周期
+            // 等待1500ms确保保护完成（3个检查周期）
+            LOG_INFO("🔍 [TCP连接诊断] 等待socket保护完成 (1500ms, 3个检查周期)...");
+            auto waitStartTime = std::chrono::steady_clock::now();
+            std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+            auto waitEndTime = std::chrono::steady_clock::now();
+            auto waitElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(waitEndTime - waitStartTime).count();
+            LOG_INFO("🔍 [TCP连接诊断] socket保护等待完成 (实际等待%lldms)，开始尝试连接", waitElapsed);
+            
+            // 连接服务器（带重试机制）
+            bool connectSuccess = false;
+            int retryCount = 0;
+            const int MAX_RETRIES = 2;  // 最多重试2次
+            
+            while (!connectSuccess && retryCount <= MAX_RETRIES) {
+                LOG_INFO("🔍 [TCP连接诊断] 尝试连接 (第%d次，共%d次): %s:%d (fd=%d)", 
+                         retryCount + 1, MAX_RETRIES + 1, actualTargetIP.c_str(), packetInfo.targetPort, sockFd);
+                
+                if (ConnectWithTimeout(sockFd, reinterpret_cast<sockaddr*>(&targetAddr), addrLen, 3000)) {
+                    connectSuccess = true;
+                    LOG_INFO("✅ [TCP连接诊断] 连接成功: %s:%d (fd=%d, 重试%d次)", 
+                             actualTargetIP.c_str(), packetInfo.targetPort, sockFd, retryCount);
+                    break;
+                }
+                
+                int savedErrno = errno;
+                
+                // 🚨 详细诊断：记录连接失败原因
+                LOG_ERROR("❌ [TCP连接诊断] 连接失败: %s:%d (fd=%d, 重试%d/%d) - errno=%d (%s)", 
+                         actualTargetIP.c_str(), packetInfo.targetPort, sockFd, retryCount + 1, MAX_RETRIES + 1, 
+                         savedErrno, strerror(savedErrno));
+                
+                // 🚨 环路检测：ENETUNREACH通常表示socket未保护，流量被VPN路由表捕获
+                if (savedErrno == ENETUNREACH) {
+                    LOG_ERROR("🚨 [TCP连接诊断] ENETUNREACH原因分析:");
+                    LOG_ERROR("   1. socket可能未保护，连接请求被VPN路由表捕获");
+                    LOG_ERROR("   2. 连接请求进入VPN隧道，形成环路");
+                    LOG_ERROR("   3. 导致无法到达真实服务器");
+                    if (retryCount < MAX_RETRIES) {
+                        int retryWaitTime = 1500 + retryCount * 500;  // 重试等待时间：1500ms, 2000ms
+                        LOG_ERROR("🚨 [TCP连接诊断] 等待后重试 (%d/%d, 等待%dms)...", 
+                                 retryCount + 1, MAX_RETRIES, retryWaitTime);
+                        // 每次重试等待更长时间，给socket保护更多时间
+                        std::this_thread::sleep_for(std::chrono::milliseconds(retryWaitTime));
+                        retryCount++;
+                        continue;
+                    } else {
+                        LOG_ERROR("🚨 [TCP连接诊断] 已达到最大重试次数 (%d次)，连接失败", MAX_RETRIES + 1);
+                    }
+                } else if (savedErrno == ECONNREFUSED) {
+                    LOG_ERROR("🚨 [TCP连接诊断] ECONNREFUSED: 目标服务器拒绝连接 (可能端口关闭或防火墙阻止)");
+                } else if (savedErrno == ETIMEDOUT) {
+                    LOG_ERROR("🚨 [TCP连接诊断] ETIMEDOUT: 连接超时 (可能网络不通或防火墙阻止)");
+                } else if (savedErrno == EHOSTUNREACH) {
+                    LOG_ERROR("🚨 [TCP连接诊断] EHOSTUNREACH: 目标主机不可达 (可能路由问题或socket未保护)");
+                }
+                break;
+            }
+            
+            if (!connectSuccess) {
+                LOG_ERROR("❌ [TCP连接诊断] ========== TCP连接最终失败 ==========");
+                LOG_ERROR("   目标: %s:%d (fd=%d)", actualTargetIP.c_str(), packetInfo.targetPort, sockFd);
+                LOG_ERROR("   源: %s:%d", packetInfo.sourceIP.c_str(), packetInfo.sourcePort);
+                LOG_ERROR("   影响: 无法将VPN客户端流量转发到真实服务器");
+                LOG_ERROR("   后果: 客户端将无法访问该服务器，浏览器无法加载网页");
+                
                 // 发送RST给客户端
+                LOG_INFO("🔍 [TCP连接诊断] 发送RST包给客户端，告知连接失败");
                 uint8_t rstPkt[128];
                 int rstSize = PacketBuilder::BuildTcpResponsePacket(
                     rstPkt, sizeof(rstPkt), nullptr, 0, packetInfo,
                     0, tcp.seq + 1, TCP_RST | TCP_ACK
                 );
                 if (rstSize > 0) {
-                    TaskQueueManager::getInstance().submitResponseTask(
+                    bool submitted = TaskQueueManager::getInstance().submitResponseTask(
                         rstPkt, rstSize, originalPeer, sockFd, PROTOCOL_TCP
                     );
+                    if (submitted) {
+                        LOG_INFO("✅ [TCP连接诊断] RST包已发送给客户端");
+                    } else {
+                        LOG_ERROR("❌ [TCP连接诊断] RST包发送失败");
+                    }
+                } else {
+                    LOG_ERROR("❌ [TCP连接诊断] RST包构建失败");
                 }
-                NATTable::RemoveMapping(natKey);
-                close(sockFd);
+                
+                // 🚨 关键修复：延迟移除NAT映射，给客户端时间接收RST包
+                // 使用异步方式延迟清理，避免客户端后续ACK包找不到映射
+                // 延迟2秒，给客户端更多时间接收RST包和后续ACK包
+                LOG_INFO("🔍 [TCP连接诊断] 延迟2秒后清理NAT映射 (避免客户端后续ACK包找不到映射)");
+                std::thread([natKey, sockFd, actualTargetIP, packetInfo]() {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(2000));
+                    LOG_INFO("🔍 [TCP连接诊断] 清理失败的NAT映射: %s:%d -> %s:%d", 
+                             packetInfo.sourceIP.c_str(), packetInfo.sourcePort,
+                             actualTargetIP.c_str(), packetInfo.targetPort);
+                    NATTable::RemoveMapping(natKey);
+                    if (sockFd >= 0) {
+                        close(sockFd);
+                        LOG_INFO("🔍 [TCP连接诊断] 已关闭失败的socket: fd=%d", sockFd);
+                    }
+                }).detach();
+                LOG_ERROR("❌ [TCP连接诊断] ========================================");
                 return -1;
             }
 
             // 初始化TCP状态并发送SYN-ACK
+            LOG_INFO("✅ [TCP连接诊断] TCP连接成功，初始化TCP状态");
             uint32_t clientIsn = tcp.seq;
             uint32_t serverIsn = RandomIsn();
             
@@ -1004,9 +1185,13 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
                 c.nextClientSeq = clientIsn + 1;
                 c.nextServerSeq = serverIsn + 1;
             })) {
+                LOG_ERROR("🚨 [TCP连接诊断] 创建NAT映射失败: %s:%d (连接已建立但无法更新状态)", 
+                         actualTargetIP.c_str(), packetInfo.targetPort);
                 close(sockFd);
                 return -1;
             }
+            LOG_INFO("🔍 [TCP连接诊断] NAT映射已更新: 状态=SYN_RECEIVED, clientISN=%u, serverISN=%u", 
+                     clientIsn, serverIsn);
 
             uint8_t synAckPkt[128];
             int synAckSize = PacketBuilder::BuildTcpResponsePacket(
@@ -1014,9 +1199,23 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
                 serverIsn, clientIsn + 1, TCP_SYN | TCP_ACK
             );
             if (synAckSize > 0) {
-                TaskQueueManager::getInstance().submitResponseTask(
+                bool submitted = TaskQueueManager::getInstance().submitResponseTask(
                     synAckPkt, synAckSize, originalPeer, sockFd, PROTOCOL_TCP
                 );
+                if (!submitted) {
+                    LOG_ERROR("🚨 [TCP连接诊断] 提交SYN-ACK响应失败: %s:%d", 
+                             actualTargetIP.c_str(), packetInfo.targetPort);
+                } else {
+                    LOG_INFO("✅ [TCP连接诊断] ========== TCP连接成功 ==========");
+                    LOG_INFO("   目标: %s:%d (fd=%d)", actualTargetIP.c_str(), packetInfo.targetPort, sockFd);
+                    LOG_INFO("   源: %s:%d", packetInfo.sourceIP.c_str(), packetInfo.sourcePort);
+                    LOG_INFO("   状态: 已发送SYN-ACK，等待客户端ACK");
+                    LOG_INFO("   下一步: 启动TCP响应线程，等待服务器数据");
+                    LOG_INFO("✅ [TCP连接诊断] ========================================");
+                }
+            } else {
+                LOG_ERROR("🚨 [TCP连接诊断] 构建SYN-ACK包失败: %s:%d", 
+                         actualTargetIP.c_str(), packetInfo.targetPort);
             }
 
             StartTCPThread(sockFd, originalPeer);
