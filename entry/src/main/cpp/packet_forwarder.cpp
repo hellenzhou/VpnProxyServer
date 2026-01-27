@@ -1592,7 +1592,9 @@ static int ForwardICMPPacket(const uint8_t* data, int dataSize,
 
 // 🎯 清理所有缓存的socket和线程
 void PacketForwarder::CleanupAll() {
-    LOG_INFO("🧹 开始清理所有转发器资源");    // 清理socket连接池
+    LOG_INFO("🧹 开始清理所有转发器资源");
+
+    // 清理socket连接池
     SocketConnectionPool::getInstance().cleanup();    // 清理过期NAT映射
     NATTable::CleanupExpired(0);  // 清理所有映射    LOG_INFO("✅ 转发器资源清理完成");
 }// 🎯 输出统计信息（用于调试）
