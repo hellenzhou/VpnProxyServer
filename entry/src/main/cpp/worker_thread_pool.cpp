@@ -313,16 +313,27 @@ void WorkerThreadPool::responseWorkerThread() {
                 }
             }
             
-            // 🔥 ZHOUB日志：合并代理发送信息（同一事件只记录一次）
+            // 🔥 ZHOUB日志：代理成功后给客户端
+            char dataHex[129] = {0};  // 64字节 * 2 + 1
+            int hexLen = sendSize < 64 ? sendSize : 64;
+            for (int i = 0; i < hexLen; i++) {
+                snprintf(dataHex + i * 2, 3, "%02x", sendData[i]);
+            }
+            
+            WORKER_LOGI("ZHOUB [代理→客户端] 源IP:%{public}s 目的IP:%{public}s 源端口:%{public}d 目的端口:%{public}d 协议:%{public}s 大小:%{public}d字节 数据:%{public}s",
+                       srcIP, dstIP, srcPort, dstPort, protocolName, sendSize, dataHex);
+            
+            WORKER_LOGI("🔍 [响应发送] 准备发送 %{public}d字节到 %{public}s:%{public}d (tunnelFd=%{public}d)", 
+                       sendSize, clientIP, ntohs(respTask.clientAddr.sin_port), tunnelFd);
+            
             ssize_t sent = sendto(tunnelFd, sendData, sendSize, 0,
                                  (struct sockaddr*)&respTask.clientAddr,
                                  sizeof(respTask.clientAddr));
 
             if (sent > 0) {
                 responseTasksProcessed_.fetch_add(1);
-                // 合并发送成功信息
-                WORKER_LOGI("ZHOUB [代理→客户端] %{public}s:%{public}d -> %{public}s:%{public}d | %{public}s | %{public}zd字节",
-                           srcIP, srcPort, dstIP, dstPort, protocolName, sent);
+                WORKER_LOGI("✅✅✅ Response sent successfully: %{public}zd bytes to %{public}s:%{public}d", 
+                           sent, clientIP, ntohs(respTask.clientAddr.sin_port));
 
                 // 计算延迟
                 auto now = std::chrono::steady_clock::now();
