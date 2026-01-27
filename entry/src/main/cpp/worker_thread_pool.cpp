@@ -17,63 +17,39 @@
   OH_LOG_Print(LOG_APP, LOG_ERROR, 0x15b1, "VpnServer", "ZHOUB [Worker] [%{public}s:%{public}d] " fmt, MAKE_FILE_NAME, __LINE__, ##__VA_ARGS__)
 
 bool WorkerThreadPool::start(int numForwardWorkers, int numResponseWorkers) {
-    WORKER_LOGE("🚀🚀🚀 [关键] WorkerThreadPool::start() called - numForward=%d, numResponse=%d", 
-                numForwardWorkers, numResponseWorkers);
-    WORKER_LOGE("🚀🚀🚀 [关键] Current state: running_=%d, forwardWorkers.size=%zu, responseWorkers.size=%zu",
-                running_.load() ? 1 : 0, forwardWorkers_.size(), responseWorkers_.size());
-    
     if (running_.load()) {
-        WORKER_LOGE("⚠️ Worker thread pool already running - cannot start again!");
+        WORKER_LOGE("Worker thread pool already running");
         return false;
     }
     
-    WORKER_LOGE("🚀🚀🚀 [关键] Setting running_ to true...");
     running_.store(true);
     
-    WORKER_LOGE("🚀🚀🚀 [关键] Starting %d forward worker threads...", numForwardWorkers);
     // 启动转发工作线程
     for (int i = 0; i < numForwardWorkers; ++i) {
-        WORKER_LOGE("🚀🚀🚀 [关键] Creating forward worker #%d...", i);
         try {
-            forwardWorkers_.emplace_back([this, i]() {
-                WORKER_LOGE("🚀🚀🚀 [关键] Forward worker #%d thread STARTED (running_=%d)", i, running_.load() ? 1 : 0);
+            forwardWorkers_.emplace_back([this]() {
                 forwardWorkerThread();
-                WORKER_LOGE("🚀🚀🚀 [关键] Forward worker #%d thread STOPPED", i);
             });
-            WORKER_LOGE("🚀🚀🚀 [关键] Forward worker #%d thread created successfully", i);
         } catch (const std::exception& e) {
-            WORKER_LOGE("❌❌❌ [严重错误] Failed to create forward worker #%d: %s", i, e.what());
+            WORKER_LOGE("Failed to create forward worker #%d: %s", i, e.what());
             return false;
         }
     }
-    WORKER_LOGE("✅✅✅ [关键] %d forward workers created", numForwardWorkers);
     
-    WORKER_LOGE("🚀🚀🚀 [关键] Starting %d response worker threads...", numResponseWorkers);
     // 启动响应工作线程
     for (int i = 0; i < numResponseWorkers; ++i) {
-        WORKER_LOGE("🚀🚀🚀 [关键] Creating response worker #%d...", i);
         try {
-            responseWorkers_.emplace_back([this, i]() {
-                WORKER_LOGE("🚀🚀🚀 [关键] Response worker #%d thread STARTED (running_=%d)", i, running_.load() ? 1 : 0);
+            responseWorkers_.emplace_back([this]() {
                 responseWorkerThread();
-                WORKER_LOGE("🚀🚀🚀 [关键] Response worker #%d thread STOPPED", i);
             });
-            WORKER_LOGE("🚀🚀🚀 [关键] Response worker #%d thread created successfully", i);
         } catch (const std::exception& e) {
-            WORKER_LOGE("❌❌❌ [严重错误] Failed to create response worker #%d: %s", i, e.what());
+            WORKER_LOGE("Failed to create response worker #%d: %s", i, e.what());
             return false;
         }
     }
-    WORKER_LOGE("✅✅✅ [关键] %d response workers created", numResponseWorkers);
     
-    WORKER_LOGE("✅✅✅ [关键] Worker thread pool FULLY started: %d forward workers, %d response workers",
-                numForwardWorkers, numResponseWorkers);
-    
-    // 给线程一点时间启动
+    WORKER_LOGI("Worker thread pool started: %d forward, %d response", numForwardWorkers, numResponseWorkers);
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    
-    WORKER_LOGE("🚀🚀🚀 [关键] Final state: running_=%d, forwardWorkers.size=%zu, responseWorkers.size=%zu", 
-                running_.load() ? 1 : 0, forwardWorkers_.size(), responseWorkers_.size());
     
     return true;
 }
@@ -110,79 +86,23 @@ void WorkerThreadPool::stop() {
 
 void WorkerThreadPool::forwardWorkerThread() {
     auto& taskQueue = TaskQueueManager::getInstance();
-    int iteration = 0;
     int processedTasks = 0;
 
-    WORKER_LOGE("🚀🚀🚀 [关键] FWD_WORKER_STARTED running=%d", running_.load() ? 1 : 0);
-
     while (running_.load()) {
-        iteration++;
-        
-        // 每1000次迭代输出一次心跳
-        if (iteration % 1000 == 0) {
-            WORKER_LOGI("💓 Forward worker heartbeat: iteration=%d, processed=%d, running_=%d", 
-                        iteration, processedTasks, running_.load() ? 1 : 0);
-        }
-
-        // 从队列获取任务（100ms超时）
-        if (iteration % 200 == 0) {
-            WORKER_LOGE("🚀🚀🚀 [关键] FWD_WORKER_ALIVE iter=%d queue=%zu running=%d",
-                        iteration,
-                        taskQueue.getForwardQueueSize(),
-                        running_.load() ? 1 : 0);
-        }
         auto taskOpt = taskQueue.popForwardTask(std::chrono::milliseconds(100));
 
         if (!taskOpt.has_value()) {
-            if (taskQueue.getForwardQueueSize() > 0) {
-                WORKER_LOGE("🚀🚀🚀 [关键] FWD_POP_EMPTY queue=%zu (队列有数据但pop失败!)", taskQueue.getForwardQueueSize());
-            }
-            // 每10秒输出一次等待状态
-            if (iteration % 100000 == 0) {  // 1000次/秒 * 100秒 = 100000
-                WORKER_LOGI("⏳ Forward worker waiting for tasks... (iteration=%d, processed=%d)",
-                           iteration, processedTasks);
-            }
             continue;  // 超时或队列关闭
         }
 
-        Task& taskRef = taskOpt.value();
-        WORKER_LOGI("📨 Forward worker received task: type=%d, iteration=%d",
-                   static_cast<int>(taskRef.type), iteration);
-
-        // 🐛 修复：复制Task对象而不是引用，避免生命周期问题
         Task task = taskOpt.value();
         if (task.type != TaskType::FORWARD_REQUEST) {
-            WORKER_LOGE("❌ Invalid task type in forward queue");
+            WORKER_LOGE("Invalid task type in forward queue");
             continue;
         }
 
         ForwardTask& fwdTask = task.forwardTask;
         processedTasks++;
-
-        // 🚨 关键诊断：记录每个任务的详细处理过程
-        WORKER_LOGI("🔍 [任务处理开始] 任务#%d: %s %s:%d -> %s:%d (%d字节)",
-                   processedTasks,
-                   fwdTask.packetInfo.protocol == PROTOCOL_TCP ? "TCP" : "UDP",
-                   fwdTask.packetInfo.sourceIP.c_str(), fwdTask.packetInfo.sourcePort,
-                   fwdTask.packetInfo.targetIP.c_str(), fwdTask.packetInfo.targetPort,
-                   fwdTask.dataSize);
-
-        // 更前断点：仅前20次打印，确认已进入ForwardPacket调用
-        if (processedTasks <= 20) {
-            WORKER_LOGE("🚀🚀🚀 [关键] FWD_CALL #%d proto=%s %s:%d -> %s:%d size=%d",
-                        processedTasks,
-                        fwdTask.packetInfo.protocol == PROTOCOL_TCP ? "TCP" : "UDP",
-                        fwdTask.packetInfo.sourceIP.c_str(), fwdTask.packetInfo.sourcePort,
-                        fwdTask.packetInfo.targetIP.c_str(), fwdTask.packetInfo.targetPort,
-                        fwdTask.dataSize);
-        }
-
-        // 🔍 调试：记录任务处理开始
-        WORKER_LOGI("🔄 开始处理转发任务: %s %s:%d -> %s:%d (%d字节)",
-                   fwdTask.packetInfo.protocol == PROTOCOL_TCP ? "TCP" : "UDP",
-                   fwdTask.packetInfo.sourceIP.c_str(), fwdTask.packetInfo.sourcePort,
-                   fwdTask.packetInfo.targetIP.c_str(), fwdTask.packetInfo.targetPort,
-                   fwdTask.dataSize);
 
         // 转发数据包
         int sockFd = PacketForwarder::ForwardPacket(
@@ -195,11 +115,6 @@ void WorkerThreadPool::forwardWorkerThread() {
 
         if (sockFd >= 0) {
             forwardTasksProcessed_.fetch_add(1);
-            WORKER_LOGI("✅ 转发任务成功: %s %s:%d -> %s:%d (fd=%d)",
-                       fwdTask.packetInfo.protocol == PROTOCOL_TCP ? "TCP" : "UDP",
-                       fwdTask.packetInfo.sourceIP.c_str(), fwdTask.packetInfo.sourcePort,
-                       fwdTask.packetInfo.targetIP.c_str(), fwdTask.packetInfo.targetPort,
-                       sockFd);
 
             // UDP包记录到重传管理器（只对IPv4 DNS查询）
             if (fwdTask.packetInfo.protocol == PROTOCOL_UDP &&
@@ -228,12 +143,10 @@ void WorkerThreadPool::forwardWorkerThread() {
             }
         } else {
             forwardTasksFailed_.fetch_add(1);
-            WORKER_LOGE("❌ Forward task #%{public}d FAILED", processedTasks);
         }
     }
 
-    WORKER_LOGI("🔚🔚🔚 Forward worker LOOP STOPPED (processed %{public}d tasks, running_=%d)", 
-                processedTasks, running_.load() ? 1 : 0);
+    WORKER_LOGI("Forward worker stopped, processed %d tasks", processedTasks);
 }
 
 void WorkerThreadPool::responseWorkerThread() {
@@ -260,10 +173,6 @@ void WorkerThreadPool::responseWorkerThread() {
         ResponseTask& respTask = task.responseTask;
         processedTasks++;
 
-        // 只记录重要的响应事件，避免日志过多
-        if (processedTasks % 100 == 0) {
-            WORKER_LOGI("📊 Response worker processed %{public}d tasks", processedTasks);
-        }
 
         // 🐛 修复：保存g_sockFd副本，避免并发修改导致的问题
         int tunnelFd = g_sockFd.load();
@@ -274,57 +183,14 @@ void WorkerThreadPool::responseWorkerThread() {
         const uint8_t* sendData = respTask.data;
         int sendSize = respTask.dataSize;
         
-        // 🔍 验证：检查是否是完整IP包
-        if (respTask.dataSize >= 20 && (respTask.data[0] >> 4) == 4) {
-            WORKER_LOGI("✅ 准备发送完整IP包: %{public}d字节 (协议=%{public}s)", 
-                       sendSize,
-                       respTask.protocol == PROTOCOL_UDP ? "UDP" : "TCP");
-        } else {
-            WORKER_LOGE("⚠️ 警告：响应数据不是有效的IP包（可能导致客户端解析失败）");
+        if (respTask.dataSize < 20 || (respTask.data[0] >> 4) != 4) {
+            WORKER_LOGE("响应数据不是有效的IP包");
         }
 
         // 发送完整IP包给客户端
         if (tunnelFd >= 0 && g_running.load()) {
-            // 🔍 详细诊断日志
             char clientIP[INET_ADDRSTRLEN];
             inet_ntop(AF_INET, &respTask.clientAddr.sin_addr, clientIP, sizeof(clientIP));
-            
-            // 🔥 ZHOUB日志：解析IP包信息
-            char srcIP[INET_ADDRSTRLEN] = {0}, dstIP[INET_ADDRSTRLEN] = {0};
-            uint16_t srcPort = 0, dstPort = 0;
-            const char* protocolName = "未知";
-            
-            if (sendSize >= 20 && (sendData[0] >> 4) == 4) {  // IPv4
-                inet_ntop(AF_INET, &sendData[12], srcIP, sizeof(srcIP));
-                inet_ntop(AF_INET, &sendData[16], dstIP, sizeof(dstIP));
-                uint8_t protocol = sendData[9];
-                uint8_t ipHeaderLen = (sendData[0] & 0x0F) * 4;
-                
-                if (protocol == 17 && sendSize >= ipHeaderLen + 8) {  // UDP
-                    protocolName = "UDP";
-                    srcPort = (sendData[ipHeaderLen + 0] << 8) | sendData[ipHeaderLen + 1];
-                    dstPort = (sendData[ipHeaderLen + 2] << 8) | sendData[ipHeaderLen + 3];
-                } else if (protocol == 6 && sendSize >= ipHeaderLen + 20) {  // TCP
-                    protocolName = "TCP";
-                    srcPort = (sendData[ipHeaderLen + 0] << 8) | sendData[ipHeaderLen + 1];
-                    dstPort = (sendData[ipHeaderLen + 2] << 8) | sendData[ipHeaderLen + 3];
-                } else if (protocol == 1) {  // ICMP
-                    protocolName = "ICMP";
-                }
-            }
-            
-            // 🔥 ZHOUB日志：代理成功后给客户端
-            char dataHex[129] = {0};  // 64字节 * 2 + 1
-            int hexLen = sendSize < 64 ? sendSize : 64;
-            for (int i = 0; i < hexLen; i++) {
-                snprintf(dataHex + i * 2, 3, "%02x", sendData[i]);
-            }
-            
-            WORKER_LOGI("ZHOUB [代理→客户端] 源IP:%{public}s 目的IP:%{public}s 源端口:%{public}d 目的端口:%{public}d 协议:%{public}s 大小:%{public}d字节 数据:%{public}s",
-                       srcIP, dstIP, srcPort, dstPort, protocolName, sendSize, dataHex);
-            
-            WORKER_LOGI("🔍 [响应发送] 准备发送 %{public}d字节到 %{public}s:%{public}d (tunnelFd=%{public}d)", 
-                       sendSize, clientIP, ntohs(respTask.clientAddr.sin_port), tunnelFd);
             
             ssize_t sent = sendto(tunnelFd, sendData, sendSize, 0,
                                  (struct sockaddr*)&respTask.clientAddr,
@@ -332,31 +198,15 @@ void WorkerThreadPool::responseWorkerThread() {
 
             if (sent > 0) {
                 responseTasksProcessed_.fetch_add(1);
-                WORKER_LOGI("✅✅✅ Response sent successfully: %{public}zd bytes to %{public}s:%{public}d", 
-                           sent, clientIP, ntohs(respTask.clientAddr.sin_port));
-
-                // 计算延迟
-                auto now = std::chrono::steady_clock::now();
-                auto latency = std::chrono::duration_cast<std::chrono::milliseconds>(
-                    now - respTask.timestamp).count();
-
-                if (latency > 100) {
-                    WORKER_LOGI("⚠️ High response latency: %{public}lldms",
-                               static_cast<long long>(latency));
-                }
             } else {
                 responseTasksFailed_.fetch_add(1);
-                WORKER_LOGE("❌ Failed to send response: errno=%{public}d (%{public}s)",
-                           errno, strerror(errno));
+                WORKER_LOGE("Failed to send response: errno=%d (%s)", errno, strerror(errno));
             }
         } else {
             responseTasksFailed_.fetch_add(1);
-            WORKER_LOGE("❌ Cannot send response: tunnelFd=%{public}d, running=%{public}d",
-                       tunnelFd, g_running.load());
+            WORKER_LOGE("Cannot send response: tunnelFd=%d, running=%d", tunnelFd, g_running.load());
         }
     }
-
-    WORKER_LOGI("🔚 Response worker exiting main loop");
 }
 
 WorkerThreadPool::Stats WorkerThreadPool::getStats() const {

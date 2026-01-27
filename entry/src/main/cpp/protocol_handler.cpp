@@ -42,13 +42,6 @@ PacketInfo ProtocolHandler::ParseIPPacket(const uint8_t* data, int dataSize) {
         info.protocol = data[9];
         info.addressFamily = AF_INET;
         
-        // 🔍 调试：打印协议识别信息
-        PROTOCOL_LOGI("🔍 协议识别: data[9]=%d, 协议类型=%s", 
-                     data[9], 
-                     info.protocol == PROTOCOL_TCP ? "TCP" : 
-                     info.protocol == PROTOCOL_UDP ? "UDP" : 
-                     info.protocol == PROTOCOL_ICMP ? "ICMP" : 
-                     "UNKNOWN");
         
         // 🚨 修复：IPv4数据包只处理TCP、UDP和ICMP（ICMPv6是IPv6专用，不应该出现在IPv4中）
         if (info.protocol != PROTOCOL_TCP && info.protocol != PROTOCOL_UDP && info.protocol != PROTOCOL_ICMP) {
@@ -75,7 +68,6 @@ PacketInfo ProtocolHandler::ParseIPPacket(const uint8_t* data, int dataSize) {
             uint16_t rawDstPort = *(uint16_t*)&data[payloadOffset + 2];
             info.sourcePort = ntohs(rawSrcPort);
             info.targetPort = ntohs(rawDstPort);
-            PROTOCOL_LOGI("🔍 TCP端口解析: 源端口=%d, 目标端口=%d", info.sourcePort, info.targetPort);
         } else if (info.protocol == PROTOCOL_UDP) {
             if (dataSize < payloadOffset + 8) {
                 PROTOCOL_LOGI("UDP packet too small");
@@ -86,7 +78,6 @@ PacketInfo ProtocolHandler::ParseIPPacket(const uint8_t* data, int dataSize) {
             uint16_t rawDstPort = *(uint16_t*)&data[payloadOffset + 2];
             info.sourcePort = ntohs(rawSrcPort);
             info.targetPort = ntohs(rawDstPort);
-            PROTOCOL_LOGI("🔍 UDP端口解析: 源端口=%d, 目标端口=%d", info.sourcePort, info.targetPort);
         } else if (info.protocol == PROTOCOL_ICMP) {
             // 🚨 新增：IPv4 ICMP解析
             if (dataSize < payloadOffset + 4) {
@@ -100,8 +91,6 @@ PacketInfo ProtocolHandler::ParseIPPacket(const uint8_t* data, int dataSize) {
             // ICMP没有端口概念，设置为0
             info.sourcePort = 0;
             info.targetPort = 0;
-            PROTOCOL_LOGI("🔍 [ICMP] Parsed ICMP message: Type=%d, Code=%d, Src=%s, Dst=%s", 
-                         info.icmpv6Type, info.icmpv6Code, srcIP, dstIP);
         }
         
         info.isValid = true;
@@ -160,7 +149,6 @@ PacketInfo ProtocolHandler::ParseIPPacket(const uint8_t* data, int dataSize) {
                     // 其他协议（除了 TCP/UDP/ICMPv6 之外的扩展/封装协议），不支持
                     // 常见的不支持值: 143=Ethernet-within-IP, 135=Mobility Header
                     PROTOCOL_LOGI("IPv6 next header %{public}d not supported (only TCP=6, UDP=17, ICMPv6=58, and common extension headers supported)", nextHeader);
-                    PROTOCOL_LOGI("🔍 Note: This packet will be dropped as VPN only forwards TCP/UDP/ICMPv6 traffic");
                     return info;
             }
         }
@@ -217,19 +205,9 @@ PacketInfo ProtocolHandler::ParseIPPacket(const uint8_t* data, int dataSize) {
             // ICMPv6 没有端口概念，设置为 0
             info.sourcePort = 0;
             info.targetPort = 0;
-            PROTOCOL_LOGI("🔍 [ICMPv6] Parsed ICMPv6 message: Type=%{public}d (%{public}s), Code=%{public}d, Src=%{public}s, Dst=%{public}s", 
-                         info.icmpv6Type, GetICMPv6TypeName(info.icmpv6Type).c_str(), info.icmpv6Code,
-                         srcIP, dstIP);
         }
         
         info.isValid = true;
-        if (info.protocol == PROTOCOL_ICMPV6) {
-            PROTOCOL_LOGI("Parsed IPv6 ICMPv6 packet: %{public}s (Type=%{public}d, %{public}s)", 
-                          info.targetIP.c_str(), info.icmpv6Type, GetICMPv6TypeName(info.icmpv6Type).c_str());
-        } else {
-            PROTOCOL_LOGI("Parsed IPv6 packet: %{public}s:%{public}d (protocol=%{public}d)", 
-                          info.targetIP.c_str(), info.targetPort, info.protocol);
-        }
         
     } else {
         PROTOCOL_LOGI("Unsupported IP version: %{public}d", version);

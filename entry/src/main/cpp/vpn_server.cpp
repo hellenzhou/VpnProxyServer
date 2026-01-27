@@ -138,8 +138,6 @@ bool ParseIPPacket(const uint8_t* data, int dataSize, std::string& targetIP, int
                 return false;
             }
             targetPort = (data[payloadOffset + 2] << 8) | data[payloadOffset + 3];  // 目标端口
-            VPN_SERVER_LOGI("IPv4 TCP: src_port=%{public}d, dst_port=%{public}d",
-                            (data[payloadOffset + 0] << 8) | data[payloadOffset + 1], targetPort);
         } else if (protocol == PROTOCOL_UDP) {  // UDP
             if (dataSize < payloadOffset + 8) {
                 VPN_SERVER_LOGW("UDP packet too small: %{public}d bytes (header=%{public}d, need at least %{public}d)",
@@ -147,14 +145,10 @@ bool ParseIPPacket(const uint8_t* data, int dataSize, std::string& targetIP, int
                 return false;
             }
             targetPort = (data[payloadOffset + 2] << 8) | data[payloadOffset + 3];  // 目标端口
-            VPN_SERVER_LOGI("IPv4 UDP: src_port=%{public}d, dst_port=%{public}d",
-                            (data[payloadOffset + 0] << 8) | data[payloadOffset + 1], targetPort);
         }
 
         targetIP = dstIP;
         addressFamily = AF_INET;
-        VPN_SERVER_LOGI("Parsed IPv4 packet: protocol=%{public}d, target=%{public}s:%{public}d",
-                        protocol, targetIP.c_str(), targetPort);
         return true;
 
     } else if (version == 6) {  // IPv6
@@ -185,8 +179,6 @@ bool ParseIPPacket(const uint8_t* data, int dataSize, std::string& targetIP, int
                 return false;
             }
             targetPort = (data[payloadOffset + 2] << 8) | data[payloadOffset + 3];  // 目标端口
-            VPN_SERVER_LOGI("IPv6 TCP: src_port=%{public}d, dst_port=%{public}d",
-                            (data[payloadOffset + 0] << 8) | data[payloadOffset + 1], targetPort);
         } else if (nextHeader == 17) {  // UDP
             if (dataSize < payloadOffset + 8) {
                 VPN_SERVER_LOGW("IPv6 UDP packet too small: %{public}d bytes (need at least %{public}d)",
@@ -194,14 +186,10 @@ bool ParseIPPacket(const uint8_t* data, int dataSize, std::string& targetIP, int
                 return false;
             }
             targetPort = (data[payloadOffset + 2] << 8) | data[payloadOffset + 3];  // 目标端口
-            VPN_SERVER_LOGI("IPv6 UDP: src_port=%{public}d, dst_port=%{public}d",
-                            (data[payloadOffset + 0] << 8) | data[payloadOffset + 1], targetPort);
         }
 
         targetIP = dstIP;
         addressFamily = AF_INET6;
-        VPN_SERVER_LOGI("Parsed IPv6 packet: nextHeader=%{public}d, target=%{public}s:%{public}d",
-                        nextHeader, targetIP.c_str(), targetPort);
         return true;
 
     } else {
@@ -212,23 +200,16 @@ bool ParseIPPacket(const uint8_t* data, int dataSize, std::string& targetIP, int
 
 // 转发数据到真实目标服务器 (支持IPv4和IPv6)
 int ForwardToRealServer(const uint8_t* data, int dataSize, const std::string& targetIP, int targetPort, uint8_t protocol, int addressFamily, const sockaddr_in& originalPeer) {
-    VPN_SERVER_LOGI("ForwardToRealServer called with target %{public}s:%{public}d", targetIP.c_str(), targetPort);
-    
     // 检查是否是VPN客户端网段（根据实际配置调整）
     if (targetIP.find("192.168.0.") == 0) {
-        VPN_SERVER_LOGE("Detected routing loop: target %{public}s is VPN client subnet, rejecting", targetIP.c_str());
+        VPN_SERVER_LOGE("Routing loop detected: target %{public}s is VPN client subnet", targetIP.c_str());
         return -1;
     }
 
     // 检查是否是DNS查询，重定向到公共DNS服务器
     std::string actualTargetIP = targetIP;
-    if (targetPort == 53) {
-        // 强制重定向到公共DNS服务器
-        if (actualTargetIP != "8.8.8.8") {
-            VPN_SERVER_LOGI("Redirecting DNS query from %{public}s to public DNS 8.8.8.8", actualTargetIP.c_str());
-            actualTargetIP = "8.8.8.8";
-        }
-        VPN_SERVER_LOGI("Using public DNS: %{public}s:%{public}d", actualTargetIP.c_str(), targetPort);
+    if (targetPort == 53 && actualTargetIP != "8.8.8.8") {
+        actualTargetIP = "8.8.8.8";
     }
     
     int sockFd;
@@ -236,22 +217,18 @@ int ForwardToRealServer(const uint8_t* data, int dataSize, const std::string& ta
 
     if (addressFamily == AF_INET6) {
         addrLen = sizeof(struct sockaddr_in6);
-        VPN_SERVER_LOGI("Processing IPv6 address: %{public}s", actualTargetIP.c_str());
     } else if (addressFamily == AF_INET) {
         addrLen = sizeof(struct sockaddr_in);
-        VPN_SERVER_LOGI("Processing IPv4 address: %{public}s", actualTargetIP.c_str());
     } else {
         VPN_SERVER_LOGE("Unsupported address family: %{public}d", addressFamily);
         return -1;
     }
 
     // 根据协议选择socket类型
-    if (protocol == PROTOCOL_UDP) {  // UDP
+    if (protocol == PROTOCOL_UDP) {
         sockFd = socket(addressFamily, SOCK_DGRAM, 0);
-        VPN_SERVER_LOGI("Using UDP socket for DNS query");
-    } else {  // TCP
+    } else {
         sockFd = socket(addressFamily, SOCK_STREAM, 0);
-        VPN_SERVER_LOGI("Using TCP socket for HTTP/HTTPS");
     }
 
     if (sockFd < 0) {
@@ -266,33 +243,18 @@ int ForwardToRealServer(const uint8_t* data, int dataSize, const std::string& ta
         bindAddr.sin6_addr = in6addr_any;
         bindAddr.sin6_port = htons(0);
 
-        if (bind(sockFd, (struct sockaddr*)&bindAddr, sizeof(bindAddr)) < 0) {
-            VPN_SERVER_LOGW("⚠️  Failed to bind IPv6 socket: %{public}s", strerror(errno));
-            VPN_SERVER_LOGI("🔄 Using default socket binding");
-        } else {
-            VPN_SERVER_LOGI("Successfully bound IPv6 socket");
-        }
+        bind(sockFd, (struct sockaddr*)&bindAddr, sizeof(bindAddr));
     } else {
         struct sockaddr_in bindAddr{};
         bindAddr.sin_family = AF_INET;
         bindAddr.sin_addr.s_addr = htonl(INADDR_ANY);
         bindAddr.sin_port = htons(0);
-
-        if (bind(sockFd, (struct sockaddr*)&bindAddr, sizeof(bindAddr)) < 0) {
-            VPN_SERVER_LOGW("⚠️  Failed to bind IPv4 socket: %{public}s", strerror(errno));
-            VPN_SERVER_LOGI("🔄 Using default socket binding");
-        } else {
-            VPN_SERVER_LOGI("Successfully bound IPv4 socket");
-        }
+        bind(sockFd, (struct sockaddr*)&bindAddr, sizeof(bindAddr));
     }
 
     // 设置 socket 选项
     int sockopt = 1;
-    if (setsockopt(sockFd, SOL_SOCKET, SO_REUSEADDR, &sockopt, sizeof(sockopt)) < 0) {
-        VPN_SERVER_LOGW("Failed to set SO_REUSEADDR: %{public}s", strerror(errno));
-    }
-
-    VPN_SERVER_LOGI("Socket created successfully for forwarding");
+    setsockopt(sockFd, SOL_SOCKET, SO_REUSEADDR, &sockopt, sizeof(sockopt));
 
     // 设置目标服务器地址
     if (addressFamily == AF_INET6) {
@@ -316,8 +278,6 @@ int ForwardToRealServer(const uint8_t* data, int dataSize, const std::string& ta
                 return -1;
             }
 
-            VPN_SERVER_LOGI("IPv6 UDP data sent successfully: %{public}d bytes", sent);
-
             // 等待响应
             uint8_t response[BUFFER_SIZE];
             struct timeval timeout;
@@ -327,17 +287,10 @@ int ForwardToRealServer(const uint8_t* data, int dataSize, const std::string& ta
 
             int received = recvfrom(sockFd, response, sizeof(response), 0, nullptr, nullptr);
             if (received > 0) {
-                VPN_SERVER_LOGI("IPv6 UDP response received: %{public}d bytes", received);
-
-                // 发送响应回客户端
                 int sentBack = sendto(g_sockFd, response, received, 0, (struct sockaddr*)&originalPeer, sizeof(originalPeer));
-                if (sentBack > 0) {
-                    VPN_SERVER_LOGI("IPv6 UDP response sent back to client: %{public}d bytes", sentBack);
-                } else {
-                    VPN_SERVER_LOGE("Failed to send IPv6 UDP response back to client: %{public}s", strerror(errno));
+                if (sentBack <= 0) {
+                    VPN_SERVER_LOGE("Failed to send IPv6 UDP response: %{public}s", strerror(errno));
                 }
-            } else {
-                VPN_SERVER_LOGW("No IPv6 UDP response received or timeout");
             }
             
             close(sockFd);
@@ -351,8 +304,6 @@ int ForwardToRealServer(const uint8_t* data, int dataSize, const std::string& ta
                 return -1;
             }
 
-            VPN_SERVER_LOGI("Connected to IPv6 server %{public}s:%{public}d", actualTargetIP.c_str(), targetPort);
-
             // 发送数据
             int sent = send(sockFd, data, dataSize, 0);
             if (sent < 0) {
@@ -360,8 +311,6 @@ int ForwardToRealServer(const uint8_t* data, int dataSize, const std::string& ta
                 close(sockFd);
                 return -1;
             }
-
-            VPN_SERVER_LOGI("IPv6 TCP data sent successfully: %{public}d bytes", sent);
 
             // 对于TCP，返回socket fd，让调用者启动线程处理响应
             return sockFd;
@@ -379,10 +328,6 @@ int ForwardToRealServer(const uint8_t* data, int dataSize, const std::string& ta
             return -1;
         }
 
-        // 记录当前时间戳（使用steady_clock保持一致性）
-        auto now = std::chrono::steady_clock::now();
-        auto timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
-        VPN_SERVER_LOGI("Network request started at: %{public}lld", timestamp);
 
         // 根据协议类型进行连接
         if (protocol == PROTOCOL_UDP) {  // UDP
@@ -407,30 +352,19 @@ int ForwardToRealServer(const uint8_t* data, int dataSize, const std::string& ta
                 return -1;
             }
 
-            VPN_SERVER_LOGI("IPv4 UDP payload sent successfully: %{public}d bytes (total packet: %{public}d)", sent, dataSize);
-
             // 等待响应
             uint8_t response[BUFFER_SIZE];
             struct timeval timeout;
-            timeout.tv_sec = 1;  // 减少超时时间到1秒
+            timeout.tv_sec = 1;
             timeout.tv_usec = 0;
             setsockopt(sockFd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
-            
-            VPN_SERVER_LOGI("Waiting for UDP response from %{public}s:%{public}d", actualTargetIP.c_str(), targetPort);
 
             int received = recvfrom(sockFd, response, sizeof(response), 0, nullptr, nullptr);
             if (received > 0) {
-                VPN_SERVER_LOGI("IPv4 UDP response received: %{public}d bytes", received);
-
-                // 发送响应回客户端
                 int sentBack = sendto(g_sockFd, response, received, 0, (struct sockaddr*)&originalPeer, sizeof(originalPeer));
-                if (sentBack > 0) {
-                    VPN_SERVER_LOGI("IPv4 UDP response sent back to client: %{public}d bytes", sentBack);
-                } else {
-                    VPN_SERVER_LOGE("Failed to send IPv4 UDP response back to client: %{public}s", strerror(errno));
+                if (sentBack <= 0) {
+                    VPN_SERVER_LOGE("Failed to send IPv4 UDP response: %{public}s", strerror(errno));
                 }
-            } else {
-                VPN_SERVER_LOGW("No IPv4 UDP response received: %{public}s", strerror(errno));
             }
 
             close(sockFd);
@@ -530,7 +464,6 @@ int ForwardToRealServer(const uint8_t* data, int dataSize, const std::string& ta
                 return -1;
             }
 
-            VPN_SERVER_LOGI("IPv4 TCP payload sent successfully: %{public}d bytes (total packet: %{public}d)", sent, dataSize);
 
             // TCP响应现在由单独的线程处理，这里不关闭socket
             return sockFd;
@@ -540,8 +473,6 @@ int ForwardToRealServer(const uint8_t* data, int dataSize, const std::string& ta
 
 // 处理UDP响应
 void HandleUdpResponse(int sockFd, const sockaddr_in& originalPeer) {
-    VPN_SERVER_LOGI("Handling UDP response");
-    
     uint8_t response[BUFFER_SIZE];
     struct timeval timeout;
     timeout.tv_sec = 5;
@@ -550,17 +481,10 @@ void HandleUdpResponse(int sockFd, const sockaddr_in& originalPeer) {
     
     int received = recvfrom(sockFd, response, sizeof(response), 0, nullptr, nullptr);
     if (received > 0) {
-        VPN_SERVER_LOGI("UDP response received: %{public}d bytes", received);
-        
-        // 发送响应回客户端
         int sentBack = sendto(g_sockFd, response, received, 0, (struct sockaddr*)&originalPeer, sizeof(originalPeer));
-        if (sentBack > 0) {
-            VPN_SERVER_LOGI("UDP response sent back to client: %{public}d bytes", sentBack);
-        } else {
-            VPN_SERVER_LOGE("Failed to send UDP response back to client: %{public}s", strerror(errno));
+        if (sentBack <= 0) {
+            VPN_SERVER_LOGE("Failed to send UDP response: %{public}s", strerror(errno));
         }
-    } else {
-        VPN_SERVER_LOGW("No UDP response received: %{public}s", strerror(errno));
     }
     
     close(sockFd);
@@ -568,62 +492,42 @@ void HandleUdpResponse(int sockFd, const sockaddr_in& originalPeer) {
 
 // 处理TCP响应
 void HandleTcpResponse(int sockFd, const sockaddr_in& originalPeer) {
-    VPN_SERVER_LOGI("Handling TCP response");
-    
     uint8_t response[BUFFER_SIZE];
     struct timeval timeout;
-    timeout.tv_sec = 10;  // 增加超时时间
+    timeout.tv_sec = 10;
     timeout.tv_usec = 0;
     setsockopt(sockFd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
     
     while (true) {
         int received = recv(sockFd, response, sizeof(response), 0);
         if (received > 0) {
-            VPN_SERVER_LOGI("TCP response received: %{public}d bytes", received);
-            
-            // 发送响应回客户端
             int sentBack = sendto(g_sockFd, response, received, 0, (struct sockaddr*)&originalPeer, sizeof(originalPeer));
-            if (sentBack > 0) {
-                VPN_SERVER_LOGI("TCP response sent back to client: %{public}d bytes", sentBack);
-            } else {
-                VPN_SERVER_LOGE("Failed to send TCP response back to client: %{public}s", strerror(errno));
+            if (sentBack <= 0) {
+                VPN_SERVER_LOGE("Failed to send TCP response: %{public}s", strerror(errno));
                 break;
             }
         } else if (received == 0) {
-            VPN_SERVER_LOGI("TCP connection closed by peer");
             break;
         } else {
-            if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                VPN_SERVER_LOGW("TCP response timeout");
-            } else {
-                VPN_SERVER_LOGW("No TCP response received: %{public}s", strerror(errno));
+            if (errno != EAGAIN && errno != EWOULDBLOCK) {
+                VPN_SERVER_LOGW("TCP recv error: %{public}s", strerror(errno));
             }
             break;
         }
     }
     
     close(sockFd);
-    VPN_SERVER_LOGI("TCP response handler finished");
 }
 
 // 处理转发响应
 void HandleForwardResponse(int sockFd, const sockaddr_in& originalPeer) {
-    VPN_SERVER_LOGI("Handling forward response");
-    
     uint8_t response[BUFFER_SIZE];
     int received = recv(sockFd, response, sizeof(response), 0);
     if (received > 0) {
-        VPN_SERVER_LOGI("Forward response received: %{public}d bytes", received);
-        
-        // 发送响应回客户端
         int sentBack = sendto(g_sockFd, response, received, 0, (struct sockaddr*)&originalPeer, sizeof(originalPeer));
-        if (sentBack > 0) {
-            VPN_SERVER_LOGI("Forward response sent back to client: %{public}d bytes", sentBack);
-        } else {
-            VPN_SERVER_LOGE("Failed to send forward response back to client: %{public}s", strerror(errno));
+        if (sentBack <= 0) {
+            VPN_SERVER_LOGE("Failed to send forward response: %{public}s", strerror(errno));
         }
-    } else {
-        VPN_SERVER_LOGW("No forward response received: %{public}s", strerror(errno));
     }
     
     close(sockFd);
@@ -1069,43 +973,23 @@ void WorkerLoop()
     std::string peerAddr = inet_ntoa(peer.sin_addr);
     int peerPort = ntohs(peer.sin_port);
     
-    // 🔥 ZHOUB日志：立即打印客户端IP/端口，确认数据包来源
-    VPN_SERVER_LOGI("ZHOUB [RX_CLIENT] 收到数据包: %{public}s:%{public}d, 大小: %{public}d字节", 
-                   peerAddr.c_str(), peerPort, n);
-    
     std::string clientKey = peerAddr + ":" + std::to_string(peerPort);
     
     std::string dataStr(reinterpret_cast<char*>(buf), std::min(n, BUFFER_SIZE));
     std::string hexData = BytesToHex(buf, n, 64);
     std::string packetType = IdentifyPacketType(buf, n);
     
-    // 🔥 ZHOUB调试日志：记录所有接收到的数据包（包括测试包）
-    VPN_SERVER_LOGI("ZHOUB [RX] %{public}d bytes from %{public}s (前16字节: %{public}s)", 
-                   n, clientKey.c_str(), hexData.substr(0, 32).c_str());
-    
-    // 🔥 版本识别日志：IPv4/IPv6/非IP
+    // 检查是否是测试包（非IPv4/IPv6包）
     uint8_t ipVersion = (n >= 1) ? ((buf[0] >> 4) & 0x0F) : 0;
     if (ipVersion == 4) {
-        VPN_SERVER_LOGI("ZHOUB [VER] IPv4 packet: %{public}d bytes", n);
-    } else if (ipVersion == 6) {
-        VPN_SERVER_LOGI("ZHOUB [VER] IPv6 packet: %{public}d bytes", n);
-    } else {
-        VPN_SERVER_LOGI("ZHOUB [VER] Non-IP packet: ver=%{public}u size=%{public}d", ipVersion, n);
-    }
-
-    // 🔥 检查是否是测试包（非IPv4/IPv6包）
-    if (ipVersion == 4) {
         if (n < 20) {
-            VPN_SERVER_LOGI("ZHOUB [DEBUG] 跳过无效IPv4包: size=%{public}d", n);
             continue;
         }
     } else if (ipVersion == 6) {
         if (n < 40) {
-            VPN_SERVER_LOGI("ZHOUB [DEBUG] 跳过无效IPv6包: size=%{public}d", n);
             continue;
         }
     } else {
-        VPN_SERVER_LOGI("ZHOUB [DEBUG] 跳过非IP包: ver=%{public}u size=%{public}d", ipVersion, n);
         continue;
     }
     
@@ -1136,9 +1020,6 @@ void WorkerLoop()
     
     // 检查是否是心跳包
     if (n == 4 && dataStr == "ping") {
-      VPN_SERVER_LOGI("Heartbeat received from [%{public}s:%{public}d]: ping", peerAddr.c_str(), peerPort);
-      
-      // 添加心跳包到数据缓冲区
       AddDataPacket("ping", clientKey, "heartbeat");
       
       // 发送pong响应
@@ -1146,19 +1027,16 @@ void WorkerLoop()
       int pongLen = strlen(pongMsg);
       int s = sendto(currentSockFd, pongMsg, pongLen, 0, reinterpret_cast<sockaddr *>(&peer), peerLen);
       if (s >= 0) {
-        VPN_SERVER_LOGI("Heartbeat response sent to [%{public}s:%{public}d]: pong", peerAddr.c_str(), peerPort);
         g_packetsSent.fetch_add(1);
         g_bytesSent.fetch_add(s);
       } else {
-        VPN_SERVER_LOGE("Failed to send pong response to [%{public}s:%{public}d]: %{public}s", 
-                        peerAddr.c_str(), peerPort, strerror(errno));
+        VPN_SERVER_LOGE("Failed to send pong response: %{public}s", strerror(errno));
       }
     } else {
       // 使用新的协议处理器解析数据包
       PacketInfo packetInfo = ProtocolHandler::ParseIPPacket(buf, n);
       
       if (!packetInfo.isValid) {
-        // 静默丢弃无法解析的数据包，只在调试时需要日志
         AddDataPacket(hexData, clientKey, packetType);
         continue;
       }
@@ -1252,19 +1130,11 @@ void WorkerLoop()
     }
   }
   
-  // 🎯 优雅停止：记录线程退出
-  VPN_SERVER_LOGI("ZHOUB [WorkerLoop] 🔚 WorkerLoop线程退出，函数即将返回");
+  VPN_SERVER_LOGI("WorkerLoop exited");
 }
 
 napi_value StartServer(napi_env env, napi_callback_info info)
 {
-  // 🔥 性能追踪：记录开始时间
-  auto startTotal = std::chrono::steady_clock::now();
-  
-  // 使用系统日志，确保能看到
-  OH_LOG_Print(LOG_APP, LOG_INFO, 0x15b1, "VpnServer", "ZHOUB 🚀🚀🚀 StartServer FUNCTION CALLED - VPN SERVER STARTING NOW 🚀🚀🚀");
-  VPN_SERVER_LOGI("🚀🚀🚀 StartServer FUNCTION CALLED - VPN SERVER STARTING NOW 🚀🚀🚀");
-  
   size_t argc = 1;
   napi_value args[1] = {nullptr};
   napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
@@ -1274,8 +1144,7 @@ napi_value StartServer(napi_env env, napi_callback_info info)
     napi_get_value_int32(env, args[0], &port);
   }
 
-  OH_LOG_Print(LOG_APP, LOG_INFO, 0x15b1, "VpnServer", "ZHOUB 📡 StartServer called with port: %{public}d", port);
-  VPN_SERVER_LOGI("📡 StartServer called with port: %{public}d", port);
+  VPN_SERVER_LOGI("StartServer called with port: %{public}d", port);
 
   if (port <= 0 || port > 65535) {
     napi_value ret;
@@ -1285,44 +1154,27 @@ napi_value StartServer(napi_env env, napi_callback_info info)
 
   // 如果服务器已经在运行，先停止它
   if (g_running.load()) {
-    auto stopOldStart = std::chrono::steady_clock::now();
-    VPN_SERVER_LOGI("⚠️ Server already running, stopping old instance...");
+    VPN_SERVER_LOGI("Server already running, stopping old instance...");
     g_running.store(false);
     
-    // 🔧 atomic 变量不需要锁保护
-    int sockFd = g_sockFd.exchange(-1);  // 原子交换
+    int sockFd = g_sockFd.exchange(-1);
     if (sockFd >= 0) {
       close(sockFd);
     }
     
-    // 使用timeout join而不是detach，确保线程正确退出
-    // WorkerLoop会在检查g_running时发现为false，然后退出循环
     if (g_worker.joinable()) {
-        VPN_SERVER_LOGI("🔄 Waiting for old worker thread to exit...");
-        
-        // 等待线程自然退出，最多等待2秒
         auto start = std::chrono::steady_clock::now();
-        while (!g_running.load() &&  // 🔧 修复：应该是 !g_running，因为已经设置为false
+        while (!g_running.load() &&
                std::chrono::steady_clock::now() - start < std::chrono::seconds(2)) {
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }
         
-        auto waitElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::steady_clock::now() - start).count();
-        
         if (g_worker.joinable()) {
-            g_worker.detach();  // 如果超时才detach
-            VPN_SERVER_LOGI("⚠️ Worker thread timeout, detached (waited %lld ms)", waitElapsed);
-        } else {
-            VPN_SERVER_LOGI("✅ Worker thread exited cleanly (waited %lld ms)", waitElapsed);
+            g_worker.detach();
         }
     }
     // 给旧线程一点时间退出（非阻塞）
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    
-    auto stopOldElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::steady_clock::now() - stopOldStart).count();
-    VPN_SERVER_LOGI("⏱️ [性能] 停止旧服务器耗时: %lld ms", stopOldElapsed);
   }
 
   VPN_SERVER_LOGI("ZHOUB [START] VPN Server on port %{public}d", port);

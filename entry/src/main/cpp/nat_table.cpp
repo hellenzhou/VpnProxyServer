@@ -161,13 +161,10 @@ bool NATTable::FindMappingBySocket(int forwardSocket, NATConnection& conn) {
         auto connIt = mappings_.find(key);
         if (connIt != mappings_.end()) {
             conn = connIt->second;
-            LOG_INFO("✅ NAT映射查找成功: socket=%d -> key=%s", forwardSocket, key.c_str());
             return true;
         } else {
-            LOG_ERROR("❌ socket存在但映射不存在: socket=%d, key=%s", forwardSocket, key.c_str());
+            LOG_ERROR("socket存在但映射不存在: socket=%d, key=%s", forwardSocket, key.c_str());
         }
-    } else {
-        LOG_ERROR("❌ socket不存在: socket=%d", forwardSocket);
     }
     
     return false;
@@ -210,17 +207,8 @@ void NATTable::RemoveMappingBySocket(int forwardSocket) {
         
         auto it = mappings_.find(key);
         if (it != mappings_.end()) {
-            LOG_INFO("🧹 通过socket清理NAT映射: fd=%d, key=%s", forwardSocket, key.c_str());
             mappings_.erase(it);
-            LOG_INFO("✅ NAT映射清理完成: fd=%d, 剩余映射数=%zu", forwardSocket, mappings_.size());
-        } else {
-            // 🚨 修复：映射不存在但socketToKey_存在，说明映射已被覆盖，只清理socketToKey_即可
-            LOG_INFO("ℹ️ socket存在但映射不存在（可能已被覆盖），已清理socketToKey_: fd=%d, key=%s", 
-                    forwardSocket, key.c_str());
         }
-    } else {
-        // socket不存在于映射中，可能是已经被清理过了，这是正常的
-        LOG_INFO("ℹ️ socket不存在于映射中（可能已被清理）: fd=%d", forwardSocket);
     }
 }
 

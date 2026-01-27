@@ -258,78 +258,42 @@ static uint32_t RandomIsn()
 // 🎯 发送socket保护控制消息给VPN客户端
 static void SendProtectSocketMessage(int sockFd, const PacketInfo& packetInfo, const sockaddr_in& clientAddr, int tunnelFd);
 
-// 🎯 Socket保护函数 - 防止转发socket被VPN路由劫持
+// Socket保护函数 - 防止转发socket被VPN路由劫持
 static bool ProtectSocket(int sockFd, const std::string& description) {
-    LOG_INFO("🛡️ [Socket保护] 开始保护socket: fd=%d, 描述=%s", sockFd, description.c_str());
-
     bool protectionSuccess = false;
 
     // 方法1: 尝试设置SO_BINDTODEVICE绑定到物理网络接口
-    // 这可以让socket绕过VPN路由，直接使用物理网络
-    LOG_INFO("🛡️ [Socket保护] 尝试方法1: SO_BINDTODEVICE绑定到物理接口");
-
-    // 在HarmonyOS中，SIOCGIFCONF可能不可用，尝试简单的接口名称绑定
-    // 常见的物理网络接口名称：eth0, wlan0, rmnet0等
     const char* physicalInterfaces[] = {"eth0", "wlan0", "rmnet0", "rmnet_data0", "rmnet_data1", nullptr};
 
     for (int i = 0; physicalInterfaces[i] != nullptr; i++) {
         std::string interfaceName = physicalInterfaces[i];
-        LOG_INFO("🛡️ [Socket保护] 尝试绑定到接口: %s", interfaceName.c_str());
-
-        // 尝试绑定到这个物理接口
         if (setsockopt(sockFd, SOL_SOCKET, SO_BINDTODEVICE,
                       interfaceName.c_str(), interfaceName.length() + 1) == 0) {
-            LOG_INFO("✅ [Socket保护] 成功绑定到物理接口: %s", interfaceName.c_str());
             protectionSuccess = true;
             break;
-        } else {
-            LOG_INFO("⚠️ [Socket保护] 无法绑定到接口 %s: %s", interfaceName.c_str(), strerror(errno));
         }
     }
 
     // 方法2: 如果SO_BINDTODEVICE失败，尝试设置其他socket选项
     if (!protectionSuccess) {
-        LOG_INFO("🛡️ [Socket保护] 方法1失败，尝试方法2: 设置socket标记");
-
-        // 尝试设置SO_DONTROUTE选项，强制不使用路由表
         int dontRoute = 1;
         if (setsockopt(sockFd, SOL_SOCKET, SO_DONTROUTE, &dontRoute, sizeof(dontRoute)) == 0) {
-            LOG_INFO("✅ [Socket保护] 设置SO_DONTROUTE成功");
             protectionSuccess = true;
-        } else {
-            LOG_INFO("⚠️ [Socket保护] SO_DONTROUTE设置失败: %s", strerror(errno));
         }
     }
 
     // 方法3: HarmonyOS特定方法 - 尝试设置socket绕过VPN
     if (!protectionSuccess) {
-        LOG_INFO("🛡️ [Socket保护] 尝试方法3: 设置socket绕过VPN标记");
-
-        // 尝试一些HarmonyOS可能支持的socket选项
-        // 使用SO_MARK选项设置socket标记，让系统知道这个socket不应该被VPN路由
-        int mark = 0x10000000;   // 假设的VPN绕过标记
+        int mark = 0x10000000;
         if (setsockopt(sockFd, SOL_SOCKET, SO_MARK, &mark, sizeof(mark)) == 0) {
-            LOG_INFO("✅ [Socket保护] 设置SO_MARK绕过VPN标记成功");
             protectionSuccess = true;
-        } else {
-            LOG_INFO("⚠️ [Socket保护] SO_MARK设置失败: %s", strerror(errno));
         }
     }
 
-    // 方法4: 如果所有方法都失败，至少记录警告并返回true（让系统继续运行）
+    // 如果所有方法都失败，至少记录警告并返回true（让系统继续运行）
     if (!protectionSuccess) {
-        LOG_ERROR("⚠️ [Socket保护] 所有保护方法都失败，socket可能仍会被VPN路由劫持");
-        LOG_ERROR("⚠️ [Socket保护] 这可能导致转发请求无法到达外部网络，形成路由循环");
-        LOG_ERROR("💡 [Socket保护] 建议: 在HarmonyOS中需要VPN扩展能力调用protect()方法");
-        LOG_INFO("🔄 [Socket保护] 尽管保护失败，仍允许socket使用（开发环境妥协方案）");
-
-        // 在开发/测试环境中，我们选择继续运行，即使保护失败
-        // 在生产环境中，应该返回false并拒绝使用这个socket
+        LOG_ERROR("Socket保护失败 fd=%d desc=%s", sockFd, description.c_str());
         protectionSuccess = true;  // 临时妥协，让系统能运行
-        LOG_ERROR("SOCKET_PROTECT_EFFECTIVE=0 fd=%d desc=%s", sockFd, description.c_str());
-    } else {
-        LOG_INFO("✅ [Socket保护] Socket保护成功: fd=%d (%s)", sockFd, description.c_str());
-        LOG_INFO("SOCKET_PROTECT_EFFECTIVE=1 fd=%d desc=%s", sockFd, description.c_str());
     }
 
     return protectionSuccess;
@@ -403,13 +367,10 @@ public:
                 if (elapsed < SOCKET_TIMEOUT_SECONDS) {
                     info.inUse = true;
                     info.lastUsed = now;
-                    LOG_INFO("♻️ 复用socket连接: fd=%d, 客户端=%s:%d -> 服务器=%s:%d",
-                             info.sockFd, clientIP.c_str(), clientPort, serverIP.c_str(), serverPort);
                     return info.sockFd;
                 } else {
                     // 超时，关闭socket
                     close(info.sockFd);
-                    LOG_INFO("⏰ 清理超时socket: fd=%d", info.sockFd);
                 }
             }
         }
@@ -419,8 +380,6 @@ public:
         if (newSock >= 0) {
             SocketInfo info(newSock);
             info.inUse = true;
-            LOG_INFO("🆕 创建新socket连接: fd=%d, 客户端=%s:%d -> 服务器=%s:%d",
-                      newSock, clientIP.c_str(), clientPort, serverIP.c_str(), serverPort);
             return newSock;
         }
 
@@ -439,13 +398,9 @@ public:
             SocketInfo info(sockFd);
             info.inUse = false;
             pool.push(info);
-            LOG_INFO("📥 归还socket到连接池: fd=%d, 客户端=%s:%d -> 服务器=%s:%d",
-                      sockFd, clientIP.c_str(), clientPort, serverIP.c_str(), serverPort);
         } else {
             // 池已满，关闭socket
             close(sockFd);
-            LOG_INFO("🗑️ 连接池已满，关闭socket: fd=%d (客户端=%s:%d -> 服务器=%s:%d)",
-                      sockFd, clientIP.c_str(), clientPort, serverIP.c_str(), serverPort);
         }
     }
 
@@ -460,7 +415,6 @@ public:
             }
         }
         socketPools_.clear();
-        LOG_INFO("🧹 清理所有socket连接池");
     }
 
 private:
@@ -485,11 +439,10 @@ private:
             int flags = fcntl(sockFd, F_GETFL, 0);
             if (flags >= 0) {
                 if (fcntl(sockFd, F_SETFL, flags | O_NONBLOCK) < 0) {
-                    LOG_ERROR("❌ 设置UDP socket为非阻塞模式失败: %s", strerror(errno));
+                    LOG_ERROR("设置UDP socket为非阻塞模式失败: %s", strerror(errno));
                     close(sockFd);
                     return -1;
                 }
-                LOG_INFO("✅ UDP socket已设置为非阻塞模式: fd=%d", sockFd);
             }
         }
     
@@ -511,12 +464,8 @@ private:
 // 🎯 Socket保护函数声明（前向声明）
 static bool ProtectSocket(int sockFd, const std::string& description);
 
-// 🎯 获取socket (使用连接池优化 - 按客户端+目标分组确保数据隔离)
+// 获取socket (使用连接池优化 - 按客户端+目标分组确保数据隔离)
 static int GetSocket(const PacketInfo& packetInfo, const sockaddr_in& clientAddr, int tunnelFd) {
-    // 🔍 关键调试：记录socket获取过程
-    LOG_INFO("🔍 [Socket获取] 开始为 %s:%d -> %s:%d 获取socket",
-             packetInfo.sourceIP.c_str(), packetInfo.sourcePort,
-             packetInfo.targetIP.c_str(), packetInfo.targetPort);
 
     // 从连接池获取socket - 按客户端+目标分组，确保每个客户端到每个目标都有独立socket
     char clientIP[INET_ADDRSTRLEN];
@@ -532,52 +481,31 @@ static int GetSocket(const PacketInfo& packetInfo, const sockaddr_in& clientAddr
     );
 
     if (sockFd < 0) {
-        LOG_ERROR("❌ [Socket获取失败] 连接池返回无效socket: %d", sockFd);
+        LOG_ERROR("连接池返回无效socket: %d", sockFd);
         return -1;
     }
     
-    // 🔥 关键修复：发送控制消息给VPN客户端，请求保护转发socket
+    // 发送控制消息给VPN客户端，请求保护转发socket
     std::string socketDesc = std::string(packetInfo.protocol == PROTOCOL_TCP ? "TCP" : "UDP") +
                             " forwarding socket to " + packetInfo.targetIP + ":" + std::to_string(packetInfo.targetPort);
-    LOG_INFO("🛡️ [Socket保护] 发送控制消息请求保护socket: fd=%d (%s)", sockFd, socketDesc.c_str());
-
-    // 本地尝试保护socket（避免服务器自身流量被VPN劫持形成回环）
     ProtectSocket(sockFd, socketDesc);
-
-    // 🛡️ Socket保护策略
-    // NOTE:
-    // - 这里“保护”仅指：通知VPN客户端/扩展能力做 bypass（如果机制可用）
-    // - 即便保护机制不可用，也不应影响基本转发逻辑
-    bool shouldProtect = true;
-
-    if (shouldProtect) {
-        // 发送控制消息给VPN客户端请求保护socket
-        SendProtectSocketMessage(sockFd, packetInfo, clientAddr, tunnelFd);
-    } else {
-        LOG_INFO("🛡️ [Socket保护] 使用普通socket (fd=%d)", sockFd);
-    }
+    SendProtectSocketMessage(sockFd, packetInfo, clientAddr, tunnelFd);
 
     // 设置特殊超时 - DNS查询使用更长超时时间
     if (packetInfo.protocol == PROTOCOL_UDP && packetInfo.targetPort == 53) {
         struct timeval timeout = {10, 0};  // DNS查询：10秒超时
         if (setsockopt(sockFd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0) {
-            LOG_ERROR("❌ [Socket配置失败] 设置超时失败: %s", strerror(errno));
-        close(sockFd);
-        return -1;
+            LOG_ERROR("设置DNS超时失败: %s", strerror(errno));
+            close(sockFd);
+            return -1;
         }
-        LOG_INFO("⏱️ DNS查询socket超时: 10秒, fd=%d", sockFd);
     }
     
-    LOG_INFO("✅ [Socket获取成功] fd=%d, 客户端=%s:%d -> 服务器=%s:%d, 协议=%s",
-             sockFd, clientIP, ntohs(clientAddr.sin_port),
-             packetInfo.targetIP.c_str(), packetInfo.targetPort,
-             packetInfo.protocol == PROTOCOL_TCP ? "TCP" : "UDP");
     return sockFd;
 }
 
-// 🎯 发送socket保护控制消息给VPN客户端
+// 发送socket保护控制消息给VPN客户端
 static void SendProtectSocketMessage(int sockFd, const PacketInfo& packetInfo, const sockaddr_in& clientAddr, int tunnelFd) {
-    LOG_INFO("📤 [控制消息] 发送socket保护请求: fd=%d, tunnelFd=%d", sockFd, tunnelFd);
 
     // 构建控制消息包：目的IP=127.0.0.1，目的端口=0，协议=UDP
     // Payload格式：命令类型(1字节) + socket FD(4字节)
@@ -634,14 +562,9 @@ static void SendProtectSocketMessage(int sockFd, const PacketInfo& packetInfo, c
     if (tunnelFd >= 0) {
         ssize_t sent = sendto(tunnelFd, controlPacket, sizeof(controlPacket), 0,
                              (struct sockaddr*)&clientAddr, sizeof(clientAddr));
-        if (sent > 0) {
-            LOG_INFO("✅ [控制消息] socket保护请求已发送: fd=%d -> 客户端 %{public}s:%{public}d",
-                     sockFd, inet_ntoa(clientAddr.sin_addr), ntohs(clientAddr.sin_port));
-        } else {
-            LOG_ERROR("❌ [控制消息] 发送失败: errno=%d", errno);
+        if (sent <= 0) {
+            LOG_ERROR("发送socket保护控制消息失败: errno=%d", errno);
         }
-    } else {
-        LOG_ERROR("❌ [控制消息] tunnelFd无效，无法发送控制消息");
     }
 }
 
@@ -709,29 +632,21 @@ static void StartUDPThread(int sockFd, const sockaddr_in& originalPeer) {
     }).detach();
 }
 
-// 🎯 TCP响应线程
+// TCP响应线程
 static void StartTCPThread(int sockFd, const sockaddr_in& originalPeer) {
     std::thread([sockFd, originalPeer]() {
-        LOG_ERROR("TCP_THREAD_STARTED fd=%d", sockFd);
-        
-        // 🔥 关键修复：确保TCP socket是阻塞模式，以便完整接收所有数据
-        // 非阻塞模式会导致recv()立即返回EAGAIN，可能丢失数据
+        // 确保TCP socket是阻塞模式，以便完整接收所有数据
         if (!SetBlockingMode(sockFd, true)) {
-            LOG_ERROR("❌ 设置TCP socket为阻塞模式失败: fd=%d", sockFd);
+            LOG_ERROR("设置TCP socket为阻塞模式失败: fd=%d", sockFd);
             close(sockFd);
             return;
         }
-        LOG_INFO("✅ TCP socket已设置为阻塞模式: fd=%d", sockFd);
         
         // 设置接收超时（30秒），避免无限期阻塞
         struct timeval timeout;
         timeout.tv_sec = 30;
         timeout.tv_usec = 0;
-        if (setsockopt(sockFd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0) {
-            LOG_ERROR("⚠️ 设置TCP接收超时失败: fd=%d, errno=%d", sockFd, errno);
-        } else {
-            LOG_INFO("✅ TCP接收超时已设置为30秒: fd=%d", sockFd);
-        }
+        setsockopt(sockFd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
         
         uint8_t buffer[4096];
         int noResponseCount = 0;
@@ -743,26 +658,15 @@ static void StartTCPThread(int sockFd, const sockaddr_in& originalPeer) {
                 // 🔥 阻塞模式下，超时返回ETIMEDOUT，非阻塞模式返回EAGAIN/EWOULDBLOCK
                 if (errno == EAGAIN || errno == EWOULDBLOCK || errno == ETIMEDOUT) {
                     noResponseCount++;
-                    if (noResponseCount == 1 || noResponseCount == MAX_NO_RESPONSE) {
-                        std::string localAddr = GetSocketAddrString(sockFd, false);
-                        std::string peerAddr = GetSocketAddrString(sockFd, true);
-                        LOG_ERROR("TCP_RECV_TIMEOUT fd=%d count=%d errno=%d (%s) local=%s peer=%s",
-                                  sockFd, noResponseCount, errno, strerror(errno),
-                                  localAddr.c_str(), peerAddr.c_str());
-                    }
                     if (noResponseCount >= MAX_NO_RESPONSE) {
-                        LOG_INFO("🔚 TCP无响应次数过多，清理socket: fd=%d", sockFd);
                         break;
                     }
-                    // 🔥 阻塞模式下，超时后应该继续等待，而不是立即退出
-                    // 但为了避免无限等待，我们使用超时计数
                     continue;
                 }
                 // 其他错误（如连接重置、网络不可达等）应该退出
                 LOG_ERROR("TCP接收失败: fd=%d, errno=%d (%s)", sockFd, errno, strerror(errno));
                 break;
             } else if (received == 0) {
-                LOG_INFO("🔚 TCP连接关闭(远端FIN): fd=%d", sockFd);
 
                 // Best-effort: send FIN|ACK to client with current seq/ack
                 NATConnection conn;
@@ -778,7 +682,7 @@ static void StartTCPThread(int sockFd, const sockaddr_in& originalPeer) {
                         c.tcpState = NATConnection::TcpState::FIN_SENT;
                     });
                     if (!hasConn) {
-                        LOG_ERROR("❌ [TCP响应] NAT映射不存在，无法处理FIN响应: fd=%d", sockFd);
+                        LOG_ERROR("NAT映射不存在，无法处理FIN响应: fd=%d", sockFd);
                         close(sockFd);
                         return;
                     }
@@ -795,7 +699,6 @@ static void StartTCPThread(int sockFd, const sockaddr_in& originalPeer) {
                         TaskQueueManager::getInstance().submitResponseTask(
                             finPkt, finSize, originalPeer, sockFd, PROTOCOL_TCP
                         );
-                        LOG_INFO("📤 [TCP] 已回FIN-ACK给客户端: seq=%u ack=%u", seqToSend, ackToSend);
                     }
                 }
 
@@ -805,17 +708,9 @@ static void StartTCPThread(int sockFd, const sockaddr_in& originalPeer) {
             // 重置无响应计数
             noResponseCount = 0;
             
-            // 🔧 调试：打印接收到的数据
-            LOG_INFO("🔍 TCP收到响应: fd=%d, %zd字节", sockFd, received);
-            
             // 检查NAT映射并构建完整IP响应包（包含正确的TCP seq/ack）
             NATConnection conn;
             if (NATTable::FindMappingBySocket(sockFd, conn)) {
-                // 🔧 调试：打印发送目标
-                char peerIP[INET_ADDRSTRLEN];
-                inet_ntop(AF_INET, &originalPeer.sin_addr, peerIP, sizeof(peerIP));
-                uint16_t peerPort = ntohs(originalPeer.sin_port);
-                LOG_INFO("🔍 TCP响应: 构建完整IP包发送到 %s:%d", peerIP, peerPort);
 
             // Snapshot + advance nextServerSeq under lock
                 uint32_t seqToSend = 0;
@@ -828,24 +723,11 @@ static void StartTCPThread(int sockFd, const sockaddr_in& originalPeer) {
                     c.nextServerSeq += static_cast<uint32_t>(received);
                 });
                 if (!hasConn) {
-                    LOG_ERROR("❌ [TCP响应] NAT映射不存在，无法处理数据响应: fd=%d", sockFd);
+                    LOG_ERROR("NAT映射不存在，无法处理数据响应: fd=%d", sockFd);
                     close(sockFd);
                     return;
                 }
 
-            LOG_INFO("TCP_SERVER_DATA fd=%d len=%zd seq=%u ack=%u",
-                     sockFd, received, seqToSend, ackToSend);
-            
-            // 🔍🔍🔍 TCP状态详细诊断日志
-            LOG_INFO("🔍🔍🔍 [TCP状态诊断] fd=%d", sockFd);
-            LOG_INFO("  ├─ 代理收到服务器数据: %zd字节", received);
-            LOG_INFO("  ├─ 将要发送给客户端的seq: %u (proxy的nextServerSeq)", seqToSend);
-            LOG_INFO("  ├─ 将要发送给客户端的ack: %u (期望客户端的nextSeq)", ackToSend);
-            LOG_INFO("  ├─ 客户端ISN: %u, 服务器ISN(代理生成): %u", conn.clientIsn, conn.serverIsn);
-            LOG_INFO("  ├─ 响应包: %s:%d -> %s:%d", 
-                     origReq.targetIP.c_str(), origReq.targetPort,
-                     origReq.sourceIP.c_str(), origReq.sourcePort);
-            LOG_INFO("  └─ 标志: [PSH,ACK]");
 
                 const size_t responseCapacity = static_cast<size_t>(received) + 64; // IPv4+TCP headers
                 std::vector<uint8_t> responsePacket(responseCapacity);
@@ -866,24 +748,19 @@ static void StartTCPThread(int sockFd, const sockaddr_in& originalPeer) {
                         PROTOCOL_TCP
                     );
 
-                    if (submitted) {
-                        LOG_INFO("📤 TCP响应任务提交成功: %d字节 -> %s:%d (seq=%u ack=%u payloadSize=%zd)", 
-                                 responseSize, peerIP, peerPort, seqToSend, ackToSend, received);
-                    } else {
-                        LOG_ERROR("❌ TCP响应任务提交失败");
+                    if (!submitted) {
+                        LOG_ERROR("TCP响应任务提交失败");
                     }
                 } else {
-                    LOG_ERROR("❌ 构建TCP响应包失败");
+                    LOG_ERROR("构建TCP响应包失败");
                 }
             } else {
-                LOG_ERROR("❌ NAT映射不存在: fd=%d", sockFd);
-            break;
-        }
+                LOG_ERROR("NAT映射不存在: fd=%d", sockFd);
+                break;
+            }
         }
         
-        // 🧹 清理NAT映射并关闭socket (TCP不复用连接池，避免复用到已关闭/半关闭的连接)
-        LOG_ERROR("TCP_THREAD_EXIT fd=%d", sockFd);
-        LOG_INFO("🧹 清理TCP线程资源并关闭socket: fd=%d", sockFd);
+        // 清理NAT映射并关闭socket
 
         NATTable::RemoveMappingBySocket(sockFd);
         close(sockFd);
@@ -1120,16 +997,6 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
             uint32_t clientIsn = tcp.seq;
             uint32_t serverIsn = RandomIsn();
             
-            // 🔍🔍🔍 TCP握手诊断
-            LOG_INFO("🔍🔍🔍 [TCP握手-SYN-ACK] fd=%d", sockFd);
-            LOG_INFO("  ├─ 客户端SYN: seq=%u (clientISN)", clientIsn);
-            LOG_INFO("  ├─ 代理生成ISN: %u (serverISN - 注意这是代理生成的，不是真实服务器的!)", serverIsn);
-            LOG_INFO("  ├─ 将发送SYN-ACK: seq=%u ack=%u", serverIsn, clientIsn + 1);
-            LOG_INFO("  ├─ 初始状态: clientNextSeq=%u, serverNextSeq=%u", clientIsn + 1, serverIsn + 1);
-            LOG_INFO("  └─ 目标: %s:%d -> %s:%d", 
-                     packetInfo.targetIP.c_str(), packetInfo.targetPort,
-                     packetInfo.sourceIP.c_str(), packetInfo.sourcePort);
-            
             if (!NATTable::WithConnection(natKey, [&](NATConnection& c) {
                 c.tcpState = NATConnection::TcpState::SYN_RECEIVED;
                 c.clientIsn = clientIsn;
@@ -1150,7 +1017,6 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
                 TaskQueueManager::getInstance().submitResponseTask(
                     synAckPkt, synAckSize, originalPeer, sockFd, PROTOCOL_TCP
                 );
-                LOG_INFO("✅ SYN-ACK已提交发送队列: %d字节", synAckSize);
             }
 
             StartTCPThread(sockFd, originalPeer);
@@ -1204,36 +1070,23 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
 
         // 数据包
         if (tcpPayloadSize > 0) {
-            // 🔍🔍🔍 TCP数据包接收诊断
-            LOG_INFO("🔍🔍🔍 [TCP数据包接收] fd=%d", sockFd);
-            LOG_INFO("  ├─ 客户端发送数据: %d字节 payload", tcpPayloadSize);
-            LOG_INFO("  ├─ 客户端的seq: %u, ack: %u, flags: %s", 
-                     tcp.seq, tcp.ack, TcpFlagsToString(tcp.flags).c_str());
-            
             const uint8_t* tcpPayload = data + tcp.ipHeaderLen + tcp.tcpHeaderLen;
             ssize_t sent = send(sockFd, tcpPayload, tcpPayloadSize, 0);
             if (sent < 0) {
-                LOG_ERROR("❌ 发送数据到真实服务器失败: errno=%d (%s)", errno, strerror(errno));
+                LOG_ERROR("发送数据到真实服务器失败: errno=%d (%s)", errno, strerror(errno));
                 shutdown(sockFd, SHUT_RDWR);
                 NATTable::RemoveMapping(natKey);
                 return -1;
             }
-            
-            LOG_INFO("  ├─ 已转发%zd字节到真实服务器", sent);
 
             uint32_t seqVal = 0;
             uint32_t ackVal = 0;
             NATTable::WithConnection(natKey, [&](NATConnection& c) {
-                LOG_INFO("  ├─ 更新前: clientNextSeq=%u, serverNextSeq=%u", c.nextClientSeq, c.nextServerSeq);
                 c.tcpState = NATConnection::TcpState::ESTABLISHED;
                 c.nextClientSeq = tcp.seq + static_cast<uint32_t>(tcpPayloadSize);
                 seqVal = c.nextServerSeq;
                 ackVal = c.nextClientSeq;
-                LOG_INFO("  ├─ 更新后: clientNextSeq=%u (新ACK值)", c.nextClientSeq);
             });
-            
-            LOG_INFO("  ├─ 发送ACK给客户端: seq=%u ack=%u", seqVal, ackVal);
-            LOG_INFO("  └─ 含义: 确认收到客户端的%d字节数据", tcpPayloadSize);
 
             uint8_t ackPkt[128];
             int ackSize = PacketBuilder::BuildTcpResponsePacket(
@@ -1254,14 +1107,11 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
     return -1;
 }
 
-// 🎯 ICMP 转发函数
+// ICMP 转发函数
 static int ForwardICMPPacket(const uint8_t* data, int dataSize,
                              const PacketInfo& packetInfo,
                              const sockaddr_in& originalPeer,
                              int tunnelFd) {
-    LOG_INFO("🔄 [ICMP转发] 开始转发ICMP包: %s -> %s (Type=%d, Code=%d, %d字节)",
-             packetInfo.sourceIP.c_str(), packetInfo.targetIP.c_str(),
-             packetInfo.icmpv6Type, packetInfo.icmpv6Code, dataSize);
     
     // 1. 提取ICMP数据（跳过IP头）
     uint8_t version = (data[0] >> 4) & 0x0F;
@@ -1273,7 +1123,7 @@ static int ForwardICMPPacket(const uint8_t* data, int dataSize,
         // IPv4
         ipHeaderLen = (data[0] & 0x0F) * 4;
         if (dataSize < ipHeaderLen + 8) {
-            LOG_ERROR("❌ ICMP包太小: %d字节 (需要至少%d字节)", dataSize, ipHeaderLen + 8);
+            LOG_ERROR("ICMP包太小: %d字节 (需要至少%d字节)", dataSize, ipHeaderLen + 8);
             return -1;
         }
         icmpData = data + ipHeaderLen;
@@ -1303,29 +1153,25 @@ static int ForwardICMPPacket(const uint8_t* data, int dataSize,
             }
         }
         if (nextHeader != PROTOCOL_ICMPV6) {
-            LOG_ERROR("❌ 无法找到ICMPv6头");
+            LOG_ERROR("无法找到ICMPv6头");
             return -1;
         }
         ipHeaderLen = offset;
         if (dataSize < ipHeaderLen + 8) {
-            LOG_ERROR("❌ ICMPv6包太小: %d字节", dataSize);
+            LOG_ERROR("ICMPv6包太小: %d字节", dataSize);
             return -1;
         }
         icmpData = data + ipHeaderLen;
         icmpSize = dataSize - ipHeaderLen;
     } else {
-        LOG_ERROR("❌ 不支持的IP版本: %d", version);
+        LOG_ERROR("不支持的IP版本: %d", version);
         return -1;
     }
     
     // 2. 只处理ICMP Echo Request (Type=8) 和 ICMPv6 Echo Request (Type=128)
     if (packetInfo.icmpv6Type != 8 && packetInfo.icmpv6Type != 128) {
-        LOG_INFO("ℹ️ 跳过非Echo Request的ICMP包: Type=%d", packetInfo.icmpv6Type);
         return 0;  // 返回0表示已处理（跳过）
     }
-    
-    LOG_INFO("🔄 [ICMP转发] 转发ICMP包到真实目标: %s -> %s", 
-             packetInfo.sourceIP.c_str(), packetInfo.targetIP.c_str());
     
     // 3. 尝试所有可能的方法创建ICMP socket
     // ⚠️ 重要：ICMP是网络层协议，标准socket（TCP/UDP）无法处理
@@ -1341,63 +1187,32 @@ static int ForwardICMPPacket(const uint8_t* data, int dataSize,
         sockFd = socket(AF_INET, SOCK_RAW, IPPROTO_RAW);
         if (sockFd >= 0) {
             socketMethod = "IPPROTO_RAW";
-            LOG_INFO("✅ 方法1成功: IPPROTO_RAW socket创建成功: fd=%d", sockFd);
-            
-            // 设置IP_HDRINCL选项，允许手动构建IP头
             int on = 1;
-            if (setsockopt(sockFd, IPPROTO_IP, IP_HDRINCL, &on, sizeof(on)) == 0) {
-                LOG_INFO("✅ IP_HDRINCL选项已设置");
-            } else {
-                LOG_ERROR("⚠️ 设置IP_HDRINCL失败: %s (继续使用，可能系统会自动处理)", strerror(errno));
-            }
+            setsockopt(sockFd, IPPROTO_IP, IP_HDRINCL, &on, sizeof(on));
         } else {
-            LOG_ERROR("❌ 方法1失败: IPPROTO_RAW socket创建失败: %s", strerror(errno));
-            
             // 方法2: IPPROTO_ICMP（标准ICMP原始socket）
             sockFd = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
             if (sockFd >= 0) {
                 socketMethod = "IPPROTO_ICMP";
-                LOG_INFO("✅ 方法2成功: IPPROTO_ICMP socket创建成功: fd=%d", sockFd);
             } else {
-                LOG_ERROR("❌ 方法2失败: IPPROTO_ICMP socket创建失败: %s (errno=%d)", strerror(errno), errno);
-                
                 // 方法3: 尝试SOCK_DGRAM + IPPROTO_ICMP（非标准，某些系统可能支持）
-                LOG_INFO("🔄 尝试方法3: SOCK_DGRAM + IPPROTO_ICMP (非标准方法)");
                 sockFd = socket(AF_INET, SOCK_DGRAM, IPPROTO_ICMP);
                 if (sockFd >= 0) {
                     socketMethod = "SOCK_DGRAM+IPPROTO_ICMP";
-                    LOG_INFO("✅ 方法3成功: SOCK_DGRAM+IPPROTO_ICMP socket创建成功: fd=%d (非标准方法)", sockFd);
                 } else {
-                    LOG_ERROR("❌ 方法3失败: SOCK_DGRAM+IPPROTO_ICMP socket创建失败: %s (errno=%d)", strerror(errno), errno);
-                    
-                    // 所有方法都失败
-                    LOG_ERROR("❌❌❌ 所有ICMP socket创建方法都失败！");
-                    LOG_ERROR("💡 详细错误信息：");
-                    LOG_ERROR("   - 方法1 (IPPROTO_RAW): 失败");
-                    LOG_ERROR("   - 方法2 (IPPROTO_ICMP): 失败 (errno=%d: %s)", errno, strerror(errno));
-                    LOG_ERROR("   - 方法3 (SOCK_DGRAM+IPPROTO_ICMP): 失败 (errno=%d: %s)", errno, strerror(errno));
-                    LOG_ERROR("💡 可能的原因：");
-                    LOG_ERROR("   1. 缺少root权限或特殊系统权限");
-                    LOG_ERROR("   2. HarmonyOS系统限制SOCK_RAW访问");
-                    LOG_ERROR("   3. 需要申请ohos.permission.MANAGE_VPN权限");
-                    LOG_ERROR("   4. ICMP转发需要系统级VPN扩展能力");
-                    LOG_ERROR("⚠️  ICMP包无法转发，但TCP/UDP转发不受影响");
+                    LOG_ERROR("所有ICMP socket创建方法都失败: errno=%d (%s)", errno, strerror(errno));
                     return -1;
                 }
             }
         }
-        
-        LOG_INFO("✅ ICMP socket创建成功: 方法=%s, fd=%d", socketMethod.c_str(), sockFd);
     } else {
         // IPv6 ICMPv6: 只能使用SOCK_RAW + IPPROTO_ICMPV6
         sockFd = socket(AF_INET6, SOCK_RAW, IPPROTO_ICMPV6);
         if (sockFd < 0) {
-            LOG_ERROR("❌ 创建ICMPv6原始socket失败: %s (可能需要root权限)", strerror(errno));
-            LOG_ERROR("💡 ICMPv6转发需要SOCK_RAW权限，无法替代");
+            LOG_ERROR("创建ICMPv6原始socket失败: %s", strerror(errno));
             return -1;
         }
         socketMethod = "IPPROTO_ICMPV6";
-        LOG_INFO("✅ ICMPv6原始socket创建成功: fd=%d (方法: %s)", sockFd, socketMethod.c_str());
     }
     
     // 保护socket（避免被VPN路由劫持）
@@ -1415,7 +1230,7 @@ static int ForwardICMPPacket(const uint8_t* data, int dataSize,
         addr4->sin_family = AF_INET;
         addr4->sin_port = 0;  // ICMP没有端口
         if (inet_pton(AF_INET, packetInfo.targetIP.c_str(), &addr4->sin_addr) <= 0) {
-            LOG_ERROR("❌ 无效的目标IP: %s", packetInfo.targetIP.c_str());
+            LOG_ERROR("无效的目标IP: %s", packetInfo.targetIP.c_str());
             close(sockFd);
             return -1;
         }
@@ -1425,7 +1240,7 @@ static int ForwardICMPPacket(const uint8_t* data, int dataSize,
         addr6->sin6_family = AF_INET6;
         addr6->sin6_port = 0;  // ICMPv6没有端口
         if (inet_pton(AF_INET6, packetInfo.targetIP.c_str(), &addr6->sin6_addr) <= 0) {
-            LOG_ERROR("❌ 无效的目标IPv6: %s", packetInfo.targetIP.c_str());
+            LOG_ERROR("无效的目标IPv6: %s", packetInfo.targetIP.c_str());
             close(sockFd);
             return -1;
         }
@@ -1448,12 +1263,10 @@ static int ForwardICMPPacket(const uint8_t* data, int dataSize,
             // 使用完整IP包（包含IP头）
             dataToSend = data;
             dataSizeToSend = dataSize;
-            LOG_INFO("📤 使用完整IP包发送（IP_HDRINCL已设置）: %d字节", dataSizeToSend);
         } else {
             // 只发送ICMP数据
             dataToSend = icmpData;
             dataSizeToSend = icmpSize;
-            LOG_INFO("📤 只发送ICMP数据: %d字节", dataSizeToSend);
         }
     } else {
         // IPv6: 只发送ICMPv6数据
@@ -1464,12 +1277,10 @@ static int ForwardICMPPacket(const uint8_t* data, int dataSize,
     ssize_t sent = sendto(sockFd, dataToSend, dataSizeToSend, 0,
                          reinterpret_cast<sockaddr*>(&targetAddr), addrLen);
     if (sent < 0) {
-        LOG_ERROR("❌ 发送ICMP包失败: %s", strerror(errno));
+        LOG_ERROR("发送ICMP包失败: %s", strerror(errno));
         close(sockFd);
         return -1;
     }
-    
-    LOG_INFO("✅ ICMP包已发送到真实目标: %zd字节 -> %s", sent, packetInfo.targetIP.c_str());
     
     // 4. 启动响应接收线程（接收真实服务器的ICMP响应）
     std::thread([sockFd, originalPeer, packetInfo, icmpData, icmpSize]() {
@@ -1485,16 +1296,12 @@ static int ForwardICMPPacket(const uint8_t* data, int dataSize,
         ssize_t received = recvfrom(sockFd, buffer, sizeof(buffer), 0,
                                    reinterpret_cast<sockaddr*>(&fromAddr), &fromLen);
         if (received < 0) {
-            if (errno == EAGAIN || errno == EWOULDBLOCK || errno == ETIMEDOUT) {
-                LOG_INFO("⏰ ICMP响应超时（目标服务器可能不可达）");
-            } else {
-                LOG_ERROR("❌ 接收ICMP响应失败: %s", strerror(errno));
+            if (errno != EAGAIN && errno != EWOULDBLOCK && errno != ETIMEDOUT) {
+                LOG_ERROR("接收ICMP响应失败: %s", strerror(errno));
             }
             close(sockFd);
             return;
         }
-        
-        LOG_INFO("📥 收到真实服务器的ICMP响应: %zd字节", received);
         
         // 构建完整IP响应包（包含IP头）
         uint8_t responsePacket[4096];
@@ -1514,18 +1321,15 @@ static int ForwardICMPPacket(const uint8_t* data, int dataSize,
                 if (received >= ipHeaderLen) {
                     icmpResponseData = buffer + ipHeaderLen;
                     icmpResponseSize = static_cast<int>(received) - ipHeaderLen;
-                    LOG_INFO("📦 响应数据包含IP头，跳过%d字节", ipHeaderLen);
                 } else {
                     // IP头不完整，使用全部数据
                     icmpResponseData = buffer;
                     icmpResponseSize = static_cast<int>(received);
-                    LOG_INFO("⚠️ IP头不完整，使用全部数据");
                 }
             } else {
                 // 数据不包含IP头，直接使用
                 icmpResponseData = buffer;
                 icmpResponseSize = static_cast<int>(received);
-                LOG_INFO("📦 响应数据不包含IP头，直接使用");
             }
             
             // 构建新的IP头（用于VPN隧道）
@@ -1550,7 +1354,7 @@ static int ForwardICMPPacket(const uint8_t* data, int dataSize,
             if (icmpResponseSize > 0 && icmpResponseSize <= 4096 - 20) {
                 memcpy(responsePacket + 20, icmpResponseData, icmpResponseSize);
             } else {
-                LOG_ERROR("❌ ICMP响应数据大小异常: %d", icmpResponseSize);
+                LOG_ERROR("ICMP响应数据大小异常: %d", icmpResponseSize);
                 close(sockFd);
                 return;
             }
@@ -1570,7 +1374,6 @@ static int ForwardICMPPacket(const uint8_t* data, int dataSize,
             responseSize = 20 + icmpResponseSize;
         } else {
             // IPv6 ICMPv6响应
-            LOG_INFO("ℹ️ IPv6 ICMPv6响应处理");
             // TODO: 实现完整的IPv6 ICMPv6响应构建
             close(sockFd);
             return;
@@ -1581,7 +1384,6 @@ static int ForwardICMPPacket(const uint8_t* data, int dataSize,
             TaskQueueManager::getInstance().submitResponseTask(
                 responsePacket, responseSize, originalPeer, sockFd, packetInfo.protocol
             );
-            LOG_INFO("✅ ICMP响应已转发回VPN客户端: %d字节", responseSize);
         }
         
         close(sockFd);
@@ -1590,15 +1392,15 @@ static int ForwardICMPPacket(const uint8_t* data, int dataSize,
     return sockFd;
 }
 
-// 🎯 清理所有缓存的socket和线程
+// 清理所有缓存的socket和线程
 void PacketForwarder::CleanupAll() {
-    LOG_INFO("🧹 开始清理所有转发器资源");
-
     // 清理socket连接池
-    SocketConnectionPool::getInstance().cleanup();    // 清理过期NAT映射
-    NATTable::CleanupExpired(0);  // 清理所有映射    LOG_INFO("✅ 转发器资源清理完成");
-}// 🎯 输出统计信息（用于调试）
+    SocketConnectionPool::getInstance().cleanup();
+    // 清理过期NAT映射
+    NATTable::CleanupExpired(0);  // 清理所有映射
+}
+
+// 输出统计信息（用于调试）
 void PacketForwarder::LogStatistics() {
-    LOG_INFO("📊 PacketForwarder统计信息");
     // TODO: 添加具体的统计信息输出
 }
