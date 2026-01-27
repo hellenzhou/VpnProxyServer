@@ -928,9 +928,9 @@ void WorkerLoop()
     int currentSockFd = g_sockFd.load();
     
     if (currentSockFd < 0) {
-      VPN_SERVER_LOGE("❌ Socket无效，等待...");
-      std::this_thread::sleep_for(std::chrono::milliseconds(100));
-      continue;
+      // 🔧 改进：socket已关闭，立即退出循环
+      VPN_SERVER_LOGI("🛑 Socket已关闭，WorkerLoop退出");
+      break;
     }
     
     // 使用select检查socket是否有数据可读，避免无限期阻塞
@@ -1015,6 +1015,11 @@ void WorkerLoop()
     int n = recvfrom(currentSockFd, buf, sizeof(buf), 0, reinterpret_cast<sockaddr *>(&peer), &peerLen);
 
     if (n < 0) {
+      // 🔧 改进：socket关闭后recvfrom会返回EBADF，立即退出
+      if (errno == EBADF || errno == ENOTSOCK) {
+        VPN_SERVER_LOGI("🛑 Socket已关闭（recvfrom返回EBADF/ENOTSOCK），WorkerLoop退出");
+        break;
+      }
       // 检查是否是因为服务器正在停止
       if (!g_running.load()) {
         VPN_SERVER_LOGI("ZHOUB [STOP] recvfrom interrupted by server shutdown");
@@ -1023,12 +1028,7 @@ void WorkerLoop()
       
       // 🔧 关键修复：非阻塞socket在没有数据时返回EAGAIN/EWOULDBLOCK，这是正常的，应该继续循环
       if (errno == EAGAIN || errno == EWOULDBLOCK) {
-        // 🔥 调试：每1000次超时记录一次，确认循环在运行
-        static int eagainCount = 0;
-        if (++eagainCount % 1000 == 0) {
-          VPN_SERVER_LOGI("ZHOUB [DEBUG] recvfrom EAGAIN #%{public}d (等待数据中...)", eagainCount);
-        }
-        // 非阻塞模式下没有数据是正常的，继续等待
+        // 非阻塞模式下没有数据是正常的，继续等待（不记录日志，避免重复）
         std::this_thread::sleep_for(std::chrono::milliseconds(10));  // 避免CPU占用过高
         continue;
       }
@@ -1068,30 +1068,17 @@ void WorkerLoop()
     
     std::string peerAddr = inet_ntoa(peer.sin_addr);
     int peerPort = ntohs(peer.sin_port);
-    
-    // 🔥 ZHOUB日志：立即打印客户端IP/端口，确认数据包来源
-    VPN_SERVER_LOGI("ZHOUB [RX_CLIENT] 收到数据包: %{public}s:%{public}d, 大小: %{public}d字节", 
-                   peerAddr.c_str(), peerPort, n);
-    
     std::string clientKey = peerAddr + ":" + std::to_string(peerPort);
     
     std::string dataStr(reinterpret_cast<char*>(buf), std::min(n, BUFFER_SIZE));
     std::string hexData = BytesToHex(buf, n, 64);
     std::string packetType = IdentifyPacketType(buf, n);
     
-    // 🔥 ZHOUB调试日志：记录所有接收到的数据包（包括测试包）
-    VPN_SERVER_LOGI("ZHOUB [RX] %{public}d bytes from %{public}s (前16字节: %{public}s)", 
-                   n, clientKey.c_str(), hexData.substr(0, 32).c_str());
-    
-    // 🔥 版本识别日志：IPv4/IPv6/非IP
+    // 🔥 ZHOUB日志：合并数据包接收信息（同一事件只记录一次）
     uint8_t ipVersion = (n >= 1) ? ((buf[0] >> 4) & 0x0F) : 0;
-    if (ipVersion == 4) {
-        VPN_SERVER_LOGI("ZHOUB [VER] IPv4 packet: %{public}d bytes", n);
-    } else if (ipVersion == 6) {
-        VPN_SERVER_LOGI("ZHOUB [VER] IPv6 packet: %{public}d bytes", n);
-    } else {
-        VPN_SERVER_LOGI("ZHOUB [VER] Non-IP packet: ver=%{public}u size=%{public}d", ipVersion, n);
-    }
+    const char* ipVerStr = (ipVersion == 4) ? "IPv4" : (ipVersion == 6) ? "IPv6" : "Non-IP";
+    VPN_SERVER_LOGI("ZHOUB [RX] %{public}s:%{public}d | %{public}s %{public}d字节 | 前16字节:%{public}s", 
+                   peerAddr.c_str(), peerPort, ipVerStr, n, hexData.substr(0, 32).c_str());
 
     // 🔥 检查是否是测试包（非IPv4/IPv6包）
     if (ipVersion == 4) {
@@ -1107,16 +1094,6 @@ void WorkerLoop()
     } else {
         VPN_SERVER_LOGI("ZHOUB [DEBUG] 跳过非IP包: ver=%{public}u size=%{public}d", ipVersion, n);
         continue;
-    }
-    
-    // 🔥 检查是否是TestDNSQuery发送的测试包（包含IP头，首位是0x45）
-    if (n >= 20 && (buf[0] >> 4) == 4 && buf[9] == 17) {
-      // 这是一个IPv4 UDP包，可能是TestDNSQuery发送的完整IP包
-      char srcIP[INET_ADDRSTRLEN], dstIP[INET_ADDRSTRLEN];
-      inet_ntop(AF_INET, &buf[12], srcIP, sizeof(srcIP));
-      inet_ntop(AF_INET, &buf[16], dstIP, sizeof(dstIP));
-      VPN_SERVER_LOGI("ZHOUB [DEBUG] 检测到完整IP包: %{public}s -> %{public}s (可能是TestDNSQuery测试包)", 
-                     srcIP, dstIP);
     }
     
     // Update last activity and client info (no logging to reduce output)
@@ -1190,25 +1167,18 @@ void WorkerLoop()
                        ProtocolHandler::GetProtocolName(packetInfo.protocol).c_str(), n);
       }
       
-      // 🚨 修复：ICMP/ICMPv6 特殊处理
-      if (packetInfo.protocol == PROTOCOL_ICMP) {
-        VPN_SERVER_LOGI("🔄 [ICMP转发] ICMP 消息: Type=%{public}d Code=%{public}d -> %{public}s", 
-                        packetInfo.icmpv6Type, packetInfo.icmpv6Code, packetInfo.targetIP.c_str());
-      } else if (packetInfo.protocol == PROTOCOL_ICMPV6) {
+      // 🚨 修复：ICMP/ICMPv6 特殊处理（提前检查本地链路消息）
+      if (packetInfo.protocol == PROTOCOL_ICMPV6) {
         // Router/Neighbor/MLD 属于本地链路层消息，不需要转发
         if (packetInfo.icmpv6Type == ICMPV6_ROUTER_SOLICITATION ||
             packetInfo.icmpv6Type == ICMPV6_ROUTER_ADVERTISEMENT ||
             packetInfo.icmpv6Type == ICMPV6_NEIGHBOR_SOLICITATION ||
             packetInfo.icmpv6Type == ICMPV6_NEIGHBOR_ADVERTISEMENT ||
             packetInfo.icmpv6Type == ICMPV6_MLDV2_REPORT) {
-          VPN_SERVER_LOGI("ℹ️  ICMPv6 %{public}s 是本地链路消息，不需要转发", 
+            VPN_SERVER_LOGI("ZHOUB [代理接收] ICMPv6 %{public}s 是本地链路消息，跳过转发", 
                           ProtocolHandler::GetICMPv6TypeName(packetInfo.icmpv6Type).c_str());
           continue;
         }
-        VPN_SERVER_LOGI("🔄 [ICMPv6转发] ICMPv6 消息: Type=%{public}d (%{public}s) -> %{public}s", 
-                        packetInfo.icmpv6Type, 
-                        ProtocolHandler::GetICMPv6TypeName(packetInfo.icmpv6Type).c_str(),
-                        packetInfo.targetIP.c_str());
       }
       
       // 🔧 提交转发任务到队列（异步处理）
@@ -1227,9 +1197,9 @@ void WorkerLoop()
       auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - lastLogTime).count();
       
       if (totalPackets % 100 == 0 || elapsed >= 10) {
-        VPN_SERVER_LOGI("📊 [流量统计] 总计接收: %{public}d个数据包", totalPackets);
+        VPN_SERVER_LOGI("ZHOUB [流量统计] 总计接收:%{public}d个数据包", totalPackets);
         for (const auto& stat : packetStats) {
-          VPN_SERVER_LOGI("   %{public}s: %{public}d次", stat.first.c_str(), stat.second);
+          VPN_SERVER_LOGI("ZHOUB [流量统计]   %{public}s: %{public}d次", stat.first.c_str(), stat.second);
         }
         lastLogTime = now;
       }
@@ -1668,8 +1638,10 @@ napi_value StopServer(napi_env env, napi_callback_info info)
   VPN_SERVER_LOGI("ZHOUB [STOP] 步骤2: 关闭主socket...");
   int sockFd = g_sockFd.exchange(-1);  // 原子交换
   if (sockFd >= 0) {
+    // 🔧 修复：UDP socket直接close即可，close()会中断select()和recvfrom()
+    // shutdown()在UDP socket上的行为未定义，可能无效或导致问题
     close(sockFd);
-    VPN_SERVER_LOGI("ZHOUB [STOP] ✅ 主socket已关闭，WorkerLoop将退出");
+    VPN_SERVER_LOGI("ZHOUB [STOP] ✅ 主socket已关闭，WorkerLoop将检测到并退出");
   }
   
   // 🚨 关键修复：强制关闭所有活跃的转发socket，让TCP/UDP线程退出
