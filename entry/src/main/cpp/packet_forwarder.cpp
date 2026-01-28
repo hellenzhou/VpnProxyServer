@@ -255,9 +255,6 @@ static uint32_t RandomIsn()
     return dist(rng);
 }
 
-// 🎯 发送socket保护控制消息给VPN客户端
-static void SendProtectSocketMessage(int sockFd, const PacketInfo& packetInfo, const sockaddr_in& clientAddr, int tunnelFd);
-
 // Socket保护函数 - 防止转发socket被VPN路由劫持
 static bool ProtectSocket(int sockFd, const std::string& description) {
     bool protectionSuccess = false;
@@ -274,26 +271,14 @@ static bool ProtectSocket(int sockFd, const std::string& description) {
         }
     }
 
-    // 方法2: 如果SO_BINDTODEVICE失败，尝试设置其他socket选项
-    if (!protectionSuccess) {
-        int dontRoute = 1;
-        if (setsockopt(sockFd, SOL_SOCKET, SO_DONTROUTE, &dontRoute, sizeof(dontRoute)) == 0) {
-            protectionSuccess = true;
-        }
-    }
-
-    // 方法3: HarmonyOS特定方法 - 尝试设置socket绕过VPN
-    if (!protectionSuccess) {
-        int mark = 0x10000000;
-        if (setsockopt(sockFd, SOL_SOCKET, SO_MARK, &mark, sizeof(mark)) == 0) {
-            protectionSuccess = true;
-        }
-    }
+    // ⚠️ 注意：
+    // SO_DONTROUTE/SO_MARK 可能导致无法到达外网（绕过路由表或被系统忽略）。
+    // 在已通过 blockedApplications 绕过 VPN 的情况下，这些选项反而容易引发连接失败。
 
     // 如果所有方法都失败，至少记录警告并返回true（让系统继续运行）
     if (!protectionSuccess) {
-        LOG_ERROR("Socket保护失败 fd=%d desc=%s", sockFd, description.c_str());
-        protectionSuccess = true;  // 临时妥协，让系统能运行
+        LOG_ERROR("Socket保护失败 fd=%d desc=%s (将继续尝试连接，依赖VPN配置绕过)", sockFd, description.c_str());
+        protectionSuccess = true;  // 不中断业务逻辑
     }
 
     return protectionSuccess;
@@ -349,9 +334,19 @@ public:
                   const std::string& serverIP, uint16_t serverPort, uint8_t protocol,
                   int addressFamily) {
         std::lock_guard<std::mutex> lock(poolMutex_);
+
+        // TCP 是面向连接的，不能复用旧 socket
+        if (protocol == PROTOCOL_TCP) {
+            int newSock = createNewSocket(protocol, addressFamily);
+            if (newSock >= 0) {
+                return newSock;
+            }
+            return -1;
+        }
+
         TargetKey key{clientIP, clientPort, serverIP, serverPort, protocol, addressFamily};
 
-        // 尝试从池中获取现有socket
+        // 尝试从池中获取现有socket (UDP可复用)
         auto& pool = socketPools_[key];
         while (!pool.empty()) {
             SocketInfo& info = pool.front();
@@ -390,6 +385,12 @@ public:
     void returnSocket(int sockFd, const std::string& clientIP, uint16_t clientPort,
                       const std::string& serverIP, uint16_t serverPort, uint8_t protocol,
                       int addressFamily) {
+        // TCP 不复用，直接关闭
+        if (protocol == PROTOCOL_TCP) {
+            close(sockFd);
+            return;
+        }
+
         std::lock_guard<std::mutex> lock(poolMutex_);
         TargetKey key{clientIP, clientPort, serverIP, serverPort, protocol, addressFamily};
 
@@ -506,15 +507,9 @@ static int GetSocket(const PacketInfo& packetInfo, const sockaddr_in& clientAddr
         LOG_INFO("✅ [Socket保护诊断] 本地socket保护成功: fd=%d", sockFd);
     }
     
-    // 🚨 关键：发送保护请求给VPN客户端（这是最重要的保护方式）
-    LOG_INFO("🔍 [Socket保护诊断] 发送socket保护请求给VPN客户端: fd=%d", sockFd);
-    LOG_INFO("🔍 [Socket保护诊断] VPN客户端检查频率: 每500ms检查一次保护队列");
-    SendProtectSocketMessage(sockFd, packetInfo, clientAddr, tunnelFd);
-    
     auto protectRequestTime = std::chrono::steady_clock::now();
     auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(protectRequestTime - protectStartTime).count();
-    LOG_INFO("✅ [Socket保护诊断] socket保护请求已发送: fd=%d (耗时%lldms)", sockFd, elapsed);
-    LOG_INFO("🔍 [Socket保护诊断] 预期保护完成时间: 约500-1500ms后 (VPN客户端每500ms检查一次，需要1-3个周期)");
+    LOG_INFO("✅ [Socket保护诊断] 本地socket保护完成: fd=%d (耗时%lldms)", sockFd, elapsed);
     LOG_INFO("🔍 [Socket保护诊断] ========================================");
 
     // 设置特殊超时 - DNS查询使用更长超时时间
@@ -530,69 +525,6 @@ static int GetSocket(const PacketInfo& packetInfo, const sockaddr_in& clientAddr
     return sockFd;
 }
 
-// 发送socket保护控制消息给VPN客户端
-static void SendProtectSocketMessage(int sockFd, const PacketInfo& packetInfo, const sockaddr_in& clientAddr, int tunnelFd) {
-
-    // 构建控制消息包：目的IP=127.0.0.1，目的端口=0，协议=UDP
-    // Payload格式：命令类型(1字节) + socket FD(4字节)
-
-    uint8_t controlPacket[28 + 5];  // IP头(20) + UDP头(8) + payload(5)
-    memset(controlPacket, 0, sizeof(controlPacket));
-
-    // IP头
-    controlPacket[0] = 0x45;  // IPv4, 5字节头
-    controlPacket[1] = 0x00;  // TOS
-    uint16_t totalLength = 28 + 5;  // IP头 + UDP头 + payload
-    controlPacket[2] = (totalLength >> 8) & 0xFF;
-    controlPacket[3] = totalLength & 0xFF;
-    controlPacket[4] = 0x00;  // ID高字节
-    controlPacket[5] = 0x01;  // ID低字节
-    controlPacket[6] = 0x00;  // Flags + Fragment offset
-    controlPacket[7] = 0x00;
-    controlPacket[8] = 0x40;  // TTL
-    controlPacket[9] = 17;    // Protocol: UDP
-
-    // 源IP：127.0.0.1（本地回环，与VPN服务器监听地址一致）
-    controlPacket[12] = 127;
-    controlPacket[13] = 0;
-    controlPacket[14] = 0;
-    controlPacket[15] = 1;
-
-    // 目的IP：127.0.0.1（控制消息）
-    controlPacket[16] = 127;
-    controlPacket[17] = 0;
-    controlPacket[18] = 0;
-    controlPacket[19] = 1;
-
-    // UDP头
-    // 源端口：8888（VPN服务器端口）
-    controlPacket[20] = (8888 >> 8) & 0xFF;
-    controlPacket[21] = 8888 & 0xFF;
-    // 目的端口：0（控制消息标识）
-    controlPacket[22] = 0;
-    controlPacket[23] = 0;
-
-    uint16_t udpLength = 8 + 5;  // UDP头 + payload
-    controlPacket[24] = (udpLength >> 8) & 0xFF;
-    controlPacket[25] = udpLength & 0xFF;
-
-    // Payload：控制消息
-    int payloadOffset = 28;
-    controlPacket[payloadOffset] = 0x01;  // 命令：保护转发socket
-    controlPacket[payloadOffset + 1] = (sockFd >> 24) & 0xFF;  // socket FD (大端)
-    controlPacket[payloadOffset + 2] = (sockFd >> 16) & 0xFF;
-    controlPacket[payloadOffset + 3] = (sockFd >> 8) & 0xFF;
-    controlPacket[payloadOffset + 4] = sockFd & 0xFF;
-
-    // 通过VPN隧道发送控制消息
-    if (tunnelFd >= 0) {
-        ssize_t sent = sendto(tunnelFd, controlPacket, sizeof(controlPacket), 0,
-                             (struct sockaddr*)&clientAddr, sizeof(clientAddr));
-        if (sent <= 0) {
-            LOG_ERROR("发送socket保护控制消息失败: errno=%d", errno);
-        }
-    }
-}
 
 // UDP响应线程
 static void StartUDPThread(int sockFd, const sockaddr_in& originalPeer) {
@@ -1418,7 +1350,6 @@ static int ForwardICMPPacket(const uint8_t* data, int dataSize,
     std::string socketDesc = std::string(packetInfo.protocol == PROTOCOL_ICMP ? "ICMP" : "ICMPv6") +
                             " forwarding socket to " + packetInfo.targetIP;
     ProtectSocket(sockFd, socketDesc);
-    SendProtectSocketMessage(sockFd, packetInfo, originalPeer, tunnelFd);
     
     // 构建目标地址
     sockaddr_storage targetAddr{};

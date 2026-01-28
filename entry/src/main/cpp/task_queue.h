@@ -19,7 +19,7 @@ struct ForwardTask {
     int dataSize;             // 数据包大小
     PacketInfo packetInfo;    // 解析后的包信息
     sockaddr_in clientAddr;   // 客户端地址
-    int tunnelFd;             // VPN隧道FD（用于发送控制消息）
+    int tunnelFd;             // VPN隧道FD
 
     ForwardTask() : dataSize(0), tunnelFd(-1) {}
 };
