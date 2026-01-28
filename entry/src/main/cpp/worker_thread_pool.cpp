@@ -88,6 +88,7 @@ void WorkerThreadPool::stop() {
 void WorkerThreadPool::forwardWorkerThread() {
     auto& taskQueue = TaskQueueManager::getInstance();
     int processedTasks = 0;
+    static thread_local uint64_t localTasks = 0;
     
     // 获取当前线程ID用于日志
     std::thread::id threadId = std::this_thread::get_id();
@@ -122,8 +123,11 @@ void WorkerThreadPool::forwardWorkerThread() {
 
         ForwardTask& fwdTask = task.forwardTask;
         processedTasks++;
+        localTasks++;
 
-        // 🚨 强制记录：每个任务都记录协议类型（用于诊断TCP任务是否被worker线程接收）
+        // Logging policy:
+        // - TCP is important but can be very bursty; sample logs.
+        // - UDP can be extremely high-rate (DNS/QUIC/etc); sample aggressively.
         const char* protocolName = "UNKNOWN";
         if (fwdTask.packetInfo.protocol == PROTOCOL_TCP) {
             protocolName = "TCP";
@@ -134,24 +138,25 @@ void WorkerThreadPool::forwardWorkerThread() {
         } else if (fwdTask.packetInfo.protocol == PROTOCOL_ICMPV6) {
             protocolName = "ICMPv6";
         }
-        
-        WORKER_LOGI("🔍 [Forward Worker] 任务#%{public}d: 协议=%{public}s, 源=%{public}s:%{public}d, 目标=%{public}s:%{public}d, 大小=%{public}d字节", 
-                   processedTasks, protocolName,
-                   fwdTask.packetInfo.sourceIP.c_str(), fwdTask.packetInfo.sourcePort,
-                   fwdTask.packetInfo.targetIP.c_str(), fwdTask.packetInfo.targetPort,
-                   fwdTask.dataSize);
 
-        // 🚨 强制记录：TCP任务被worker线程处理（用于诊断TCP任务是否被worker线程接收）
+        bool shouldLog = false;
         if (fwdTask.packetInfo.protocol == PROTOCOL_TCP) {
-            WORKER_LOGI("🚀 [Forward Worker] ========== 开始处理TCP任务 ==========");
-            WORKER_LOGI("🚀 [Forward Worker] 源: %{public}s:%{public}d -> 目标: %{public}s:%{public}d", 
+            // log first few and then every 50th per thread
+            shouldLog = (localTasks <= 10) || (localTasks % 50 == 0);
+        } else {
+            // non-TCP: log very sparingly
+            shouldLog = (localTasks <= 5) || (localTasks % 500 == 0);
+        }
+        if (shouldLog) {
+            WORKER_LOGI("🔍 [Forward Worker] task#%{public}d(proto=%{public}s) %{public}s:%{public}d -> %{public}s:%{public}d size=%{public}d",
+                       processedTasks, protocolName,
                        fwdTask.packetInfo.sourceIP.c_str(), fwdTask.packetInfo.sourcePort,
-                       fwdTask.packetInfo.targetIP.c_str(), fwdTask.packetInfo.targetPort);
-            WORKER_LOGI("🚀 [Forward Worker] 数据大小: %{public}d字节, 任务#%{public}d", 
-                       fwdTask.dataSize, processedTasks);
+                       fwdTask.packetInfo.targetIP.c_str(), fwdTask.packetInfo.targetPort,
+                       fwdTask.dataSize);
         }
 
         // 转发数据包
+        auto t0 = std::chrono::steady_clock::now();
         int sockFd = PacketForwarder::ForwardPacket(
             fwdTask.data,
             fwdTask.dataSize,
@@ -159,15 +164,24 @@ void WorkerThreadPool::forwardWorkerThread() {
             fwdTask.clientAddr,
             fwdTask.tunnelFd
         );
-        
-        // 🚨 强制记录：TCP任务处理结果
-        if (fwdTask.packetInfo.protocol == PROTOCOL_TCP) {
-            if (sockFd >= 0) {
-                WORKER_LOGI("✅ [Forward Worker] TCP任务处理成功: sockFd=%{public}d", sockFd);
-            } else {
-                WORKER_LOGE("❌ [Forward Worker] TCP任务处理失败: sockFd=%{public}d", sockFd);
-            }
-            WORKER_LOGI("🚀 [Forward Worker] ========================================");
+        auto t1 = std::chrono::steady_clock::now();
+        auto costMs = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
+        if (costMs > 200) {
+            WORKER_LOGE("⏱️ [Forward Worker] ForwardPacket slow: %{public}lldms proto=%{public}s %{public}s:%{public}d -> %{public}s:%{public}d size=%{public}d",
+                       (long long)costMs, protocolName,
+                       fwdTask.packetInfo.sourceIP.c_str(), fwdTask.packetInfo.sourcePort,
+                       fwdTask.packetInfo.targetIP.c_str(), fwdTask.packetInfo.targetPort,
+                       fwdTask.dataSize);
+        }
+
+        // Always log failures; success only sampled (to avoid log I/O starvation)
+        if (sockFd < 0) {
+            WORKER_LOGE("❌ [Forward Worker] forward failed(proto=%{public}s) %{public}s:%{public}d -> %{public}s:%{public}d",
+                       protocolName,
+                       fwdTask.packetInfo.sourceIP.c_str(), fwdTask.packetInfo.sourcePort,
+                       fwdTask.packetInfo.targetIP.c_str(), fwdTask.packetInfo.targetPort);
+        } else if (fwdTask.packetInfo.protocol == PROTOCOL_TCP && shouldLog) {
+            WORKER_LOGI("✅ [Forward Worker] TCP forward ok: fd=%{public}d", sockFd);
         }
 
         if (sockFd >= 0) {
