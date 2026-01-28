@@ -30,6 +30,7 @@
 #include "packet_forwarder.h"
 #include "packet_builder.h"  // 🚨 修复：添加PacketBuilder头文件，用于安全的IP/TCP头长度计算
 #include "nat_table.h"  // NATTable
+#include "traffic_stats.h"
 
 // 🔄 线程池管理函数声明
 bool InitializeThreadPool(int forwardWorkers, int responseWorkers, int networkWorkers);
@@ -65,6 +66,60 @@ std::atomic<uint64_t> g_bytesSent{0};
 std::string g_lastActivity;
 std::mutex g_lastActivityMutex;  // 🔧 保护 g_lastActivity 的互斥锁
 std::mutex g_statsMutex;
+
+// Lightweight per-second health stats logger (queue depth + throughput)
+static void StartHealthStatsThreadOnce()
+{
+  static std::atomic<bool> started{false};
+  if (started.exchange(true)) {
+    return;
+  }
+
+  std::thread([]() {
+    uint64_t lastFwdEnq = 0, lastFwdPop = 0;
+    uint64_t lastFwdPopTcp = 0, lastFwdPopUdp = 0;
+    uint64_t lastRespEnq = 0;
+    uint64_t lastQuicDrop = 0;
+
+    while (g_running.load()) {
+      std::this_thread::sleep_for(std::chrono::seconds(1));
+      if (!g_running.load()) break;
+
+      size_t fwdQ = TaskQueueManager::getInstance().getForwardQueueSize();
+      size_t respQ = TaskQueueManager::getInstance().getResponseQueueSize();
+
+      uint64_t fwdEnq = TrafficStats::fwdEnqueueTotal.load(std::memory_order_relaxed);
+      uint64_t fwdPop = TrafficStats::fwdPopTotal.load(std::memory_order_relaxed);
+      uint64_t fwdPopTcp = TrafficStats::fwdPopTcp.load(std::memory_order_relaxed);
+      uint64_t fwdPopUdp = TrafficStats::fwdPopUdp.load(std::memory_order_relaxed);
+      uint64_t respEnq = TrafficStats::respEnqueueTotal.load(std::memory_order_relaxed);
+      uint64_t quicDrop = TrafficStats::quicDropped.load(std::memory_order_relaxed);
+
+      uint64_t dFwdEnq = fwdEnq - lastFwdEnq;
+      uint64_t dFwdPop = fwdPop - lastFwdPop;
+      uint64_t dTcpPop = fwdPopTcp - lastFwdPopTcp;
+      uint64_t dUdpPop = fwdPopUdp - lastFwdPopUdp;
+      uint64_t dRespEnq = respEnq - lastRespEnq;
+      uint64_t dQuicDrop = quicDrop - lastQuicDrop;
+
+      lastFwdEnq = fwdEnq;
+      lastFwdPop = fwdPop;
+      lastFwdPopTcp = fwdPopTcp;
+      lastFwdPopUdp = fwdPopUdp;
+      lastRespEnq = respEnq;
+      lastQuicDrop = quicDrop;
+
+      VPN_SERVER_LOGI("📈 [Health] fwdQ=%{public}zu respQ=%{public}zu | fwdEnq/s=%{public}llu fwdPop/s=%{public}llu (tcpPop/s=%{public}llu udpPop/s=%{public}llu) respEnq/s=%{public}llu | quicDrop/s=%{public}llu",
+                      fwdQ, respQ,
+                      static_cast<unsigned long long>(dFwdEnq),
+                      static_cast<unsigned long long>(dFwdPop),
+                      static_cast<unsigned long long>(dTcpPop),
+                      static_cast<unsigned long long>(dUdpPop),
+                      static_cast<unsigned long long>(dRespEnq),
+                      static_cast<unsigned long long>(dQuicDrop));
+    }
+  }).detach();
+}
 
 // Client tracking
 struct ClientInfo {
@@ -1467,6 +1522,7 @@ napi_value StartServer(napi_env env, napi_callback_info info)
   
   g_running.store(true);
   g_worker = std::thread(WorkerLoop);
+  StartHealthStatsThreadOnce();
   
   // 🔍 等待WorkerLoop启动后，发送一个测试包验证通信
   std::this_thread::sleep_for(std::chrono::milliseconds(100));

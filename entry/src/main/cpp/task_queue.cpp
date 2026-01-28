@@ -1,6 +1,7 @@
 #include "task_queue.h"
 #include <hilog/log.h>
 #include <cstring>
+#include "traffic_stats.h"
 
 // 🔧 调试开关：设置为 true 启用详细日志（每个任务都记录）
 // 生产环境请设置为 false 避免日志爆炸
@@ -33,6 +34,24 @@ bool TaskQueueManager::submitForwardTask(const uint8_t* data, int dataSize,
     task.forwardTask.packetInfo = packetInfo;
     task.forwardTask.clientAddr = clientAddr;
     task.forwardTask.tunnelFd = tunnelFd;
+
+    // Stats: enqueue forward task (best-effort)
+    TrafficStats::fwdEnqueueTotal.fetch_add(1, std::memory_order_relaxed);
+    switch (packetInfo.protocol) {
+        case PROTOCOL_TCP:
+            TrafficStats::fwdEnqueueTcp.fetch_add(1, std::memory_order_relaxed);
+            break;
+        case PROTOCOL_UDP:
+            TrafficStats::fwdEnqueueUdp.fetch_add(1, std::memory_order_relaxed);
+            break;
+        case PROTOCOL_ICMP:
+        case PROTOCOL_ICMPV6:
+            TrafficStats::fwdEnqueueIcmp.fetch_add(1, std::memory_order_relaxed);
+            break;
+        default:
+            TrafficStats::fwdEnqueueOther.fetch_add(1, std::memory_order_relaxed);
+            break;
+    }
 
     // 🔍 诊断：记录入队前的队列状态
     size_t queueSizeBefore = forwardQueue_.size();
@@ -92,6 +111,16 @@ bool TaskQueueManager::submitResponseTask(const uint8_t* data, int dataSize,
     task.responseTask.forwardSocket = forwardSocket;
     task.responseTask.protocol = protocol;
     task.responseTask.timestamp = std::chrono::steady_clock::now();
+
+    // Stats: enqueue response task (best-effort)
+    TrafficStats::respEnqueueTotal.fetch_add(1, std::memory_order_relaxed);
+    if (protocol == PROTOCOL_TCP) {
+        TrafficStats::respEnqueueTcp.fetch_add(1, std::memory_order_relaxed);
+    } else if (protocol == PROTOCOL_UDP) {
+        TrafficStats::respEnqueueUdp.fetch_add(1, std::memory_order_relaxed);
+    } else {
+        TrafficStats::respEnqueueOther.fetch_add(1, std::memory_order_relaxed);
+    }
 
     if (!responseQueue_.tryPush(task)) {
         TASK_LOGE("⚠️ Response queue full, dropping response");
@@ -211,6 +240,7 @@ Optional<Task> TaskQueueManager::popForwardTask(std::chrono::milliseconds timeou
     
     if (result.has_value()) {
         popCount++;
+        TrafficStats::fwdPopTotal.fetch_add(1, std::memory_order_relaxed);
 
         // 🚨 强制记录：TCP任务从队列弹出（用于诊断TCP任务是否被正确取出）
         Task& task = result.value();
@@ -220,6 +250,7 @@ Optional<Task> TaskQueueManager::popForwardTask(std::chrono::milliseconds timeou
             if (protocol == PROTOCOL_TCP) {
                 protocolName = "TCP";
                 tcpTaskCount++;
+                TrafficStats::fwdPopTcp.fetch_add(1, std::memory_order_relaxed);
                 // 🚨 关键诊断：TCP任务被弹出，立即记录
                 TASK_LOGI("🚀 [Queue] ✅ TCP任务弹出成功 #%d: 源=%s:%d -> 目标=%s:%d, 大小=%d, 队列剩余=%zu", 
                          popCount,
@@ -232,10 +263,15 @@ Optional<Task> TaskQueueManager::popForwardTask(std::chrono::milliseconds timeou
             } else if (protocol == PROTOCOL_UDP) {
                 protocolName = "UDP";
                 udpTaskCount++;
+                TrafficStats::fwdPopUdp.fetch_add(1, std::memory_order_relaxed);
             } else if (protocol == PROTOCOL_ICMP) {
                 protocolName = "ICMP";
+                TrafficStats::fwdPopIcmp.fetch_add(1, std::memory_order_relaxed);
             } else if (protocol == PROTOCOL_ICMPV6) {
                 protocolName = "ICMPv6";
+                TrafficStats::fwdPopIcmp.fetch_add(1, std::memory_order_relaxed);
+            } else {
+                TrafficStats::fwdPopOther.fetch_add(1, std::memory_order_relaxed);
             }
             
             // TCP任务强制记录，其他任务按策略记录

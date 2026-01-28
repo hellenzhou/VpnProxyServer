@@ -4,6 +4,7 @@
 #include "protocol_handler.h"
 #include "packet_builder.h"
 #include "udp_retransmit.h"
+#include "traffic_stats.h"
 #include "task_queue.h"
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -1014,6 +1015,27 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
     int sockFd = -1;
     bool isNewMapping = false;
 
+    // ✅ 止血策略（更安全版）：仅在“识别为 QUIC”时丢弃 UDP/443，
+    // 避免误伤非 QUIC 的 UDP/443（例如少量 DTLS/自定义协议）。
+    // 目标：减少 UDP 洪泛对 forward worker 的抢占，让浏览器回落到 TCP/443。
+    if (packetInfo.protocol == PROTOCOL_UDP && packetInfo.targetPort == 443) {
+        UdpProtocolType proto = UdpRetransmitManager::DetectProtocol(payload, payloadSize);
+        if (proto == UdpProtocolType::QUIC) {
+            static std::atomic<uint32_t> dropQuicCount{0};
+            uint32_t n = ++dropQuicCount;
+            TrafficStats::quicDropped.fetch_add(1, std::memory_order_relaxed);
+            uint32_t ident = UdpRetransmitManager::ExtractProtocolIdentifier(proto, payload, payloadSize);
+            if (n <= 3 || (n % 200 == 0)) {
+                LOG_INFO("🧯 [QUIC] Drop UDP/443(QUIC) to force TCP fallback: src=%{public}s:%{public}d -> dst=%{public}s:%{public}d payload=%{public}d ident=0x%{public}08x (dropped=%{public}u)",
+                         packetInfo.sourceIP.c_str(), packetInfo.sourcePort,
+                         packetInfo.targetIP.c_str(), packetInfo.targetPort,
+                         payloadSize, ident, n);
+            }
+            return 0;
+        }
+        // 非 QUIC：放行（但仍可按需做采样日志）
+    }
+
     if (packetInfo.protocol == PROTOCOL_TCP) {
         // TCP: 需要检查是否为SYN包
         ParsedTcp tcp = ParseTcpFromIp(data, dataSize);
@@ -1414,15 +1436,29 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
 
         // ACK包（完成握手）
         int tcpPayloadSize = dataSize - tcp.ipHeaderLen - tcp.tcpHeaderLen;
-        if (tcpPayloadSize <= 0 && isAck && !isSyn) {
+        // ✅ 关键修复：
+        // 浏览器/系统TCP栈经常在第三次握手直接发送 ACK+PSH(带首个HTTP数据段)。
+        // 之前代码只在“纯ACK且无payload”时才进入 ESTABLISHED，导致 ACK+数据被误判为“握手未完成”并丢弃，
+        // 表现就是“连接看似成功但网页永远打不开”。
+        if (isAck && !isSyn) {
             NATTable::WithConnection(natKey, [&](NATConnection& c) {
                 if (c.tcpState == NATConnection::TcpState::SYN_RECEIVED &&
                     tcp.ack == c.serverIsn + 1) {
                     c.tcpState = NATConnection::TcpState::ESTABLISHED;
-                    c.nextClientSeq = tcp.seq;
+                    if (tcpPayloadSize > 0) {
+                        LOG_INFO("✅ [TCP] 第三次握手ACK携带数据：SYN_RECEIVED -> ESTABLISHED (fd=%{public}d flags=%{public}s payload=%{public}d ack=%{public}u)",
+                                 sockFd, TcpFlagsToString(tcp.flags).c_str(), tcpPayloadSize, tcp.ack);
+                    }
+                    // 如果是纯ACK，下一段期望seq就是当前tcp.seq；若带payload，会在数据分支里推进。
+                    if (tcpPayloadSize <= 0) {
+                        c.nextClientSeq = tcp.seq;
+                    }
                 }
             });
-            return sockFd;
+            // 纯ACK：握手完成即可返回；ACK+payload 继续走数据分支
+            if (tcpPayloadSize <= 0) {
+                return sockFd;
+            }
         }
 
         // 数据包
@@ -1430,6 +1466,11 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
             // 若握手未完成，不应发往真实服务器（否则可能 ENOTCONN/EPIPE）
             bool canSend = false;
             NATTable::WithConnection(natKey, [&](NATConnection& c) {
+                // ✅ 允许 ACK+payload 的第三次握手：在这里也做一次兜底升级
+                if (c.tcpState == NATConnection::TcpState::SYN_RECEIVED &&
+                    isAck && !isSyn && (tcp.ack == c.serverIsn + 1)) {
+                    c.tcpState = NATConnection::TcpState::ESTABLISHED;
+                }
                 canSend = (c.tcpState == NATConnection::TcpState::ESTABLISHED);
             });
             if (!canSend) {

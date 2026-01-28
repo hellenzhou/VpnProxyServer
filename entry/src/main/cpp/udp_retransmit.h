@@ -77,6 +77,22 @@ public:
         return instance;
     }
 
+    // ---------------------------------------------------------------------
+    // Public protocol helpers (used by forwarder for lightweight classification)
+    // NOTE: These are thin wrappers over internal helpers. They are stateless.
+    // ---------------------------------------------------------------------
+    static UdpProtocolType DetectProtocol(const uint8_t* data, int size) {
+        return getInstance().detectUdpProtocol(data, size);
+    }
+
+    static uint32_t ExtractProtocolIdentifier(UdpProtocolType protocol, const uint8_t* data, int size) {
+        return getInstance().extractProtocolIdentifier(protocol, data, size);
+    }
+
+    static const char* ProtocolName(UdpProtocolType protocol) {
+        return getInstance().getProtocolTypeName(protocol);
+    }
+
     // 记录已发送的UDP包（用于重传）
     void recordSentPacket(uint16_t packetId,
                          const uint8_t* data, int dataSize,
