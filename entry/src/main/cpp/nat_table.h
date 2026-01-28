@@ -37,10 +37,11 @@ struct NATConnection {
     // NOTE: this is a best-effort minimal TCP state machine (no retransmit/window/options).
     enum class TcpState : uint8_t {
         NONE = 0,
-        SYN_RECEIVED = 1,   // server replied SYN-ACK to client
-        ESTABLISHED = 2,
-        FIN_SENT = 3,
-        CLOSED = 4,
+        CONNECTING = 1,     // backend connect in progress; do NOT send SYN-ACK yet
+        SYN_RECEIVED = 2,   // server replied SYN-ACK to client
+        ESTABLISHED = 3,
+        FIN_SENT = 4,
+        CLOSED = 5,
     };
     TcpState tcpState = TcpState::NONE;
     uint32_t clientIsn = 0;

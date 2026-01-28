@@ -53,6 +53,26 @@ bool NATTable::CreateMapping(const std::string& key,
                             int forwardSocket) {
     std::lock_guard<std::mutex> lock(mutex_);
     
+    // 🚨 并发安全：禁止“同key覆盖不同socket”
+    // 覆盖会导致：
+    // - socketToKey_ 失配（旧socket收到了响应却找不到key）
+    // - TCP/UDP 回包线程通过 socket 查映射失败，表现为“客户端几乎收不到响应”
+    // 真实场景：多个 Forward worker 同时处理同一 flow（DNS重传/SYN重传）时会发生。
+    auto existingIt = mappings_.find(key);
+    if (existingIt != mappings_.end()) {
+        int oldSocket = existingIt->second.forwardSocket;
+        if (oldSocket == forwardSocket) {
+            // 同一socket重复创建：只更新活动时间与原始请求（用于构包）
+            existingIt->second.lastActivity = std::chrono::steady_clock::now();
+            existingIt->second.originalRequest = packetInfo;
+            return true;
+        }
+        NAT_LOGE("🚨 Refuse to overwrite NAT mapping: key=%{public}s old_fd=%{public}d new_fd=%{public}d proto=%{public}s",
+                 key.c_str(), oldSocket, forwardSocket,
+                 packetInfo.protocol == PROTOCOL_TCP ? "TCP" : "UDP");
+        return false;
+    }
+
     NATConnection conn;
     conn.clientPhysicalAddr = clientPhysicalAddr;
     conn.clientVirtualIP = packetInfo.sourceIP;
@@ -63,25 +83,8 @@ bool NATTable::CreateMapping(const std::string& key,
     conn.protocol = packetInfo.protocol;
     conn.lastActivity = std::chrono::steady_clock::now();
     conn.originalRequest = packetInfo;
-    
-    // 检查是否是新映射还是更新
-    bool isNewMapping = (mappings_.find(key) == mappings_.end());
-    
-    // 🚨 修复：如果覆盖现有映射，需要清理旧socket的映射关系
-    if (!isNewMapping) {
-        auto oldIt = mappings_.find(key);
-        if (oldIt != mappings_.end()) {
-            int oldSocket = oldIt->second.forwardSocket;
-            if (oldSocket != forwardSocket) {
-                // 旧socket和新socket不同，需要清理旧socket的映射关系
-                socketToKey_.erase(oldSocket);
-                NAT_LOGI("🧹 清理旧socket映射: fd=%d (被新socket %d覆盖)", oldSocket, forwardSocket);
-            }
-        }
-    }
-    
+
     mappings_[key] = conn;
-    mappings_[key].lastActivity = std::chrono::steady_clock::now();
     socketToKey_[forwardSocket] = key;
     
     // 仅在详细日志模式下打印详细信息
@@ -101,7 +104,7 @@ bool NATTable::CreateMapping(const std::string& key,
     }
     
     // 仅在创建新映射且是重要协议时记录简要信息
-    if (isNewMapping && (packetInfo.protocol == PROTOCOL_TCP || packetInfo.targetPort == 53)) {
+    if (packetInfo.protocol == PROTOCOL_TCP || packetInfo.targetPort == 53) {
         NAT_LOGI("✅ NAT: %{public}s -> %{public}s:%{public}d/%{public}s (total: %{public}zu)", 
                  conn.clientVirtualIP.c_str(), conn.serverIP.c_str(), conn.serverPort,
                  packetInfo.protocol == PROTOCOL_TCP ? "TCP" : "UDP", mappings_.size());
