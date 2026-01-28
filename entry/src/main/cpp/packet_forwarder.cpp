@@ -835,7 +835,7 @@ static void StartUDPThread(int sockFd, const sockaddr_in& originalPeer) {
             );
         } else {
             NATTable::RemoveMappingBySocket(sockFd);
-            close(sockFd);
+            SocketConnectionPool::getInstance().returnSocket(sockFd, "", 0, "", 0, PROTOCOL_UDP, AF_INET);
         }
     }).detach();
 }
@@ -852,7 +852,7 @@ static void StartTCPThread(int sockFd, const sockaddr_in& originalPeer) {
         // 确保TCP socket是阻塞模式，以便完整接收所有数据
         if (!SetBlockingMode(sockFd, true)) {
             LOG_ERROR("设置TCP socket为阻塞模式失败: fd=%d", sockFd);
-            close(sockFd);
+            SocketConnectionPool::getInstance().returnSocket(sockFd, "", 0, "", 0, PROTOCOL_TCP, AF_INET);
             return;
         }
 
@@ -939,7 +939,7 @@ static void StartTCPThread(int sockFd, const sockaddr_in& originalPeer) {
                     });
                     if (!hasConn) {
                         LOG_ERROR("NAT映射不存在，无法处理FIN响应: fd=%d", sockFd);
-                        close(sockFd);
+                        SocketConnectionPool::getInstance().returnSocket(sockFd, "", 0, "", 0, PROTOCOL_TCP, AF_INET);
                         return;
                     }
 
@@ -958,6 +958,23 @@ static void StartTCPThread(int sockFd, const sockaddr_in& originalPeer) {
                         LOG_INFO("🧭 [TCP-TRACE] ENQ_FIN key=%{public}s fd=%{public}d size=%{public}d ok=%{public}d",
                                  natKey.c_str(), sockFd, finSize, submitted ? 1 : 0);
                     }
+                    
+                    // 🐛 修复：不立即删除映射，延迟5秒后删除
+                    // 原因：客户端需要时间发送ACK确认FIN，如果立即删除映射，
+                    // 客户端的ACK包到达时会找不到连接，导致"收到非SYN包但连接不存在"错误
+                    LOG_INFO("⏰ [TCP-TRACE] DELAY_DELETE key=%{public}s fd=%{public}d delay=5s",
+                             natKey.c_str(), sockFd);
+                    
+                    // 启动延迟删除线程
+                    std::thread([sockFd, natKey]() {
+                        std::this_thread::sleep_for(std::chrono::seconds(5));
+                        NATTable::RemoveMappingBySocket(sockFd);
+                        SocketConnectionPool::getInstance().returnSocket(sockFd, "", 0, "", 0, PROTOCOL_TCP, AF_INET);
+                        LOG_INFO("🧹 [TCP-TRACE] DELAYED_CLEAN key=%{public}s fd=%{public}d",
+                                 natKey.c_str(), sockFd);
+                    }).detach();
+                    
+                    return;  // 不要继续循环，让延迟线程处理清理
                 }
 
                 break;
@@ -987,7 +1004,7 @@ static void StartTCPThread(int sockFd, const sockaddr_in& originalPeer) {
                     });
                     if (!hasConn) {
                         LOG_ERROR("NAT映射不存在，无法处理数据响应(分段): fd=%d", sockFd);
-                        close(sockFd);
+                        SocketConnectionPool::getInstance().returnSocket(sockFd, "", 0, "", 0, PROTOCOL_TCP, AF_INET);
                         return;
                     }
 
@@ -1032,10 +1049,16 @@ static void StartTCPThread(int sockFd, const sockaddr_in& originalPeer) {
             }
         }
         
-        // 清理NAT映射并关闭socket
-
-        NATTable::RemoveMappingBySocket(sockFd);
-        close(sockFd);
+        // 🐛 修复：延迟清理NAT映射，避免客户端ACK包找不到连接
+        // 当接收循环因错误退出时，延迟2秒后再删除映射
+        std::string natKeyCleanup = natKey;
+        std::thread([sockFd, natKeyCleanup]() {
+            std::this_thread::sleep_for(std::chrono::seconds(2));
+            NATTable::RemoveMappingBySocket(sockFd);
+            SocketConnectionPool::getInstance().returnSocket(sockFd, "", 0, "", 0, PROTOCOL_TCP, AF_INET);
+            LOG_INFO("🧹 [TCP-TRACE] ERROR_CLEAN key=%{public}s fd=%{public}d",
+                     natKeyCleanup.c_str(), sockFd);
+        }).detach();
         
     }).detach();
 }
@@ -1111,26 +1134,29 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
     int sockFd = -1;
     bool isNewMapping = false;
 
-    // ✅ 止血策略（更安全版）：仅在“识别为 QUIC”时丢弃 UDP/443，
-    // 避免误伤非 QUIC 的 UDP/443（例如少量 DTLS/自定义协议）。
-    // 目标：减少 UDP 洪泛对 forward worker 的抢占，让浏览器回落到 TCP/443。
-    if (packetInfo.protocol == PROTOCOL_UDP && packetInfo.targetPort == 443) {
-        UdpProtocolType proto = UdpRetransmitManager::DetectProtocol(payload, payloadSize);
-        if (proto == UdpProtocolType::QUIC) {
-            static std::atomic<uint32_t> dropQuicCount{0};
-            uint32_t n = ++dropQuicCount;
-            TrafficStats::quicDropped.fetch_add(1, std::memory_order_relaxed);
-            uint32_t ident = UdpRetransmitManager::ExtractProtocolIdentifier(proto, payload, payloadSize);
-            if (n <= 3 || (n % 200 == 0)) {
-                LOG_INFO("🧯 [QUIC] Drop UDP/443(QUIC) to force TCP fallback: src=%{public}s:%{public}d -> dst=%{public}s:%{public}d payload=%{public}d ident=0x%{public}08x (dropped=%{public}u)",
-                         packetInfo.sourceIP.c_str(), packetInfo.sourcePort,
-                         packetInfo.targetIP.c_str(), packetInfo.targetPort,
-                         payloadSize, ident, n);
-            }
-            return 0;
-        }
-        // 非 QUIC：放行（但仍可按需做采样日志）
-    }
+    // 🐛 修复：移除QUIC丢弃策略，允许HTTP/3流量通过
+    // 原因：主动丢弃QUIC导致浏览器无法访问支持HTTP/3的网站
+    // 现代浏览器（Chrome/Edge等）默认使用HTTP/3 (QUIC)协议
+    // 如果直接丢弃QUIC包而不发送拒绝响应，浏览器会等待超时
+    // 而不是快速fallback到TCP，导致用户体验很差
+    
+    // if (packetInfo.protocol == PROTOCOL_UDP && packetInfo.targetPort == 443) {
+    //     UdpProtocolType proto = UdpRetransmitManager::DetectProtocol(payload, payloadSize);
+    //     if (proto == UdpProtocolType::QUIC) {
+    //         static std::atomic<uint32_t> dropQuicCount{0};
+    //         uint32_t n = ++dropQuicCount;
+    //         TrafficStats::quicDropped.fetch_add(1, std::memory_order_relaxed);
+    //         uint32_t ident = UdpRetransmitManager::ExtractProtocolIdentifier(proto, payload, payloadSize);
+    //         if (n <= 3 || (n % 200 == 0)) {
+    //             LOG_INFO("🧯 [QUIC] Drop UDP/443(QUIC) to force TCP fallback: src=%{public}s:%{public}d -> dst=%{public}s:%{public}d payload=%{public}d ident=0x%{public}08x (dropped=%{public}u)",
+    //                      packetInfo.sourceIP.c_str(), packetInfo.sourcePort,
+    //                      packetInfo.targetIP.c_str(), packetInfo.targetPort,
+    //                      payloadSize, ident, n);
+    //         }
+    //         return 0;
+    //     }
+    //     // 非 QUIC：放行（但仍可按需做采样日志）
+    // }
 
     if (packetInfo.protocol == PROTOCOL_TCP) {
         // TCP: 需要检查是否为SYN包
@@ -1290,7 +1316,7 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
                     return racedConn.forwardSocket;
                 }
                 LOG_ERROR("🚨 [TCP连接诊断] CreateMapping失败且未找到现存映射: key=%{public}s (fd=%{public}d)", natKey.c_str(), sockFd);
-                close(sockFd);
+                SocketConnectionPool::getInstance().returnSocket(sockFd, "", 0, "", 0, PROTOCOL_TCP, AF_INET);
                 return -1;
             }
 
@@ -1325,7 +1351,7 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
                     isNewMapping = false;
                 } else {
                     LOG_ERROR("🚨 [UDP] CreateMapping失败且未找到现存映射: key=%{public}s (fd=%{public}d)", natKey.c_str(), sockFd);
-                    close(sockFd);
+                    SocketConnectionPool::getInstance().returnSocket(sockFd, "", 0, "", 0, PROTOCOL_UDP, AF_INET);
                     return -1;
                 }
             } else {
@@ -1392,7 +1418,9 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
         if (!tcp.ok) {
             if (isNewMapping) {
                 NATTable::RemoveMapping(natKey);
-                if (sockFd >= 0) close(sockFd);
+                if (sockFd >= 0) {
+                    SocketConnectionPool::getInstance().returnSocket(sockFd, "", 0, "", 0, PROTOCOL_TCP, AF_INET);
+                }
             }
             return -1;
         }
@@ -1423,7 +1451,7 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
             })) {
                 LOG_ERROR("❌ [TCP] 更新NAT映射失败: %{public}s:%{public}d",
                          actualTargetIP.c_str(), packetInfo.targetPort);
-                close(sockFd);
+                SocketConnectionPool::getInstance().returnSocket(sockFd, "", 0, "", 0, PROTOCOL_TCP, AF_INET);
                 return -1;
             }
             
@@ -1438,7 +1466,7 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
                 if (inet_pton(AF_INET6, actualTargetIP.c_str(), &addr6->sin6_addr) <= 0) {
                     LOG_ERROR("❌ [TCP] IPv6地址解析失败: %s", actualTargetIP.c_str());
                     NATTable::RemoveMapping(natKey);
-                    close(sockFd);
+                    SocketConnectionPool::getInstance().returnSocket(sockFd, "", 0, "", 0, PROTOCOL_TCP, AF_INET6);
                     return -1;
                 }
                 addrLen = sizeof(sockaddr_in6);
@@ -1449,7 +1477,7 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
                 if (inet_pton(AF_INET, actualTargetIP.c_str(), &addr4->sin_addr) <= 0) {
                     LOG_ERROR("❌ [TCP] IPv4地址解析失败: %s", actualTargetIP.c_str());
                     NATTable::RemoveMapping(natKey);
-                    close(sockFd);
+                    SocketConnectionPool::getInstance().returnSocket(sockFd, "", 0, "", 0, PROTOCOL_TCP, AF_INET);
                     return -1;
                 }
                 addrLen = sizeof(sockaddr_in);
@@ -1523,7 +1551,7 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
                     // 清理NAT映射
                     std::this_thread::sleep_for(std::chrono::milliseconds(1000));
                     NATTable::RemoveMapping(natKey);
-                    close(sockFd);
+                    SocketConnectionPool::getInstance().returnSocket(sockFd, "", 0, "", 0, PROTOCOL_TCP, AF_INET);
                 }
             }).detach();
             
@@ -1534,7 +1562,18 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
         // 现有映射：处理控制包和数据包
         if (isRst) {
             shutdown(sockFd, SHUT_RDWR);
-            NATTable::RemoveMapping(natKey);
+            
+            // 🐛 修复：即使是RST也延迟删除，避免竞态条件
+            LOG_INFO("⏰ [TCP-TRACE] RST_DELAY key=%{public}s fd=%{public}d delay=1s",
+                     natKey.c_str(), sockFd);
+            std::thread([natKey, sockFd]() {
+                std::this_thread::sleep_for(std::chrono::seconds(1));
+                NATTable::RemoveMapping(natKey);
+                SocketConnectionPool::getInstance().returnSocket(sockFd, "", 0, "", 0, PROTOCOL_TCP, AF_INET);
+                LOG_INFO("🧹 [TCP-TRACE] RST_CLEAN key=%{public}s fd=%{public}d",
+                         natKey.c_str(), sockFd);
+            }).detach();
+            
             return 0;
         }
 
@@ -1561,7 +1600,18 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
                          natKey.c_str(), sockFd, ackSize, submitted ? 1 : 0);
             }
             shutdown(sockFd, SHUT_RDWR);
-            NATTable::RemoveMapping(natKey);
+            
+            // 🐛 修复：延迟删除映射，避免后续ACK包找不到连接
+            LOG_INFO("⏰ [TCP-TRACE] CLIENT_FIN_DELAY key=%{public}s fd=%{public}d delay=2s",
+                     natKey.c_str(), sockFd);
+            std::thread([natKey, sockFd]() {
+                std::this_thread::sleep_for(std::chrono::seconds(2));
+                NATTable::RemoveMapping(natKey);
+                SocketConnectionPool::getInstance().returnSocket(sockFd, "", 0, "", 0, PROTOCOL_TCP, AF_INET);
+                LOG_INFO("🧹 [TCP-TRACE] CLIENT_FIN_CLEAN key=%{public}s fd=%{public}d",
+                         natKey.c_str(), sockFd);
+            }).detach();
+            
             return 0;
         }
 

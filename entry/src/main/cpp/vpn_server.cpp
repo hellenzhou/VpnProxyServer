@@ -1311,7 +1311,9 @@ napi_value StartServer(napi_env env, napi_callback_info info)
   VPN_SERVER_LOGI("�?Task queues cleared");
   
   // 启动工作线程�?  VPN_SERVER_LOGI("🚀 Starting worker thread pool with 4 forward and 2 response workers...");
-  if (!WorkerThreadPool::getInstance().start(4, 2)) {
+  // 🚀 优化：4个TCP worker提高并发性和负载均衡，2个UDP worker，2个Response worker
+  // TCP worker数量建议：根据并发连接数调整，4个可以处理更多并发连接
+  if (!WorkerThreadPool::getInstance().start(4, 2, 2)) {
     VPN_SERVER_LOGE("�?Failed to start worker thread pool - THIS IS CRITICAL!");
     VPN_SERVER_LOGE("�?Worker thread pool state: isRunning=%d", WorkerThreadPool::getInstance().isRunning() ? 1 : 0);
   } else {
@@ -1320,9 +1322,10 @@ napi_value StartServer(napi_env env, napi_callback_info info)
 
     // 🔍 显示初始统计信息
     auto stats = WorkerThreadPool::getInstance().getStats();
-    VPN_SERVER_LOGI("📊 Initial worker stats: forward_processed=%" PRIu64 ", response_processed=%" PRIu64 ", forward_failed=%" PRIu64 ", response_failed=%" PRIu64,
+    VPN_SERVER_LOGI("📊 Initial worker stats: forward_processed=%" PRIu64 ", response_processed=%" PRIu64 ", forward_failed=%" PRIu64 ", response_failed=%" PRIu64 ", tcp_processed=%" PRIu64 ", udp_processed=%" PRIu64,
                    stats.forwardTasksProcessed, stats.responseTasksProcessed,
-                   stats.forwardTasksFailed, stats.responseTasksFailed);
+                   stats.forwardTasksFailed, stats.responseTasksFailed,
+                   stats.tcpTasksProcessed, stats.udpTasksProcessed);
 
     // 🚨 关键诊断：检查是否有任务正在处理
     VPN_SERVER_LOGI("🔍 [诊断开始] 检查工作线程池是否正常工作...");

@@ -22,7 +22,10 @@ public:
     }
     
     // 启动线程池
-    bool start(int numForwardWorkers = 4, int numResponseWorkers = 2);
+    // numTcpWorkers: 专门处理TCP任务的线程数（建议2-4个）
+    // numUdpWorkers: 专门处理UDP任务的线程数（建议2-4个）
+    // numResponseWorkers: 处理响应任务的线程数（建议2个）
+    bool start(int numTcpWorkers = 2, int numUdpWorkers = 2, int numResponseWorkers = 2);
     
     // 停止线程池
     void stop();
@@ -36,6 +39,8 @@ public:
         uint64_t responseTasksProcessed;
         uint64_t forwardTasksFailed;
         uint64_t responseTasksFailed;
+        uint64_t tcpTasksProcessed;
+        uint64_t udpTasksProcessed;
     };
     
     Stats getStats() const;
@@ -46,7 +51,9 @@ private:
           forwardTasksProcessed_(0),
           responseTasksProcessed_(0),
           forwardTasksFailed_(0),
-          responseTasksFailed_(0) {}
+          responseTasksFailed_(0),
+          tcpTasksProcessed_(0),
+          udpTasksProcessed_(0) {}
     
     ~WorkerThreadPool() {
         stop();
@@ -57,10 +64,14 @@ private:
     WorkerThreadPool& operator=(const WorkerThreadPool&) = delete;
     
     // 工作线程函数
-    void forwardWorkerThread();
+    void forwardWorkerThread();  // 通用worker（兼容旧代码）
+    void tcpWorkerThread(int workerIndex);      // 专门处理TCP任务（传入worker索引）
+    void udpWorkerThread();       // 专门处理UDP任务
     void responseWorkerThread();
     
-    std::vector<std::thread> forwardWorkers_;
+    std::vector<std::thread> forwardWorkers_;  // 保留用于兼容
+    std::vector<std::thread> tcpWorkers_;      // TCP专用线程
+    std::vector<std::thread> udpWorkers_;      // UDP专用线程
     std::vector<std::thread> responseWorkers_;
     std::atomic<bool> running_;
     
@@ -69,6 +80,8 @@ private:
     std::atomic<uint64_t> responseTasksProcessed_;
     std::atomic<uint64_t> forwardTasksFailed_;
     std::atomic<uint64_t> responseTasksFailed_;
+    std::atomic<uint64_t> tcpTasksProcessed_;
+    std::atomic<uint64_t> udpTasksProcessed_;
 };
 
 /**

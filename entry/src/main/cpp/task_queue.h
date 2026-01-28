@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <string>
 #include <memory>
+#include <vector>
 #include <netinet/in.h>
 #include "protocol_handler.h"
 #include "thread_safe_queue.h"
@@ -92,18 +93,44 @@ public:
                            int forwardSocket,
                            uint8_t protocol);
     
-    // 获取转发任务
+    // 获取转发任务（通用，兼容旧代码）
     Optional<Task> popForwardTask(std::chrono::milliseconds timeout);
+    
+    // 🚀 优雅方案：按协议分离的队列
+    // 注意：TCP任务使用连接哈希路由，确保同一连接的任务由同一线程处理
+    Optional<Task> popTcpTask(int workerIndex, std::chrono::milliseconds timeout);
+    Optional<Task> popUdpTask(std::chrono::milliseconds timeout);
+    
+    // 🚀 优雅方案：根据连接哈希计算应该使用哪个TCP worker
+    // 返回worker索引，确保同一连接的任务由同一线程处理
+    int getTcpWorkerIndex(const PacketInfo& packetInfo, const sockaddr_in& clientAddr) const;
     
     // 获取响应任务
     Optional<Task> popResponseTask(std::chrono::milliseconds timeout);
     
     // 获取队列统计
     size_t getForwardQueueSize() const { return forwardQueue_.size(); }
+    size_t getTcpQueueSize() const { 
+        size_t total = 0;
+        for (const auto& q : tcpQueues_) {
+            if (q) {
+                total += q->size();
+            }
+        }
+        return total;
+    }
+    size_t getUdpQueueSize() const { return udpQueue_.size(); }
     size_t getResponseQueueSize() const { return responseQueue_.size(); }
     
     // 检查队列是否为空
     bool isForwardQueueEmpty() const { return forwardQueue_.empty(); }
+    bool isTcpQueueEmpty() const { 
+        for (const auto& q : tcpQueues_) {
+            if (q && !q->empty()) return false;
+        }
+        return true;
+    }
+    bool isUdpQueueEmpty() const { return udpQueue_.empty(); }
     bool isResponseQueueEmpty() const { return responseQueue_.empty(); }
     
     // 关闭所有队列
@@ -111,12 +138,25 @@ public:
     
     // 清空所有队列
     void clear();
+    
+    // 初始化TCP队列数组（由WorkerThreadPool调用，必须在worker启动前调用）
+    // 🚀 修复：改为public，允许WorkerThreadPool调用
+    void initializeTcpQueues(int numWorkers);
 
 private:
     TaskQueueManager() 
-        : forwardQueue_(10000),   // 转发队列最大10000个任务（提升容量）
-          responseQueue_(20000)   // 响应队列最大20000个任务（提升容量）
-    {}
+        : forwardQueue_(2000),    // 转发队列（兼容旧代码，ICMP等）
+          tcpQueues_(),           // TCP队列数组（动态初始化）
+          udpQueue_(500),        // UDP队列：500个任务（UDP可容忍丢包）
+          responseQueue_(2000),   // 响应队列：2000个任务（响应通常较快）
+          numTcpWorkers_(2)        // 默认2个TCP worker
+    {
+        // 初始化TCP队列数组（默认2个，会在start时重新初始化）
+        // 🚀 修复：使用emplace_back创建unique_ptr，因为ThreadSafeQueue包含mutex，不可拷贝
+        for (int i = 0; i < 2; ++i) {
+            tcpQueues_.emplace_back(std::make_unique<ThreadSafeQueue<Task>>(1000));
+        }
+    }
     
     ~TaskQueueManager() {
         // 🐛 修复：析构时不调用shutdown()，因为可能已经被显式调用
@@ -127,6 +167,11 @@ private:
     TaskQueueManager(const TaskQueueManager&) = delete;
     TaskQueueManager& operator=(const TaskQueueManager&) = delete;
     
-    ThreadSafeQueue<Task> forwardQueue_;    // 转发请求队列
+    ThreadSafeQueue<Task> forwardQueue_;    // 转发请求队列（兼容旧代码）
+    // 🚀 修复：使用unique_ptr，因为ThreadSafeQueue包含mutex，不可拷贝
+    std::vector<std::unique_ptr<ThreadSafeQueue<Task>>> tcpQueues_;  // TCP专用队列数组（每个worker一个）
+    ThreadSafeQueue<Task> udpQueue_;        // UDP专用队列（优雅方案）
     ThreadSafeQueue<Task> responseQueue_;   // 响应发送队列
+    
+    int numTcpWorkers_;  // TCP worker数量（用于哈希路由）
 };
