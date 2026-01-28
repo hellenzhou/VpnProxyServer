@@ -1080,9 +1080,33 @@ void WorkerLoop()
       
       // 🔍 统计接收到的数据包类型
       static std::map<std::string, int> packetStats;
+      static const char* kExpectedTunIpv4 = "192.168.100.2";
+      static const char* kExpectedTunIpv6 = "fd00::2";
+      static uint64_t ipv4Total = 0;
+      static uint64_t ipv4Virtual = 0;
+      static uint64_t ipv4NonVirtual = 0;
+      static uint64_t ipv6Total = 0;
+      static uint64_t ipv6Virtual = 0;
+      static uint64_t ipv6NonVirtual = 0;
       std::string packetKey = std::string(ProtocolHandler::GetProtocolName(packetInfo.protocol)) + 
                              ":" + packetInfo.targetIP + ":" + std::to_string(packetInfo.targetPort);
       packetStats[packetKey]++;
+      
+      if (packetInfo.addressFamily == AF_INET) {
+        ipv4Total++;
+        if (packetInfo.sourceIP == kExpectedTunIpv4) {
+          ipv4Virtual++;
+        } else {
+          ipv4NonVirtual++;
+        }
+      } else if (packetInfo.addressFamily == AF_INET6) {
+        ipv6Total++;
+        if (packetInfo.sourceIP == kExpectedTunIpv6) {
+          ipv6Virtual++;
+        } else {
+          ipv6NonVirtual++;
+        }
+      }
       
       // 每100个包或每10秒记录一次统计
       static int totalPackets = 0;
@@ -1093,6 +1117,16 @@ void WorkerLoop()
       
       if (totalPackets % 100 == 0 || elapsed >= 10) {
         VPN_SERVER_LOGI("📊 [流量统计] 总计接收: %{public}d个数据包", totalPackets);
+        if (ipv4Total > 0) {
+          double v4Ratio = (static_cast<double>(ipv4Virtual) * 100.0) / static_cast<double>(ipv4Total);
+          VPN_SERVER_LOGI("📊 [流量统计] IPv4源IP占比: 虚拟=%{public}lu 非虚拟=%{public}lu (虚拟占比=%.1f%%, 期望=%{public}s)",
+                          (unsigned long)ipv4Virtual, (unsigned long)ipv4NonVirtual, v4Ratio, kExpectedTunIpv4);
+        }
+        if (ipv6Total > 0) {
+          double v6Ratio = (static_cast<double>(ipv6Virtual) * 100.0) / static_cast<double>(ipv6Total);
+          VPN_SERVER_LOGI("📊 [流量统计] IPv6源IP占比: 虚拟=%{public}lu 非虚拟=%{public}lu (虚拟占比=%.1f%%, 期望=%{public}s)",
+                          (unsigned long)ipv6Virtual, (unsigned long)ipv6NonVirtual, v6Ratio, kExpectedTunIpv6);
+        }
         for (const auto& stat : packetStats) {
           VPN_SERVER_LOGI("   %{public}s: %{public}d次", stat.first.c_str(), stat.second);
         }

@@ -128,7 +128,11 @@ static bool ConnectWithTimeout(int sockFd, const sockaddr* targetAddr, socklen_t
     tv.tv_sec = timeoutMs / 1000;
     tv.tv_usec = (timeoutMs % 1000) * 1000;
 
-    if (select(sockFd + 1, nullptr, &writefds, nullptr, &tv) <= 0) {
+    int sel = select(sockFd + 1, nullptr, &writefds, nullptr, &tv);
+    if (sel <= 0) {
+        if (sel == 0) {
+            errno = ETIMEDOUT;
+        }
         fcntl(sockFd, F_SETFL, flags);
         return false;
     }
@@ -136,6 +140,9 @@ static bool ConnectWithTimeout(int sockFd, const sockaddr* targetAddr, socklen_t
     int soError = 0;
     socklen_t len = sizeof(soError);
     if (getsockopt(sockFd, SOL_SOCKET, SO_ERROR, &soError, &len) < 0 || soError != 0) {
+        if (soError != 0) {
+            errno = soError;
+        }
         fcntl(sockFd, F_SETFL, flags);
         return false;
     }
@@ -831,19 +838,61 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
         bool isAck = HasTcpFlag(tcp.flags, TCP_ACK);
         bool isRst = HasTcpFlag(tcp.flags, TCP_RST);
         bool isFin = HasTcpFlag(tcp.flags, TCP_FIN);
+        if (isSyn && !isAck && !isRst) {
+            LOG_INFO("🔍 [TCP连接诊断] 收到SYN: %{public}s:%{public}d -> %{public}s:%{public}d (flags=0x%{public}02x)",
+                     packetInfo.sourceIP.c_str(), packetInfo.sourcePort,
+                     packetInfo.targetIP.c_str(), packetInfo.targetPort, tcp.flags);
+        }
 
         if (NATTable::FindMapping(natKey, existingConn)) {
             sockFd = existingConn.forwardSocket;
+
+            // 处理SYN重传：如果SYN-ACK丢失（UDP隧道丢包），需要重发SYN-ACK
+            if (isSyn && !isAck && !isRst) {
+                if (existingConn.tcpState == NATConnection::TcpState::SYN_RECEIVED) {
+                    LOG_INFO("🔁 [TCP连接诊断] 收到SYN重传，重发SYN-ACK: %{public}s:%{public}d -> %{public}s:%{public}d (fd=%{public}d)",
+                             packetInfo.sourceIP.c_str(), packetInfo.sourcePort,
+                             packetInfo.targetIP.c_str(), packetInfo.targetPort, sockFd);
+
+                    // 确保客户端ISN一致
+                    NATTable::WithConnection(natKey, [&](NATConnection& c) {
+                        if (c.clientIsn != 0 && c.clientIsn != tcp.seq) {
+                            LOG_ERROR("⚠️ [TCP连接诊断] SYN重传序号变化: old=%{public}u new=%{public}u (可能是连接复用/重建)",
+                                      c.clientIsn, tcp.seq);
+                        }
+                        c.clientIsn = tcp.seq;
+                        c.nextClientSeq = tcp.seq + 1;
+                    });
+
+                    uint8_t synAckPkt[128];
+                    uint32_t serverIsn = existingConn.serverIsn;
+                    int synAckSize = PacketBuilder::BuildTcpResponsePacket(
+                        synAckPkt, sizeof(synAckPkt), nullptr, 0,
+                        existingConn.originalRequest,
+                        serverIsn, tcp.seq + 1, TCP_SYN | TCP_ACK
+                    );
+                    if (synAckSize > 0) {
+                        TaskQueueManager::getInstance().submitResponseTask(
+                            synAckPkt, synAckSize, originalPeer, sockFd, PROTOCOL_TCP
+                        );
+                        LOG_INFO("✅ [TCP连接诊断] SYN-ACK已重发 (seq=%{public}u ack=%{public}u)", serverIsn, tcp.seq + 1);
+                    } else {
+                        LOG_ERROR("❌ [TCP连接诊断] SYN-ACK重发失败：构建失败");
+                    }
+                    return sockFd;
+                }
+            }
         } else {
             // 只有纯SYN包（非SYN-ACK）才创建映射
             if (!isSyn || (isSyn && isAck)) {
                 // 非SYN包或SYN-ACK包：发送RST告知客户端连接不存在
                 if (!isRst) {
                     LOG_ERROR("🚨 [TCP连接诊断] ========== 收到非SYN包但连接不存在 ==========");
-                    LOG_ERROR("   包类型: flags=0x%02x (SYN=%d, ACK=%d, RST=%d, FIN=%d)", 
+                    LOG_ERROR("   包类型: flags=0x%{public}02x (SYN=%{public}d, ACK=%{public}d, RST=%{public}d, FIN=%{public}d)", 
                              tcp.flags, isSyn, isAck, isRst, isFin);
-                    LOG_ERROR("   源: %s:%d", packetInfo.sourceIP.c_str(), packetInfo.sourcePort);
-                    LOG_ERROR("   目标: %s:%d", packetInfo.targetIP.c_str(), packetInfo.targetPort);
+                    LOG_ERROR("   源: %{public}s:%{public}d", packetInfo.sourceIP.c_str(), packetInfo.sourcePort);
+                    LOG_ERROR("   目标: %{public}s:%{public}d", packetInfo.targetIP.c_str(), packetInfo.targetPort);
+                    LOG_ERROR("   NAT Key: %{public}s", natKey.c_str());
                     LOG_ERROR("   原因分析:");
                     LOG_ERROR("     1. 客户端发送了ACK/PSH包，但服务器端没有对应的连接映射");
                     LOG_ERROR("     2. 可能原因: 之前的SYN包处理失败，NAT映射被移除");
@@ -876,7 +925,7 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
             }
 
             // 创建新映射
-            LOG_INFO("🔍 [TCP连接诊断] 创建新的TCP连接映射: %s:%d -> %s:%d", 
+            LOG_INFO("🔍 [TCP连接诊断] 创建新的TCP连接映射: %{public}s:%{public}d -> %{public}s:%{public}d", 
                      packetInfo.sourceIP.c_str(), packetInfo.sourcePort,
                      packetInfo.targetIP.c_str(), packetInfo.targetPort);
             sockFd = GetSocket(packetInfo, originalPeer, tunnelFd);
@@ -886,7 +935,7 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
             }
             NATTable::CreateMapping(natKey, originalPeer, packetInfo, sockFd);
             isNewMapping = true;
-            LOG_INFO("✅ [TCP连接诊断] NAT映射已创建: socket fd=%d, 映射key=%s", sockFd, natKey.c_str());
+            LOG_INFO("✅ [TCP连接诊断] NAT映射已创建: socket fd=%{public}d, 映射key=%{public}s", sockFd, natKey.c_str());
         }
     } else {
         // UDP: 直接查找或创建映射
@@ -992,10 +1041,10 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
             }
 
             // 🔍 流程跟踪：记录TCP连接尝试（详细诊断）
-            LOG_INFO("🔍 [TCP连接诊断] 开始TCP连接: %s:%d (fd=%d, 源=%s:%d)", 
+            LOG_INFO("🔍 [TCP连接诊断] 开始TCP连接: %{public}s:%{public}d (fd=%{public}d, 源=%{public}s:%{public}d)", 
                      actualTargetIP.c_str(), packetInfo.targetPort, sockFd,
                      packetInfo.sourceIP.c_str(), packetInfo.sourcePort);
-            LOG_INFO("🔍 [TCP连接诊断] 连接目的: 代理服务器转发socket -> 真实服务器 %s:%d", 
+            LOG_INFO("🔍 [TCP连接诊断] 连接目的: 代理服务器转发socket -> 真实服务器 %{public}s:%{public}d", 
                      actualTargetIP.c_str(), packetInfo.targetPort);
             LOG_INFO("🔍 [TCP连接诊断] 连接作用: 将VPN客户端流量转发到互联网服务器");
             
@@ -1007,7 +1056,7 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
             std::this_thread::sleep_for(std::chrono::milliseconds(1500));
             auto waitEndTime = std::chrono::steady_clock::now();
             auto waitElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(waitEndTime - waitStartTime).count();
-            LOG_INFO("🔍 [TCP连接诊断] socket保护等待完成 (实际等待%lldms)，开始尝试连接", waitElapsed);
+            LOG_INFO("🔍 [TCP连接诊断] socket保护等待完成 (实际等待%{public}lldms)，开始尝试连接", waitElapsed);
             
             // 连接服务器（带重试机制）
             bool connectSuccess = false;
@@ -1015,12 +1064,12 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
             const int MAX_RETRIES = 2;  // 最多重试2次
             
             while (!connectSuccess && retryCount <= MAX_RETRIES) {
-                LOG_INFO("🔍 [TCP连接诊断] 尝试连接 (第%d次，共%d次): %s:%d (fd=%d)", 
+                LOG_INFO("🔍 [TCP连接诊断] 尝试连接 (第%{public}d次，共%{public}d次): %{public}s:%{public}d (fd=%{public}d)", 
                          retryCount + 1, MAX_RETRIES + 1, actualTargetIP.c_str(), packetInfo.targetPort, sockFd);
                 
                 if (ConnectWithTimeout(sockFd, reinterpret_cast<sockaddr*>(&targetAddr), addrLen, 3000)) {
                     connectSuccess = true;
-                    LOG_INFO("✅ [TCP连接诊断] 连接成功: %s:%d (fd=%d, 重试%d次)", 
+                    LOG_INFO("✅ [TCP连接诊断] 连接成功: %{public}s:%{public}d (fd=%{public}d, 重试%{public}d次)", 
                              actualTargetIP.c_str(), packetInfo.targetPort, sockFd, retryCount);
                     break;
                 }
@@ -1028,7 +1077,7 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
                 int savedErrno = errno;
                 
                 // 🚨 详细诊断：记录连接失败原因
-                LOG_ERROR("❌ [TCP连接诊断] 连接失败: %s:%d (fd=%d, 重试%d/%d) - errno=%d (%s)", 
+                LOG_ERROR("❌ [TCP连接诊断] 连接失败: %{public}s:%{public}d (fd=%{public}d, 重试%{public}d/%{public}d) - errno=%{public}d (%{public}s)", 
                          actualTargetIP.c_str(), packetInfo.targetPort, sockFd, retryCount + 1, MAX_RETRIES + 1, 
                          savedErrno, strerror(savedErrno));
                 
@@ -1040,14 +1089,14 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
                     LOG_ERROR("   3. 导致无法到达真实服务器");
                     if (retryCount < MAX_RETRIES) {
                         int retryWaitTime = 1500 + retryCount * 500;  // 重试等待时间：1500ms, 2000ms
-                        LOG_ERROR("🚨 [TCP连接诊断] 等待后重试 (%d/%d, 等待%dms)...", 
+                        LOG_ERROR("🚨 [TCP连接诊断] 等待后重试 (%{public}d/%{public}d, 等待%{public}dms)...", 
                                  retryCount + 1, MAX_RETRIES, retryWaitTime);
                         // 每次重试等待更长时间，给socket保护更多时间
                         std::this_thread::sleep_for(std::chrono::milliseconds(retryWaitTime));
                         retryCount++;
                         continue;
                     } else {
-                        LOG_ERROR("🚨 [TCP连接诊断] 已达到最大重试次数 (%d次)，连接失败", MAX_RETRIES + 1);
+                        LOG_ERROR("🚨 [TCP连接诊断] 已达到最大重试次数 (%{public}d次)，连接失败", MAX_RETRIES + 1);
                     }
                 } else if (savedErrno == ECONNREFUSED) {
                     LOG_ERROR("🚨 [TCP连接诊断] ECONNREFUSED: 目标服务器拒绝连接 (可能端口关闭或防火墙阻止)");
@@ -1061,8 +1110,8 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
             
             if (!connectSuccess) {
                 LOG_ERROR("❌ [TCP连接诊断] ========== TCP连接最终失败 ==========");
-                LOG_ERROR("   目标: %s:%d (fd=%d)", actualTargetIP.c_str(), packetInfo.targetPort, sockFd);
-                LOG_ERROR("   源: %s:%d", packetInfo.sourceIP.c_str(), packetInfo.sourcePort);
+                LOG_ERROR("   目标: %{public}s:%{public}d (fd=%{public}d)", actualTargetIP.c_str(), packetInfo.targetPort, sockFd);
+                LOG_ERROR("   源: %{public}s:%{public}d", packetInfo.sourceIP.c_str(), packetInfo.sourcePort);
                 LOG_ERROR("   影响: 无法将VPN客户端流量转发到真实服务器");
                 LOG_ERROR("   后果: 客户端将无法访问该服务器，浏览器无法加载网页");
                 
