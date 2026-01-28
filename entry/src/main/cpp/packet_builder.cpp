@@ -310,6 +310,16 @@ int PacketBuilder::BuildResponsePacket(uint8_t* buffer, int bufferSize,
         transportHeader[7] = udpChecksum & 0xFF;
     }
     
+    // 🔍 [排查点5] 服务端构建UDP响应包成功
+    static int udpBuildCount = 0;
+    udpBuildCount++;
+    if (udpBuildCount <= 10 || udpBuildCount % 50 == 0) {
+        PACKET_BUILDER_LOGI("✅ [排查点5] 构建UDP响应包: %{public}s:%{public}d -> %{public}s:%{public}d (总大小=%{public}d字节, payload=%{public}d字节)",
+                           originalRequest.targetIP.c_str(), originalRequest.targetPort,
+                           originalRequest.sourceIP.c_str(), originalRequest.sourcePort,
+                           totalLen, payloadSize);
+    }
+    
     PACKET_BUILDER_LOGI("✅ Built response packet: %{public}d bytes (IP:%{public}d, Transport:%{public}d, Payload:%{public}d)",
                        totalLen, ipHeaderLen, transportHeaderLen, payloadSize);
     
@@ -439,6 +449,16 @@ int PacketBuilder::BuildTcpResponsePacket(uint8_t* buffer, int bufferSize,
         : CalculateTCPChecksum(buffer, tcp, tcpHeaderLen + payloadSize);
     tcp[16] = (tcpChecksum >> 8) & 0xFF;
     tcp[17] = tcpChecksum & 0xFF;
+
+    // 🔍 [排查点5] 服务端构建TCP响应包成功
+    static int tcpBuildCount = 0;
+    tcpBuildCount++;
+    if (tcpBuildCount <= 10 || tcpBuildCount % 50 == 0) {
+        PACKET_BUILDER_LOGI("✅ [排查点5] 构建TCP响应包: %{public}s:%{public}d -> %{public}s:%{public}d (总大小=%{public}d字节, payload=%{public}d字节, seq=%{public}u, ack=%{public}u, flags=0x%{public}02x)",
+                           originalRequest.targetIP.c_str(), originalRequest.targetPort,
+                           originalRequest.sourceIP.c_str(), originalRequest.sourcePort,
+                           totalLen, payloadSize, seq, ack, tcpFlags);
+    }
 
     return totalLen;
 }

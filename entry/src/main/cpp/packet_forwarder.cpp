@@ -701,8 +701,13 @@ private:
                     continue;
                 }
 
+                // 🔍 [排查点4] 服务端从真实服务器接收响应 (UDP)
                 ssize_t received = recvfrom(p.fd, buffer, sizeof(buffer), 0, nullptr, nullptr);
                 if (received <= 0) {
+                    if (received < 0 && (errno != EAGAIN && errno != EWOULDBLOCK)) {
+                        LOG_ERROR("❌ [排查点4] 服务端<-真实服务器(UDP)失败: fd=%{public}d, errno=%{public}d (%{public}s)",
+                                 p.fd, errno, strerror(errno));
+                    }
                     continue;
                 }
 
@@ -710,9 +715,19 @@ private:
                 if (!NATTable::FindMappingBySocket(p.fd, conn)) {
                     // 映射可能刚被清理/覆盖；不在这里close，交给NAT清理逻辑
                     if (iter <= 10 || (iter % 200 == 0)) {
-                        LOG_INFO("🔍 [UDP Pump] 收到UDP响应但NAT映射不存在: %d字节 (fd=%d)", (int)received, p.fd);
+                        LOG_ERROR("❌ [排查点4] 服务端<-真实服务器(UDP): 收到%{public}zd字节但NAT映射不存在 (fd=%{public}d)", received, p.fd);
                     }
                     continue;
+                }
+                
+                // 🔍 [排查点4] 服务端从真实服务器接收响应成功
+                static int udpRecvSuccessCount = 0;
+                udpRecvSuccessCount++;
+                if (iter <= 10 || udpRecvSuccessCount % 50 == 0) {
+                    LOG_INFO("✅ [排查点4] 服务端<-真实服务器(UDP): %{public}s:%{public}d -> %{public}s:%{public}d (收到%{public}zd字节, fd=%{public}d)",
+                            conn.serverIP.c_str(), conn.serverPort,
+                            conn.clientVirtualIP.c_str(), conn.clientVirtualPort,
+                            received, p.fd);
                 }
 
                 uint8_t responsePacket[4096];
@@ -828,6 +843,12 @@ static void StartUDPThread(int sockFd, const sockaddr_in& originalPeer) {
 // TCP响应线程
 static void StartTCPThread(int sockFd, const sockaddr_in& originalPeer) {
     std::thread([sockFd, originalPeer]() {
+        // ✅ 关键：TCP 是字节流，后端 recv() 返回的大小不等于“一个IP包/一个TCP段”。
+        // 如果把 3KB+ payload 直接封装成一个 TCP 段回写 TUN，极易超过 MTU（IPv6 常见 1280 / IPv4 1500），
+        // 系统 TCP 栈会直接丢弃，表现为“日志显示已回包/已写入TUN，但网页打不开”。
+        // 因此必须做分段（按保守 MSS 切片）。
+        constexpr int kMaxTcpPayloadPerSegment = 1200; // 保守值，兼容 IPv6/UDP隧道/不同MTU
+
         // 确保TCP socket是阻塞模式，以便完整接收所有数据
         if (!SetBlockingMode(sockFd, true)) {
             LOG_ERROR("设置TCP socket为阻塞模式失败: fd=%d", sockFd);
@@ -867,18 +888,23 @@ static void StartTCPThread(int sockFd, const sockaddr_in& originalPeer) {
                 LOG_INFO("🔍 等待TCP响应 (fd=%d)", sockFd);
             }
             
+            // 🔍 [排查点4] 服务端从真实服务器接收响应 (TCP)
             ssize_t received = recv(sockFd, buffer, sizeof(buffer), 0);
             
             if (received > 0) {
-                // 🔍 简化：只在每100次或前5次时记录
+                // 🔍 [排查点4] 服务端从真实服务器接收响应成功
                 NATConnection conn;
                 if (NATTable::FindMappingBySocket(sockFd, conn)) {
-                    if (tcpRecvCount <= 5 || tcpRecvCount % 100 == 0) {
-                        LOG_INFO("🔍 收到TCP响应: %zd字节 (fd=%d, 目标=%s:%d)", 
-                                 received, sockFd, conn.serverIP.c_str(), conn.serverPort);
+                    static int tcpRecvSuccessCount = 0;
+                    tcpRecvSuccessCount++;
+                    if (tcpRecvCount <= 10 || tcpRecvSuccessCount % 50 == 0) {
+                        LOG_INFO("✅ [排查点4] 服务端<-真实服务器(TCP): %{public}s:%{public}d -> %{public}s:%{public}d (收到%{public}zd字节, fd=%{public}d)",
+                                conn.serverIP.c_str(), conn.serverPort,
+                                conn.clientVirtualIP.c_str(), conn.clientVirtualPort,
+                                received, sockFd);
                     }
                 } else {
-                    LOG_ERROR("🚨 收到TCP响应但NAT映射不存在: %zd字节 (fd=%d)", received, sockFd);
+                    LOG_ERROR("❌ [排查点4] 服务端<-真实服务器(TCP): 收到%{public}zd字节但NAT映射不存在 (fd=%{public}d)", received, sockFd);
                 }
                 LOG_INFO("🧭 [TCP-TRACE] RECV_BACKEND key=%{public}s fd=%{public}d bytes=%{public}d",
                          natKey.c_str(), sockFd, static_cast<int>(received));
@@ -943,51 +969,62 @@ static void StartTCPThread(int sockFd, const sockaddr_in& originalPeer) {
             // 检查NAT映射并构建完整IP响应包（包含正确的TCP seq/ack）
             NATConnection conn;
             if (NATTable::FindMappingBySocket(sockFd, conn)) {
+                // ✅ 分段回写：按保守 MSS 切片，避免超过 MTU 被系统丢弃
+                int remaining = static_cast<int>(received);
+                int offset = 0;
+                while (remaining > 0) {
+                    int chunk = remaining > kMaxTcpPayloadPerSegment ? kMaxTcpPayloadPerSegment : remaining;
 
-            // Snapshot + advance nextServerSeq under lock
-                uint32_t seqToSend = 0;
-                uint32_t ackToSend = 0;
-                PacketInfo origReq = conn.originalRequest;
-                // 🚨 修复：检查WithConnectionBySocket返回值，避免在映射不存在时崩溃
-                bool hasConn = NATTable::WithConnectionBySocket(sockFd, [&](NATConnection& c) {
-                    seqToSend = c.nextServerSeq;
-                    ackToSend = c.nextClientSeq;
-                    c.nextServerSeq += static_cast<uint32_t>(received);
-                });
-                if (!hasConn) {
-                    LOG_ERROR("NAT映射不存在，无法处理数据响应: fd=%d", sockFd);
-                    close(sockFd);
-                    return;
-                }
+                    // Snapshot + advance nextServerSeq under lock（按 chunk 推进）
+                    uint32_t seqToSend = 0;
+                    uint32_t ackToSend = 0;
+                    PacketInfo origReq = conn.originalRequest;
+                    bool hasConn = NATTable::WithConnectionBySocket(sockFd, [&](NATConnection& c) {
+                        seqToSend = c.nextServerSeq;
+                        ackToSend = c.nextClientSeq;
+                        origReq = c.originalRequest;
+                        c.nextServerSeq += static_cast<uint32_t>(chunk);
+                    });
+                    if (!hasConn) {
+                        LOG_ERROR("NAT映射不存在，无法处理数据响应(分段): fd=%d", sockFd);
+                        close(sockFd);
+                        return;
+                    }
 
-
-                const size_t responseCapacity = static_cast<size_t>(received) + 64; // IPv4+TCP headers
-                std::vector<uint8_t> responsePacket(responseCapacity);
-                int responseSize = PacketBuilder::BuildTcpResponsePacket(
-                    responsePacket.data(), static_cast<int>(responsePacket.size()),
-                    buffer, static_cast<int>(received),
-                    origReq,
-                    seqToSend, ackToSend,
-                    TCP_ACK | TCP_PSH
-                );
-
-                if (responseSize > 0) {
-                    // ✅ 通过工作线程池提交响应任务
-                    bool submitted = TaskQueueManager::getInstance().submitResponseTask(
-                        responsePacket.data(), responseSize,
-                        originalPeer,  // 客户端地址
-                        sockFd,        // 来源socket（用于NAT查找）
-                        PROTOCOL_TCP
+                    const size_t responseCapacity = static_cast<size_t>(chunk) + 96; // IPv6(40)+TCP(20)+余量
+                    std::vector<uint8_t> responsePacket(responseCapacity);
+                    uint8_t flags = TCP_ACK;
+                    if (remaining == chunk) {
+                        // 最后一段可带 PSH，语义更接近真实栈
+                        flags |= TCP_PSH;
+                    }
+                    int responseSize = PacketBuilder::BuildTcpResponsePacket(
+                        responsePacket.data(), static_cast<int>(responsePacket.size()),
+                        buffer + offset, chunk,
+                        origReq,
+                        seqToSend, ackToSend,
+                        flags
                     );
 
-                    if (!submitted) {
-                        LOG_ERROR("TCP响应任务提交失败");
+                    if (responseSize > 0) {
+                        bool submitted = TaskQueueManager::getInstance().submitResponseTask(
+                            responsePacket.data(), responseSize,
+                            originalPeer,
+                            sockFd,
+                            PROTOCOL_TCP
+                        );
+                        if (!submitted) {
+                            LOG_ERROR("TCP响应任务提交失败(分段): fd=%d", sockFd);
+                        } else {
+                            LOG_INFO("🧭 [TCP-TRACE] ENQ_DATA key=%{public}s fd=%{public}d size=%{public}d chunk=%{public}d off=%{public}d/%{public}d",
+                                     natKey.c_str(), sockFd, responseSize, chunk, offset, static_cast<int>(received));
+                        }
                     } else {
-                        LOG_INFO("🧭 [TCP-TRACE] ENQ_DATA key=%{public}s fd=%{public}d size=%{public}d",
-                                 natKey.c_str(), sockFd, responseSize);
+                        LOG_ERROR("构建TCP响应包失败(分段): fd=%d chunk=%d", sockFd, chunk);
                     }
-                } else {
-                    LOG_ERROR("构建TCP响应包失败");
+
+                    offset += chunk;
+                    remaining -= chunk;
                 }
             } else {
                 LOG_ERROR("NAT映射不存在: fd=%d", sockFd);
@@ -1323,12 +1360,22 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
             addrLen = sizeof(sockaddr_in);
         }
 
-        // 发送数据
+        // 🔍 [排查点3] 服务端转发到真实服务器 (UDP)
         ssize_t sent = sendto(sockFd, payload, payloadSize, 0, 
                              reinterpret_cast<sockaddr*>(&targetAddr), addrLen);
         if (sent < 0) {
+            LOG_ERROR("❌ [排查点3] 服务端->真实服务器(UDP)失败: %{public}s:%{public}d, errno=%{public}d (%{public}s), fd=%{public}d",
+                     actualTargetIP.c_str(), packetInfo.targetPort, errno, strerror(errno), sockFd);
             NATTable::RemoveMapping(natKey);
             return -1;
+        } else {
+            static int udpSendCount = 0;
+            udpSendCount++;
+            if (udpSendCount <= 10 || udpSendCount % 50 == 0) {
+                LOG_INFO("✅ [排查点3] 服务端->真实服务器(UDP): %{public}s:%{public}d -> %{public}s:%{public}d (payload=%{public}zd字节, fd=%{public}d)",
+                        packetInfo.sourceIP.c_str(), packetInfo.sourcePort,
+                        actualTargetIP.c_str(), packetInfo.targetPort, sent, sockFd);
+            }
         }
 
         // ✅ 重写：不要为每个UDP映射启动一个线程（会线程爆炸）
@@ -1568,13 +1615,24 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
             }
             const uint8_t* tcpPayload = data + tcp.ipHeaderLen + tcp.tcpHeaderLen;
             LogTcpTrace("SEND_BACKEND", packetInfo, tcp, dataSize, natKey, sockFd);
+            // 🔍 [排查点3] 服务端转发到真实服务器 (TCP)
             ssize_t sent = send(sockFd, tcpPayload, tcpPayloadSize, 0);
             if (sent < 0) {
                 int savedErr = errno;
-                LOG_ERROR("发送数据到真实服务器失败: fd=%{public}d errno=%{public}d (%{public}s)", sockFd, savedErr, strerror(savedErr));
+                LOG_ERROR("❌ [排查点3] 服务端->真实服务器(TCP)失败: %{public}s:%{public}d -> %{public}s:%{public}d, fd=%{public}d, errno=%{public}d (%{public}s), payload=%{public}d字节",
+                         packetInfo.sourceIP.c_str(), packetInfo.sourcePort,
+                         actualTargetIP.c_str(), packetInfo.targetPort, sockFd, savedErr, strerror(savedErr), tcpPayloadSize);
                 shutdown(sockFd, SHUT_RDWR);
                 NATTable::RemoveMapping(natKey);
                 return -1;
+            } else {
+                static int tcpSendCount = 0;
+                tcpSendCount++;
+                if (tcpSendCount <= 10 || tcpSendCount % 50 == 0) {
+                    LOG_INFO("✅ [排查点3] 服务端->真实服务器(TCP): %{public}s:%{public}d -> %{public}s:%{public}d (payload=%{public}zd字节, fd=%{public}d, seq=%{public}u)",
+                            packetInfo.sourceIP.c_str(), packetInfo.sourcePort,
+                            actualTargetIP.c_str(), packetInfo.targetPort, sent, sockFd, tcp.seq);
+                }
             }
             LOG_INFO("🧭 [TCP-TRACE] SEND_BACKEND_OK key=%{public}s fd=%{public}d bytes=%{public}d",
                      natKey.c_str(), sockFd, static_cast<int>(sent));

@@ -98,21 +98,44 @@ void WorkerThreadPool::forwardWorkerThread() {
     WORKER_LOGI("🚀 [Forward Worker] Worker线程启动: thread_id=%{public}s", threadIdStr.c_str());
 
     while (running_.load()) {
+        // 🔍 [关键排查] 记录pop前的队列状态
+        size_t queueSizeBefore = taskQueue.getForwardQueueSize();
+        
         auto taskOpt = taskQueue.popForwardTask(std::chrono::milliseconds(100));
         
+        // 🔍 [关键排查] 记录pop后的队列状态
+        size_t queueSizeAfter = taskQueue.getForwardQueueSize();
+        
+        // 🚨 关键诊断：如果队列有大量任务但pop返回空，说明队列可能被锁定或worker线程有问题
+        if (queueSizeBefore > 10 && !taskOpt.has_value()) {
+            static int timeoutCount = 0;
+            timeoutCount++;
+            if (timeoutCount <= 5 || timeoutCount % 10 == 0) {
+                WORKER_LOGE("🚨 [关键排查] popForwardTask超时但队列有%zu个任务！(超时次数=%d, 已处理=%d, 线程ID=%s)", 
+                           queueSizeBefore, timeoutCount, processedTasks, threadIdStr.c_str());
+            }
+        }
+        
         // 🔍 诊断：记录队列状态（在pop之后检查）
-        size_t queueSize = taskQueue.getForwardQueueSize();
-        if (queueSize > 20) {
-            WORKER_LOGE("⚠️ [Forward Worker] 队列严重积压: 当前队列大小=%zu, 已处理任务=%d (线程ID=%s)", 
-                       queueSize, processedTasks, threadIdStr.c_str());
+        if (queueSizeAfter > 20) {
+            static int backlogCount = 0;
+            backlogCount++;
+            if (backlogCount <= 5 || backlogCount % 10 == 0) {
+                WORKER_LOGE("⚠️ [Forward Worker] 队列严重积压: 当前队列大小=%zu, 已处理任务=%d (线程ID=%s)", 
+                           queueSizeAfter, processedTasks, threadIdStr.c_str());
+            }
         }
 
         if (!taskOpt.has_value()) {
-            // 🔍 诊断：如果队列有数据但超时，记录警告
-            if (queueSize > 0 && processedTasks % 100 == 0) {
-                WORKER_LOGE("⚠️ [Forward Worker] popForwardTask超时，但队列有%zu个任务（可能队列被锁定）", queueSize);
-            }
             continue;  // 超时或队列关闭
+        }
+        
+        // 🔍 [关键排查] 成功弹出任务，记录详细信息
+        static int popSuccessCount = 0;
+        popSuccessCount++;
+        if (popSuccessCount <= 10 || popSuccessCount % 50 == 0) {
+            WORKER_LOGI("✅ [关键排查] popForwardTask成功: 队列大小 %zu -> %zu (已处理=%d)", 
+                       queueSizeBefore, queueSizeAfter, processedTasks);
         }
 
         Task task = taskOpt.value();
@@ -155,6 +178,19 @@ void WorkerThreadPool::forwardWorkerThread() {
                        fwdTask.dataSize);
         }
 
+        // 🔍 [关键排查] 记录ForwardPacket调用前
+        if (fwdTask.packetInfo.protocol == PROTOCOL_TCP) {
+            static int tcpProcessCount = 0;
+            tcpProcessCount++;
+            if (tcpProcessCount <= 10 || tcpProcessCount % 20 == 0) {
+                WORKER_LOGI("🔍 [关键排查] 开始处理TCP任务 #%d: %s:%d -> %s:%d (队列剩余=%zu)",
+                           tcpProcessCount,
+                           fwdTask.packetInfo.sourceIP.c_str(), fwdTask.packetInfo.sourcePort,
+                           fwdTask.packetInfo.targetIP.c_str(), fwdTask.packetInfo.targetPort,
+                           taskQueue.getForwardQueueSize());
+            }
+        }
+        
         // 转发数据包
         auto t0 = std::chrono::steady_clock::now();
         int sockFd = PacketForwarder::ForwardPacket(
@@ -166,6 +202,17 @@ void WorkerThreadPool::forwardWorkerThread() {
         );
         auto t1 = std::chrono::steady_clock::now();
         auto costMs = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
+        
+        // 🔍 [关键排查] 记录ForwardPacket调用后
+        if (fwdTask.packetInfo.protocol == PROTOCOL_TCP) {
+            static int tcpProcessedCount = 0;
+            tcpProcessedCount++;
+            if (tcpProcessedCount <= 10 || tcpProcessedCount % 20 == 0) {
+                WORKER_LOGI("✅ [关键排查] TCP任务处理完成 #%d: fd=%d, 耗时=%lldms",
+                           tcpProcessedCount, sockFd, (long long)costMs);
+            }
+        }
+        
         if (costMs > 200) {
             WORKER_LOGE("⏱️ [Forward Worker] ForwardPacket slow: %{public}lldms proto=%{public}s %{public}s:%{public}d -> %{public}s:%{public}d size=%{public}d",
                        (long long)costMs, protocolName,
@@ -254,8 +301,22 @@ void WorkerThreadPool::responseWorkerThread() {
         const uint8_t* sendData = respTask.data;
         int sendSize = respTask.dataSize;
         
-        if (respTask.dataSize < 20 || (respTask.data[0] >> 4) != 4) {
-            WORKER_LOGE("响应数据不是有效的IP包");
+        // ✅ 支持 IPv4/IPv6：之前仅检查 IPv4(version=4) 会把 IPv6(version=6) 误报成“非IP包”。
+        if (respTask.dataSize <= 0) {
+            WORKER_LOGE("响应数据为空");
+        } else {
+            uint8_t version = (respTask.data[0] >> 4) & 0x0F;
+            if (version == 4) {
+                if (respTask.dataSize < 20) {
+                    WORKER_LOGE("响应数据不是有效的IPv4包(dataSize=%d)", respTask.dataSize);
+                }
+            } else if (version == 6) {
+                if (respTask.dataSize < 40) {
+                    WORKER_LOGE("响应数据不是有效的IPv6包(dataSize=%d)", respTask.dataSize);
+                }
+            } else {
+                WORKER_LOGE("响应数据不是有效的IP包(version=%d, dataSize=%d)", version, respTask.dataSize);
+            }
         }
 
         // 🔍 流程跟踪：记录响应发送给VPN客户端
@@ -279,7 +340,7 @@ void WorkerThreadPool::responseWorkerThread() {
             }
         }
         
-        // 发送完整IP包给客户端
+        // 🔍 [排查点6] 服务端发送响应到客户端
         if (tunnelFd >= 0 && g_running.load()) {
             char clientIP[INET_ADDRSTRLEN];
             inet_ntop(AF_INET, &respTask.clientAddr.sin_addr, clientIP, sizeof(clientIP));
@@ -289,6 +350,26 @@ void WorkerThreadPool::responseWorkerThread() {
                                  sizeof(respTask.clientAddr));
 
             if (sent > 0) {
+                // 🔍 [排查点6] 服务端发送响应到客户端成功
+                static int responseSendCount = 0;
+                responseSendCount++;
+                if (processedTasks <= 10 || responseSendCount % 50 == 0) {
+                    if (sendSize >= 20 && (sendData[0] >> 4) == 4) {
+                        char srcIP[INET_ADDRSTRLEN], dstIP[INET_ADDRSTRLEN];
+                        snprintf(srcIP, sizeof(srcIP), "%d.%d.%d.%d", sendData[12], sendData[13], sendData[14], sendData[15]);
+                        snprintf(dstIP, sizeof(dstIP), "%d.%d.%d.%d", sendData[16], sendData[17], sendData[18], sendData[19]);
+                        uint8_t protocol = sendData[9];
+                        uint16_t srcPort = 0, dstPort = 0;
+                        if ((protocol == 6 || protocol == 17) && sendSize >= 28) {
+                            srcPort = ntohs(*(uint16_t*)&sendData[20]);
+                            dstPort = ntohs(*(uint16_t*)&sendData[22]);
+                        }
+                        WORKER_LOGI("✅ [排查点6] 服务端->客户端: %{public}s:%{public}d -> %{public}s:%{public}d (协议=%{public}d, %{public}zd字节) -> 客户端%{public}s",
+                                   srcIP, srcPort, dstIP, dstPort, protocol, sent, clientIP);
+                    } else {
+                        WORKER_LOGI("✅ [排查点6] 服务端->客户端: 响应包%{public}zd字节 -> 客户端%{public}s", sent, clientIP);
+                    }
+                }
                 responseTasksProcessed_.fetch_add(1);
                 WORKER_LOGI("🔍 [流程跟踪] 响应已发送给VPN客户端: %zd字节 -> %s", sent, clientIP);
                 if (respTask.protocol == PROTOCOL_TCP && respTask.dataSize >= 20 && (respTask.data[0] >> 4) == 4) {
@@ -304,7 +385,9 @@ void WorkerThreadPool::responseWorkerThread() {
                 }
             } else {
                 responseTasksFailed_.fetch_add(1);
-                WORKER_LOGE("🔍 [流程跟踪] 发送响应失败: errno=%d (%s)", errno, strerror(errno));
+                // 🔍 [排查点6] 服务端发送响应到客户端失败
+                WORKER_LOGE("❌ [排查点6] 服务端->客户端失败: 响应包%{public}d字节 -> 客户端%{public}s, errno=%{public}d (%{public}s), tunnelFd=%{public}d",
+                           sendSize, clientIP, errno, strerror(errno), tunnelFd);
                 if (respTask.protocol == PROTOCOL_TCP && respTask.dataSize >= 20 && (respTask.data[0] >> 4) == 4) {
                     uint16_t srcPort = (respTask.data[20] << 8) | respTask.data[21];
                     uint16_t dstPort = (respTask.data[22] << 8) | respTask.data[23];
