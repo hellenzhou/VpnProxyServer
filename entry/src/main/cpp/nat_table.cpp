@@ -173,6 +173,16 @@ bool NATTable::FindMappingBySocket(int forwardSocket, NATConnection& conn) {
     return false;
 }
 
+bool NATTable::GetKeyBySocket(int forwardSocket, std::string& key) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = socketToKey_.find(forwardSocket);
+    if (it == socketToKey_.end()) {
+        return false;
+    }
+    key = it->second;
+    return true;
+}
+
 // 更新活动时间
 void NATTable::UpdateActivity(const std::string& key) {
     std::lock_guard<std::mutex> lock(mutex_);

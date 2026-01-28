@@ -69,6 +69,9 @@ public:
     // 通过转发socket查找映射（用于响应处理）
     static bool FindMappingBySocket(int forwardSocket, NATConnection& conn);
     
+    // 通过socket获取映射key（用于链路追踪日志）
+    static bool GetKeyBySocket(int forwardSocket, std::string& key);
+    
     // 更新最后活动时间
     static void UpdateActivity(const std::string& key);
     

@@ -290,10 +290,32 @@ void WorkerThreadPool::responseWorkerThread() {
 
             if (sent > 0) {
                 responseTasksProcessed_.fetch_add(1);
-                WORKER_LOGI("🔍 [流程跟踪] 响应已发送给VPN客户端: %d字节 -> %s", sent, clientIP);
+                WORKER_LOGI("🔍 [流程跟踪] 响应已发送给VPN客户端: %zd字节 -> %s", sent, clientIP);
+                if (respTask.protocol == PROTOCOL_TCP && respTask.dataSize >= 20 && (respTask.data[0] >> 4) == 4) {
+                    uint16_t srcPort = (respTask.data[20] << 8) | respTask.data[21];
+                    uint16_t dstPort = (respTask.data[22] << 8) | respTask.data[23];
+                    char srcIP[INET_ADDRSTRLEN], dstIP[INET_ADDRSTRLEN];
+                    snprintf(srcIP, sizeof(srcIP), "%d.%d.%d.%d",
+                             respTask.data[12], respTask.data[13], respTask.data[14], respTask.data[15]);
+                    snprintf(dstIP, sizeof(dstIP), "%d.%d.%d.%d",
+                             respTask.data[16], respTask.data[17], respTask.data[18], respTask.data[19]);
+                    WORKER_LOGI("🧭 [TCP-TRACE] RESP_SEND ok %s:%d -> %s:%d size=%d client=%s",
+                               srcIP, srcPort, dstIP, dstPort, respTask.dataSize, clientIP);
+                }
             } else {
                 responseTasksFailed_.fetch_add(1);
                 WORKER_LOGE("🔍 [流程跟踪] 发送响应失败: errno=%d (%s)", errno, strerror(errno));
+                if (respTask.protocol == PROTOCOL_TCP && respTask.dataSize >= 20 && (respTask.data[0] >> 4) == 4) {
+                    uint16_t srcPort = (respTask.data[20] << 8) | respTask.data[21];
+                    uint16_t dstPort = (respTask.data[22] << 8) | respTask.data[23];
+                    char srcIP[INET_ADDRSTRLEN], dstIP[INET_ADDRSTRLEN];
+                    snprintf(srcIP, sizeof(srcIP), "%d.%d.%d.%d",
+                             respTask.data[12], respTask.data[13], respTask.data[14], respTask.data[15]);
+                    snprintf(dstIP, sizeof(dstIP), "%d.%d.%d.%d",
+                             respTask.data[16], respTask.data[17], respTask.data[18], respTask.data[19]);
+                    WORKER_LOGE("🧭 [TCP-TRACE] RESP_SEND fail %s:%d -> %s:%d size=%d client=%s errno=%d (%s)",
+                               srcIP, srcPort, dstIP, dstPort, respTask.dataSize, clientIP, errno, strerror(errno));
+                }
             }
         } else {
             responseTasksFailed_.fetch_add(1);

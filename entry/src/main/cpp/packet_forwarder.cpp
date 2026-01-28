@@ -66,6 +66,26 @@ static std::string TcpFlagsToString(uint8_t flags)
     return s;
 }
 
+static const char* TcpStateToString(NATConnection::TcpState s)
+{
+    switch (s) {
+        case NATConnection::TcpState::NONE:
+            return "NONE";
+        case NATConnection::TcpState::CONNECTING:
+            return "CONNECTING";
+        case NATConnection::TcpState::SYN_RECEIVED:
+            return "SYN_RECEIVED";
+        case NATConnection::TcpState::ESTABLISHED:
+            return "ESTABLISHED";
+        case NATConnection::TcpState::FIN_SENT:
+            return "FIN_SENT";
+        case NATConnection::TcpState::CLOSED:
+            return "CLOSED";
+        default:
+            return "UNKNOWN";
+    }
+}
+
 static std::string FormatSockaddr(const sockaddr_in& addr)
 {
     char ip[INET_ADDRSTRLEN] = {0};
@@ -274,6 +294,24 @@ static ParsedTcp ParseTcpFromIp(const uint8_t* data, int dataSize)
     }
 
     return t;
+}
+
+static void LogTcpTrace(const char* stage,
+                        const PacketInfo& info,
+                        const ParsedTcp& tcp,
+                        int dataSize,
+                        const std::string& natKey,
+                        int sockFd)
+{
+    int payload = dataSize - tcp.ipHeaderLen - tcp.tcpHeaderLen;
+    if (payload < 0) {
+        payload = 0;
+    }
+    LOG_INFO("🧭 [TCP-TRACE] %s key=%{public}s fd=%{public}d %s:%d -> %s:%d flags=%{public}s seq=%{public}u ack=%{public}u payload=%{public}d",
+             stage, natKey.c_str(), sockFd,
+             info.sourceIP.c_str(), info.sourcePort,
+             info.targetIP.c_str(), info.targetPort,
+             TcpFlagsToString(tcp.flags).c_str(), tcp.seq, tcp.ack, payload);
 }
 
 static uint32_t RandomIsn()
@@ -796,6 +834,20 @@ static void StartTCPThread(int sockFd, const sockaddr_in& originalPeer) {
             close(sockFd);
             return;
         }
+
+        // 🔍 追踪：线程启动时记录key与目标信息
+        std::string natKey;
+        NATTable::GetKeyBySocket(sockFd, natKey);
+        NATConnection startConn;
+        if (NATTable::FindMappingBySocket(sockFd, startConn)) {
+            LOG_INFO("🧭 [TCP-TRACE] RECV_THREAD_START key=%{public}s fd=%{public}d target=%{public}s:%{public}d client=%{public}s:%{public}d state=%{public}s",
+                     natKey.c_str(), sockFd,
+                     startConn.serverIP.c_str(), startConn.serverPort,
+                     startConn.clientVirtualIP.c_str(), startConn.clientVirtualPort,
+                     TcpStateToString(startConn.tcpState));
+        } else {
+            LOG_INFO("🧭 [TCP-TRACE] RECV_THREAD_START key=%{public}s fd=%{public}d (no mapping yet)", natKey.c_str(), sockFd);
+        }
         
         // 设置接收超时（30秒），避免无限期阻塞
         struct timeval timeout;
@@ -822,12 +874,14 @@ static void StartTCPThread(int sockFd, const sockaddr_in& originalPeer) {
                 NATConnection conn;
                 if (NATTable::FindMappingBySocket(sockFd, conn)) {
                     if (tcpRecvCount <= 5 || tcpRecvCount % 100 == 0) {
-                        LOG_INFO("🔍 收到TCP响应: %d字节 (fd=%d, 目标=%s:%d)", 
+                        LOG_INFO("🔍 收到TCP响应: %zd字节 (fd=%d, 目标=%s:%d)", 
                                  received, sockFd, conn.serverIP.c_str(), conn.serverPort);
                     }
                 } else {
-                    LOG_ERROR("🚨 收到TCP响应但NAT映射不存在: %d字节 (fd=%d)", received, sockFd);
+                    LOG_ERROR("🚨 收到TCP响应但NAT映射不存在: %zd字节 (fd=%d)", received, sockFd);
                 }
+                LOG_INFO("🧭 [TCP-TRACE] RECV_BACKEND key=%{public}s fd=%{public}d bytes=%{public}d",
+                         natKey.c_str(), sockFd, static_cast<int>(received));
             }
             
             if (received < 0) {
@@ -872,9 +926,11 @@ static void StartTCPThread(int sockFd, const sockaddr_in& originalPeer) {
                         TCP_FIN | TCP_ACK
                     );
                     if (finSize > 0) {
-                        TaskQueueManager::getInstance().submitResponseTask(
+                        bool submitted = TaskQueueManager::getInstance().submitResponseTask(
                             finPkt, finSize, originalPeer, sockFd, PROTOCOL_TCP
                         );
+                        LOG_INFO("🧭 [TCP-TRACE] ENQ_FIN key=%{public}s fd=%{public}d size=%{public}d ok=%{public}d",
+                                 natKey.c_str(), sockFd, finSize, submitted ? 1 : 0);
                     }
                 }
 
@@ -926,6 +982,9 @@ static void StartTCPThread(int sockFd, const sockaddr_in& originalPeer) {
 
                     if (!submitted) {
                         LOG_ERROR("TCP响应任务提交失败");
+                    } else {
+                        LOG_INFO("🧭 [TCP-TRACE] ENQ_DATA key=%{public}s fd=%{public}d size=%{public}d",
+                                 natKey.c_str(), sockFd, responseSize);
                     }
                 } else {
                     LOG_ERROR("构建TCP响应包失败");
@@ -1045,6 +1104,7 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
                      packetInfo.targetIP.c_str(), packetInfo.targetPort, dataSize);
             return -1;
         }
+        LogTcpTrace("IN", packetInfo, tcp, dataSize, natKey, sockFd);
 
         bool isSyn = HasTcpFlag(tcp.flags, TCP_SYN);
         bool isAck = HasTcpFlag(tcp.flags, TCP_ACK);
@@ -1058,6 +1118,9 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
 
         if (NATTable::FindMapping(natKey, existingConn)) {
             sockFd = existingConn.forwardSocket;
+            LOG_INFO("🧭 [TCP-TRACE] MAP_HIT key=%{public}s fd=%{public}d state=%{public}s clientIsn=%{public}u serverIsn=%{public}u",
+                     natKey.c_str(), sockFd, TcpStateToString(existingConn.tcpState),
+                     existingConn.clientIsn, existingConn.serverIsn);
 
             // 处理SYN重传：如果SYN-ACK丢失（UDP隧道丢包），需要重发SYN-ACK
             if (isSyn && !isAck && !isRst) {
@@ -1065,12 +1128,14 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
                     LOG_INFO("🔁 [TCP连接诊断] 收到SYN重传，但后端仍在连接中(暂不回SYN-ACK): %{public}s:%{public}d -> %{public}s:%{public}d (fd=%{public}d)",
                              packetInfo.sourceIP.c_str(), packetInfo.sourcePort,
                              packetInfo.targetIP.c_str(), packetInfo.targetPort, sockFd);
+                    LogTcpTrace("SYN_RETRANS_WAIT", packetInfo, tcp, dataSize, natKey, sockFd);
                     return sockFd;
                 }
                 if (existingConn.tcpState == NATConnection::TcpState::SYN_RECEIVED) {
                     LOG_INFO("🔁 [TCP连接诊断] 收到SYN重传，重发SYN-ACK: %{public}s:%{public}d -> %{public}s:%{public}d (fd=%{public}d)",
                              packetInfo.sourceIP.c_str(), packetInfo.sourcePort,
                              packetInfo.targetIP.c_str(), packetInfo.targetPort, sockFd);
+                    LogTcpTrace("SYN_RETRANS_RESEND", packetInfo, tcp, dataSize, natKey, sockFd);
 
                     // 确保客户端ISN一致
                     NATTable::WithConnection(natKey, [&](NATConnection& c) {
@@ -1090,10 +1155,12 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
                         serverIsn, tcp.seq + 1, TCP_SYN | TCP_ACK
                     );
                     if (synAckSize > 0) {
-                        TaskQueueManager::getInstance().submitResponseTask(
+                        bool submitted = TaskQueueManager::getInstance().submitResponseTask(
                             synAckPkt, synAckSize, originalPeer, sockFd, PROTOCOL_TCP
                         );
                         LOG_INFO("✅ [TCP连接诊断] SYN-ACK已重发 (seq=%{public}u ack=%{public}u)", serverIsn, tcp.seq + 1);
+                        LOG_INFO("🧭 [TCP-TRACE] ENQ_SYNACK_RESEND key=%{public}s fd=%{public}d size=%{public}d ok=%{public}d",
+                                 natKey.c_str(), sockFd, synAckSize, submitted ? 1 : 0);
                     } else {
                         LOG_ERROR("❌ [TCP连接诊断] SYN-ACK重发失败：构建失败");
                     }
@@ -1147,6 +1214,7 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
             LOG_INFO("🔍 [TCP连接诊断] 创建新的TCP连接映射: %{public}s:%{public}d -> %{public}s:%{public}d", 
                      packetInfo.sourceIP.c_str(), packetInfo.sourcePort,
                      packetInfo.targetIP.c_str(), packetInfo.targetPort);
+            LogTcpTrace("MAP_CREATE_START", packetInfo, tcp, dataSize, natKey, sockFd);
             LOG_INFO("🚀 [TCP转发线程] 调用GetSocket创建转发socket...");
             sockFd = GetSocket(packetInfo, originalPeer, tunnelFd);
             if (sockFd < 0) {
@@ -1191,6 +1259,7 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
 
             isNewMapping = true;
             LOG_INFO("✅ [TCP连接诊断] NAT映射已创建: socket fd=%{public}d, 映射key=%{public}s", sockFd, natKey.c_str());
+            LOG_INFO("🧭 [TCP-TRACE] MAP_CREATE_OK key=%{public}s fd=%{public}d", natKey.c_str(), sockFd);
             LOG_INFO("🚀 [TCP转发线程] ========================================");
         }
     } else {
@@ -1345,9 +1414,15 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
                 
                 // 尝试连接（快速超时，避免长时间阻塞）
+                LOG_INFO("🧭 [TCP-TRACE] CONNECT_START key=%{public}s fd=%{public}d target=%{public}s:%{public}d",
+                         natKey.c_str(), sockFd, actualTargetIP.c_str(), packetInfo.targetPort);
                 if (ConnectWithTimeout(sockFd, reinterpret_cast<sockaddr*>(&targetAddr), addrLen, 2000)) {
                     LOG_INFO("✅ [TCP] 后台连接成功: %{public}s:%{public}d (fd=%{public}d)",
                              actualTargetIP.c_str(), packetInfo.targetPort, sockFd);
+                    LOG_INFO("✅ [TCP] 后端已连通，准备回SYN-ACK: client=%{public}s:%{public}d -> target=%{public}s:%{public}d key=%{public}s local=%{public}s peer=%{public}s",
+                             packetInfo.sourceIP.c_str(), packetInfo.sourcePort,
+                             actualTargetIP.c_str(), packetInfo.targetPort, natKey.c_str(),
+                             GetSocketAddrString(sockFd, false).c_str(), GetSocketAddrString(sockFd, true).c_str());
 
                     // 后端已连通：此时再给客户端回SYN-ACK，避免ACK/数据早到导致send失败
                     uint8_t synAckPkt[128];
@@ -1356,12 +1431,14 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
                         serverIsn, clientIsn + 1, TCP_SYN | TCP_ACK
                     );
                     if (synAckSize > 0) {
-                        TaskQueueManager::getInstance().submitResponseTask(
+                        bool submitted = TaskQueueManager::getInstance().submitResponseTask(
                             synAckPkt, synAckSize, originalPeer, sockFd, PROTOCOL_TCP
                         );
                         LOG_INFO("✅ [TCP] SYN-ACK(延后)已发送: %{public}s:%{public}d -> %{public}s:%{public}d (fd=%{public}d)",
                                  packetInfo.sourceIP.c_str(), packetInfo.sourcePort,
                                  actualTargetIP.c_str(), packetInfo.targetPort, sockFd);
+                        LOG_INFO("🧭 [TCP-TRACE] ENQ_SYNACK key=%{public}s fd=%{public}d size=%{public}d ok=%{public}d",
+                                 natKey.c_str(), sockFd, synAckSize, submitted ? 1 : 0);
                     } else {
                         LOG_ERROR("❌ [TCP] SYN-ACK构建失败(延后发送): fd=%{public}d", sockFd);
                     }
@@ -1377,6 +1454,9 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
                     int savedErr = errno;
                     LOG_ERROR("❌ [TCP] 后台连接失败: %{public}s:%{public}d (fd=%{public}d) - errno=%{public}d (%{public}s)",
                              actualTargetIP.c_str(), packetInfo.targetPort, sockFd, savedErr, strerror(savedErr));
+                    LOG_ERROR("❌ [TCP] 后端连接失败，准备回RST: client=%{public}s:%{public}d -> target=%{public}s:%{public}d key=%{public}s",
+                             packetInfo.sourceIP.c_str(), packetInfo.sourcePort,
+                             actualTargetIP.c_str(), packetInfo.targetPort, natKey.c_str());
 
                     // 发送 RST|ACK 告知客户端连接失败（ack=clientIsn+1）
                     uint8_t rstPkt[128];
@@ -1385,9 +1465,11 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
                         0, clientIsn + 1, TCP_RST | TCP_ACK
                     );
                     if (rstSize > 0) {
-                        TaskQueueManager::getInstance().submitResponseTask(
+                        bool submitted = TaskQueueManager::getInstance().submitResponseTask(
                             rstPkt, rstSize, originalPeer, sockFd, PROTOCOL_TCP
                         );
+                        LOG_INFO("🧭 [TCP-TRACE] ENQ_RST key=%{public}s fd=%{public}d size=%{public}d ok=%{public}d",
+                                 natKey.c_str(), sockFd, rstSize, submitted ? 1 : 0);
                     } else {
                         LOG_ERROR("❌ [TCP] RST构建失败: fd=%{public}d", sockFd);
                     }
@@ -1425,9 +1507,11 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
                 seqVal, ackVal, TCP_ACK
             );
             if (ackSize > 0) {
-                TaskQueueManager::getInstance().submitResponseTask(
+                bool submitted = TaskQueueManager::getInstance().submitResponseTask(
                     ackPkt, ackSize, originalPeer, sockFd, PROTOCOL_TCP
                 );
+                LOG_INFO("🧭 [TCP-TRACE] ENQ_FIN_ACK key=%{public}s fd=%{public}d size=%{public}d ok=%{public}d",
+                         natKey.c_str(), sockFd, ackSize, submitted ? 1 : 0);
             }
             shutdown(sockFd, SHUT_RDWR);
             NATTable::RemoveMapping(natKey);
@@ -1457,6 +1541,7 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
             });
             // 纯ACK：握手完成即可返回；ACK+payload 继续走数据分支
             if (tcpPayloadSize <= 0) {
+                LogTcpTrace("ACK_HANDSHAKE", packetInfo, tcp, dataSize, natKey, sockFd);
                 return sockFd;
             }
         }
@@ -1478,9 +1563,11 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
                           packetInfo.sourceIP.c_str(), packetInfo.sourcePort,
                           actualTargetIP.c_str(), packetInfo.targetPort, sockFd,
                           TcpFlagsToString(tcp.flags).c_str(), tcpPayloadSize);
+                LogTcpTrace("DATA_DROP_NO_ESTABLISH", packetInfo, tcp, dataSize, natKey, sockFd);
                 return sockFd;
             }
             const uint8_t* tcpPayload = data + tcp.ipHeaderLen + tcp.tcpHeaderLen;
+            LogTcpTrace("SEND_BACKEND", packetInfo, tcp, dataSize, natKey, sockFd);
             ssize_t sent = send(sockFd, tcpPayload, tcpPayloadSize, 0);
             if (sent < 0) {
                 int savedErr = errno;
@@ -1489,6 +1576,8 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
                 NATTable::RemoveMapping(natKey);
                 return -1;
             }
+            LOG_INFO("🧭 [TCP-TRACE] SEND_BACKEND_OK key=%{public}s fd=%{public}d bytes=%{public}d",
+                     natKey.c_str(), sockFd, static_cast<int>(sent));
 
             uint32_t seqVal = 0;
             uint32_t ackVal = 0;
@@ -1505,9 +1594,11 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
                 seqVal, ackVal, TCP_ACK
             );
             if (ackSize > 0) {
-                TaskQueueManager::getInstance().submitResponseTask(
+                bool submitted = TaskQueueManager::getInstance().submitResponseTask(
                     ackPkt, ackSize, originalPeer, sockFd, PROTOCOL_TCP
                 );
+                LOG_INFO("🧭 [TCP-TRACE] ENQ_DATA_ACK key=%{public}s fd=%{public}d size=%{public}d ok=%{public}d",
+                         natKey.c_str(), sockFd, ackSize, submitted ? 1 : 0);
             }
             return sockFd;
         }
