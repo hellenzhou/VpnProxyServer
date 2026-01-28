@@ -9,6 +9,7 @@
 #include <arpa/inet.h>
 #include <thread>
 #include <chrono>
+#include <sstream>
 
 #define MAKE_FILE_NAME (strrchr(__FILE__, '/') ? (strrchr(__FILE__, '/') + 1) : __FILE__)
 #define WORKER_LOGI(fmt, ...) \
@@ -87,11 +88,29 @@ void WorkerThreadPool::stop() {
 void WorkerThreadPool::forwardWorkerThread() {
     auto& taskQueue = TaskQueueManager::getInstance();
     int processedTasks = 0;
+    
+    // 获取当前线程ID用于日志
+    std::thread::id threadId = std::this_thread::get_id();
+    std::ostringstream ss;
+    ss << threadId;
+    std::string threadIdStr = ss.str();
+    WORKER_LOGI("🚀 [Forward Worker] Worker线程启动: thread_id=%{public}s", threadIdStr.c_str());
 
     while (running_.load()) {
         auto taskOpt = taskQueue.popForwardTask(std::chrono::milliseconds(100));
+        
+        // 🔍 诊断：记录队列状态（在pop之后检查）
+        size_t queueSize = taskQueue.getForwardQueueSize();
+        if (queueSize > 20) {
+            WORKER_LOGE("⚠️ [Forward Worker] 队列严重积压: 当前队列大小=%zu, 已处理任务=%d (线程ID=%s)", 
+                       queueSize, processedTasks, threadIdStr.c_str());
+        }
 
         if (!taskOpt.has_value()) {
+            // 🔍 诊断：如果队列有数据但超时，记录警告
+            if (queueSize > 0 && processedTasks % 100 == 0) {
+                WORKER_LOGE("⚠️ [Forward Worker] popForwardTask超时，但队列有%zu个任务（可能队列被锁定）", queueSize);
+            }
             continue;  // 超时或队列关闭
         }
 
@@ -104,6 +123,34 @@ void WorkerThreadPool::forwardWorkerThread() {
         ForwardTask& fwdTask = task.forwardTask;
         processedTasks++;
 
+        // 🚨 强制记录：每个任务都记录协议类型（用于诊断TCP任务是否被worker线程接收）
+        const char* protocolName = "UNKNOWN";
+        if (fwdTask.packetInfo.protocol == PROTOCOL_TCP) {
+            protocolName = "TCP";
+        } else if (fwdTask.packetInfo.protocol == PROTOCOL_UDP) {
+            protocolName = "UDP";
+        } else if (fwdTask.packetInfo.protocol == PROTOCOL_ICMP) {
+            protocolName = "ICMP";
+        } else if (fwdTask.packetInfo.protocol == PROTOCOL_ICMPV6) {
+            protocolName = "ICMPv6";
+        }
+        
+        WORKER_LOGI("🔍 [Forward Worker] 任务#%{public}d: 协议=%{public}s, 源=%{public}s:%{public}d, 目标=%{public}s:%{public}d, 大小=%{public}d字节", 
+                   processedTasks, protocolName,
+                   fwdTask.packetInfo.sourceIP.c_str(), fwdTask.packetInfo.sourcePort,
+                   fwdTask.packetInfo.targetIP.c_str(), fwdTask.packetInfo.targetPort,
+                   fwdTask.dataSize);
+
+        // 🚨 强制记录：TCP任务被worker线程处理（用于诊断TCP任务是否被worker线程接收）
+        if (fwdTask.packetInfo.protocol == PROTOCOL_TCP) {
+            WORKER_LOGI("🚀 [Forward Worker] ========== 开始处理TCP任务 ==========");
+            WORKER_LOGI("🚀 [Forward Worker] 源: %{public}s:%{public}d -> 目标: %{public}s:%{public}d", 
+                       fwdTask.packetInfo.sourceIP.c_str(), fwdTask.packetInfo.sourcePort,
+                       fwdTask.packetInfo.targetIP.c_str(), fwdTask.packetInfo.targetPort);
+            WORKER_LOGI("🚀 [Forward Worker] 数据大小: %{public}d字节, 任务#%{public}d", 
+                       fwdTask.dataSize, processedTasks);
+        }
+
         // 转发数据包
         int sockFd = PacketForwarder::ForwardPacket(
             fwdTask.data,
@@ -112,6 +159,16 @@ void WorkerThreadPool::forwardWorkerThread() {
             fwdTask.clientAddr,
             fwdTask.tunnelFd
         );
+        
+        // 🚨 强制记录：TCP任务处理结果
+        if (fwdTask.packetInfo.protocol == PROTOCOL_TCP) {
+            if (sockFd >= 0) {
+                WORKER_LOGI("✅ [Forward Worker] TCP任务处理成功: sockFd=%{public}d", sockFd);
+            } else {
+                WORKER_LOGE("❌ [Forward Worker] TCP任务处理失败: sockFd=%{public}d", sockFd);
+            }
+            WORKER_LOGI("🚀 [Forward Worker] ========================================");
+        }
 
         if (sockFd >= 0) {
             forwardTasksProcessed_.fetch_add(1);

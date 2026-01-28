@@ -103,14 +103,47 @@ public:
     Optional<T> popWithTimeout(std::chrono::milliseconds timeout) {
         std::unique_lock<std::mutex> lock(mutex_);
         
-        if (!notEmpty_.wait_for(lock, timeout, [this] {
-            return !queue_.empty() || shutdown_;
-        })) {
-            return Optional<T>();  // 超时，返回空值
+        // 🚨 关键修复：在等待前检查队列是否已经有数据
+        // 这解决了条件变量通知丢失或竞态条件导致的问题
+        if (!queue_.empty()) {
+            // 队列已经有数据，直接返回，不需要等待
+            T item = queue_.front();
+            queue_.pop();
+            notFull_.notify_one();
+            return Optional<T>(item);
         }
         
+        // 如果已关闭且队列为空，直接返回
+        if (shutdown_) {
+            return Optional<T>();
+        }
+        
+        // 队列为空，等待数据到达
+        bool waitResult = notEmpty_.wait_for(lock, timeout, [this] {
+            return !queue_.empty() || shutdown_;
+        });
+        
+        // 检查等待结果
+        if (!waitResult) {
+            // 超时，但再次检查队列（防止竞态条件：数据在超时瞬间到达）
+            if (!queue_.empty()) {
+                T item = queue_.front();
+                queue_.pop();
+                notFull_.notify_one();
+                return Optional<T>(item);
+            }
+            return Optional<T>();  // 超时且队列仍为空
+        }
+        
+        // waitResult 为 true，说明队列非空或已关闭
         if (shutdown_ && queue_.empty()) {
-            return Optional<T>();  // 空值
+            return Optional<T>();  // 已关闭且队列为空
+        }
+        
+        // 此时队列应该非空（因为 waitResult 为 true 且 shutdown_ 为 false 或队列非空）
+        if (queue_.empty()) {
+            // 🚨 防御性检查：理论上不应该发生，但为了健壮性保留
+            return Optional<T>();
         }
         
         T item = queue_.front();
@@ -129,6 +162,18 @@ public:
     bool empty() const {
         std::lock_guard<std::mutex> lock(mutex_);
         return queue_.empty();
+    }
+    
+    // 诊断方法：获取队列状态（用于调试）
+    struct QueueState {
+        size_t size;
+        bool empty;
+        bool shutdown;
+    };
+    
+    QueueState getState() const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return {queue_.size(), queue_.empty(), shutdown_.load()};
     }
     
     // 关闭队列

@@ -102,6 +102,10 @@ public:
     size_t getForwardQueueSize() const { return forwardQueue_.size(); }
     size_t getResponseQueueSize() const { return responseQueue_.size(); }
     
+    // 检查队列是否为空
+    bool isForwardQueueEmpty() const { return forwardQueue_.empty(); }
+    bool isResponseQueueEmpty() const { return responseQueue_.empty(); }
+    
     // 关闭所有队列
     void shutdown();
     

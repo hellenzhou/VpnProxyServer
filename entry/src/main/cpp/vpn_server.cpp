@@ -1024,6 +1024,15 @@ void WorkerLoop()
       PacketInfo packetInfo = ProtocolHandler::ParseIPPacket(buf, n);
       
       if (!packetInfo.isValid) {
+        // 🚨 关键诊断：记录解析失败的数据包
+        if (n >= 20) {
+          uint8_t protocol = buf[9];
+          char srcIP[INET_ADDRSTRLEN], dstIP[INET_ADDRSTRLEN];
+          inet_ntop(AF_INET, &buf[12], srcIP, sizeof(srcIP));
+          inet_ntop(AF_INET, &buf[16], dstIP, sizeof(dstIP));
+          VPN_SERVER_LOGE("❌ [协议解析] 数据包解析失败: 源=%s, 目标=%s, 协议=%d, 大小=%d字节 (可能是TCP/UDP包但解析失败)", 
+                         srcIP, dstIP, protocol, n);
+        }
         AddDataPacket(hexData, clientKey, packetType);
         continue;
       }
@@ -1138,9 +1147,31 @@ void WorkerLoop()
                      ProtocolHandler::GetProtocolName(packetInfo.protocol).c_str(),
                      packetInfo.targetIP.c_str(), packetInfo.targetPort);
       
+      // 🚨 关键诊断：TCP任务入队前记录详细信息
+      if (packetInfo.protocol == PROTOCOL_TCP) {
+        VPN_SERVER_LOGI("🚀 [TCP入队] ========== TCP任务准备入队 ==========");
+        VPN_SERVER_LOGI("🚀 [TCP入队] 源: %{public}s:%{public}d -> 目标: %{public}s:%{public}d", 
+                       packetInfo.sourceIP.c_str(), packetInfo.sourcePort,
+                       packetInfo.targetIP.c_str(), packetInfo.targetPort);
+        VPN_SERVER_LOGI("🚀 [TCP入队] 数据大小: %{public}d字节, 当前队列大小: %{public}zu", 
+                       n, TaskQueueManager::getInstance().getForwardQueueSize());
+        VPN_SERVER_LOGI("🚀 [TCP入队] Worker运行状态: %{public}d", 
+                       WorkerThreadPool::getInstance().isRunning() ? 1 : 0);
+      }
+      
       if (!TaskQueueManager::getInstance().submitForwardTask(buf, n, packetInfo, peer, currentSockFd)) {
-        VPN_SERVER_LOGE("ZHOUB [FWD✗] Failed to submit task (queue full)");
+        if (packetInfo.protocol == PROTOCOL_TCP) {
+          VPN_SERVER_LOGE("❌ [TCP入队] 入队失败: 队列已满");
+          VPN_SERVER_LOGE("🚀 [TCP入队] ========================================");
+        } else {
+          VPN_SERVER_LOGE("ZHOUB [FWD✗] Failed to submit task (queue full)");
+        }
       } else {
+        if (packetInfo.protocol == PROTOCOL_TCP) {
+          VPN_SERVER_LOGI("✅ [TCP入队] TCP任务入队成功: 队列大小=%{public}zu", 
+                         TaskQueueManager::getInstance().getForwardQueueSize());
+          VPN_SERVER_LOGI("🚀 [TCP入队] ========================================");
+        }
         VPN_SERVER_LOGI("ZHOUB [FWD→] %{public}s -> %{public}s:%{public}d (queued) | workerRunning=%{public}d fwdQ=%{public}zu respQ=%{public}zu",
                         ProtocolHandler::GetProtocolName(packetInfo.protocol).c_str(),
                         packetInfo.targetIP.c_str(), packetInfo.targetPort,
