@@ -29,6 +29,7 @@ add_library(vpn_server SHARED
     packet_forwarder.cpp
     packet_builder.cpp
     nat_table.cpp
+    nat_connection_manager.cpp  # 🚀 新的NAT连接管理器
     network_diagnostics.cpp
     task_queue.cpp
     udp_retransmit.cpp

@@ -1,6 +1,7 @@
 // 🚀 最终简化版 - 专注解决NAT映射问题
 #include "packet_forwarder.h"
 #include "nat_table.h"
+#include "nat_connection_manager.h"  // 🚀 新的NAT连接管理器
 #include "protocol_handler.h"
 #include "packet_builder.h"
 #include "udp_retransmit.h"
@@ -959,20 +960,12 @@ static void StartTCPThread(int sockFd, const sockaddr_in& originalPeer) {
                                  natKey.c_str(), sockFd, finSize, submitted ? 1 : 0);
                     }
                     
-                    // 🐛 修复：不立即删除映射，延迟5秒后删除
-                    // 原因：客户端需要时间发送ACK确认FIN，如果立即删除映射，
-                    // 客户端的ACK包到达时会找不到连接，导致"收到非SYN包但连接不存在"错误
-                    LOG_INFO("⏰ [TCP-TRACE] DELAY_DELETE key=%{public}s fd=%{public}d delay=5s",
+                    // 🚀 使用统一的NAT清理接口（自动延迟5秒，等待客户端ACK）
+                    // Socket将在NAT映射删除后自动归还到连接池
+                    LOG_INFO("⏰ [TCP-TRACE] DELAY_DELETE key=%{public}s fd=%{public}d",
                              natKey.c_str(), sockFd);
                     
-                    // 启动延迟删除线程
-                    std::thread([sockFd, natKey]() {
-                        std::this_thread::sleep_for(std::chrono::seconds(5));
-                        NATTable::RemoveMappingBySocket(sockFd);
-                        SocketConnectionPool::getInstance().returnSocket(sockFd, "", 0, "", 0, PROTOCOL_TCP, AF_INET);
-                        LOG_INFO("🧹 [TCP-TRACE] DELAYED_CLEAN key=%{public}s fd=%{public}d",
-                                 natKey.c_str(), sockFd);
-                    }).detach();
+                    NATConnectionManager::getInstance().scheduleRemoveBySocket(sockFd, CleanupReason::TCP_SERVER_FIN);
                     
                     return;  // 不要继续循环，让延迟线程处理清理
                 }
@@ -1049,16 +1042,11 @@ static void StartTCPThread(int sockFd, const sockaddr_in& originalPeer) {
             }
         }
         
-        // 🐛 修复：延迟清理NAT映射，避免客户端ACK包找不到连接
-        // 当接收循环因错误退出时，延迟2秒后再删除映射
-        std::string natKeyCleanup = natKey;
-        std::thread([sockFd, natKeyCleanup]() {
-            std::this_thread::sleep_for(std::chrono::seconds(2));
-            NATTable::RemoveMappingBySocket(sockFd);
-            SocketConnectionPool::getInstance().returnSocket(sockFd, "", 0, "", 0, PROTOCOL_TCP, AF_INET);
-            LOG_INFO("🧹 [TCP-TRACE] ERROR_CLEAN key=%{public}s fd=%{public}d",
-                     natKeyCleanup.c_str(), sockFd);
-        }).detach();
+        // 🚀 使用统一的NAT清理接口（自动延迟2秒）
+        // Socket将在NAT映射删除后自动归还到连接池
+        LOG_INFO("🧹 [TCP-TRACE] ERROR_CLEAN_SCHEDULED key=%{public}s fd=%{public}d",
+                 natKey.c_str(), sockFd);
+        NATConnectionManager::getInstance().scheduleRemoveBySocket(sockFd, CleanupReason::TCP_TIMEOUT);
         
     }).detach();
 }
@@ -1323,7 +1311,7 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
             isNewMapping = true;
             LOG_INFO("✅ [TCP连接诊断] NAT映射已创建: socket fd=%{public}d, 映射key=%{public}s", sockFd, natKey.c_str());
             LOG_INFO("🧭 [TCP-TRACE] MAP_CREATE_OK key=%{public}s fd=%{public}d", natKey.c_str(), sockFd);
-            LOG_INFO("🚀 [TCP转发线程] ========================================");
+            
         }
     } else {
         // UDP: 直接查找或创建映射
@@ -1371,7 +1359,9 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
             addr6->sin6_family = AF_INET6;
             addr6->sin6_port = htons(static_cast<uint16_t>(packetInfo.targetPort));
             if (inet_pton(AF_INET6, actualTargetIP.c_str(), &addr6->sin6_addr) <= 0) {
-                NATTable::RemoveMapping(natKey);
+                // 🚀 使用统一的NAT清理接口
+                // Socket将在NAT映射删除后自动归还到连接池
+                NATConnectionManager::getInstance().scheduleRemove(natKey, CleanupReason::UDP_ADDRESS_FAIL);
                 return -1;
             }
             addrLen = sizeof(sockaddr_in6);
@@ -1380,7 +1370,9 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
             addr4->sin_family = AF_INET;
             addr4->sin_port = htons(static_cast<uint16_t>(packetInfo.targetPort));
             if (inet_pton(AF_INET, actualTargetIP.c_str(), &addr4->sin_addr) <= 0) {
-                NATTable::RemoveMapping(natKey);
+                // 🚀 使用统一的NAT清理接口
+                // Socket将在NAT映射删除后自动归还到连接池
+                NATConnectionManager::getInstance().scheduleRemove(natKey, CleanupReason::UDP_ADDRESS_FAIL);
                 return -1;
             }
             addrLen = sizeof(sockaddr_in);
@@ -1392,9 +1384,11 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
         if (sent < 0) {
             LOG_ERROR("❌ [排查点3] 服务端->真实服务器(UDP)失败: %{public}s:%{public}d, errno=%{public}d (%{public}s), fd=%{public}d",
                      actualTargetIP.c_str(), packetInfo.targetPort, errno, strerror(errno), sockFd);
-            NATTable::RemoveMapping(natKey);
+            // 🚀 使用统一的NAT清理接口（自动延迟2秒，允许UDP重传）
+            // Socket将在NAT映射删除后自动归还到连接池
+            NATConnectionManager::getInstance().scheduleRemove(natKey, CleanupReason::UDP_SEND_FAIL);
             return -1;
-        } else {
+        } else{
             static int udpSendCount = 0;
             udpSendCount++;
             if (udpSendCount <= 10 || udpSendCount % 50 == 0) {
@@ -1465,8 +1459,9 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
                 addr6->sin6_port = htons(static_cast<uint16_t>(packetInfo.targetPort));
                 if (inet_pton(AF_INET6, actualTargetIP.c_str(), &addr6->sin6_addr) <= 0) {
                     LOG_ERROR("❌ [TCP] IPv6地址解析失败: %s", actualTargetIP.c_str());
-                    NATTable::RemoveMapping(natKey);
-                    SocketConnectionPool::getInstance().returnSocket(sockFd, "", 0, "", 0, PROTOCOL_TCP, AF_INET6);
+                    // 🚀 使用统一的NAT清理接口
+                    // Socket将在NAT映射删除后自动归还到连接池
+                    NATConnectionManager::getInstance().scheduleRemove(natKey, CleanupReason::TCP_ADDRESS_FAIL);
                     return -1;
                 }
                 addrLen = sizeof(sockaddr_in6);
@@ -1476,8 +1471,9 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
                 addr4->sin_port = htons(static_cast<uint16_t>(packetInfo.targetPort));
                 if (inet_pton(AF_INET, actualTargetIP.c_str(), &addr4->sin_addr) <= 0) {
                     LOG_ERROR("❌ [TCP] IPv4地址解析失败: %s", actualTargetIP.c_str());
-                    NATTable::RemoveMapping(natKey);
-                    SocketConnectionPool::getInstance().returnSocket(sockFd, "", 0, "", 0, PROTOCOL_TCP, AF_INET);
+                    // 🚀 使用统一的NAT清理接口
+                    // Socket将在NAT映射删除后自动归还到连接池
+                    NATConnectionManager::getInstance().scheduleRemove(natKey, CleanupReason::TCP_ADDRESS_FAIL);
                     return -1;
                 }
                 addrLen = sizeof(sockaddr_in);
@@ -1548,10 +1544,9 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
                     } else {
                         LOG_ERROR("❌ [TCP] RST构建失败: fd=%{public}d", sockFd);
                     }
-                    // 清理NAT映射
-                    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-                    NATTable::RemoveMapping(natKey);
-                    SocketConnectionPool::getInstance().returnSocket(sockFd, "", 0, "", 0, PROTOCOL_TCP, AF_INET);
+                    // 🚀 使用统一的NAT清理接口
+                    // Socket将在NAT映射删除后自动归还到连接池
+                    NATConnectionManager::getInstance().scheduleRemove(natKey, CleanupReason::TCP_CONNECT_FAIL);
                 }
             }).detach();
             
@@ -1563,16 +1558,11 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
         if (isRst) {
             shutdown(sockFd, SHUT_RDWR);
             
-            // 🐛 修复：即使是RST也延迟删除，避免竞态条件
-            LOG_INFO("⏰ [TCP-TRACE] RST_DELAY key=%{public}s fd=%{public}d delay=1s",
+            // 🚀 使用统一的NAT清理接口（自动延迟1秒）
+            // Socket将在NAT映射删除后自动归还到连接池
+            LOG_INFO("⏰ [TCP-TRACE] RST_DELAY key=%{public}s fd=%{public}d",
                      natKey.c_str(), sockFd);
-            std::thread([natKey, sockFd]() {
-                std::this_thread::sleep_for(std::chrono::seconds(1));
-                NATTable::RemoveMapping(natKey);
-                SocketConnectionPool::getInstance().returnSocket(sockFd, "", 0, "", 0, PROTOCOL_TCP, AF_INET);
-                LOG_INFO("🧹 [TCP-TRACE] RST_CLEAN key=%{public}s fd=%{public}d",
-                         natKey.c_str(), sockFd);
-            }).detach();
+            NATConnectionManager::getInstance().scheduleRemove(natKey, CleanupReason::TCP_RST_RECEIVED);
             
             return 0;
         }
@@ -1601,16 +1591,11 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
             }
             shutdown(sockFd, SHUT_RDWR);
             
-            // 🐛 修复：延迟删除映射，避免后续ACK包找不到连接
-            LOG_INFO("⏰ [TCP-TRACE] CLIENT_FIN_DELAY key=%{public}s fd=%{public}d delay=2s",
+            // 🚀 使用统一的NAT清理接口（自动延迟2秒）
+            // Socket将在NAT映射删除后自动归还到连接池
+            LOG_INFO("⏰ [TCP-TRACE] CLIENT_FIN_DELAY key=%{public}s fd=%{public}d",
                      natKey.c_str(), sockFd);
-            std::thread([natKey, sockFd]() {
-                std::this_thread::sleep_for(std::chrono::seconds(2));
-                NATTable::RemoveMapping(natKey);
-                SocketConnectionPool::getInstance().returnSocket(sockFd, "", 0, "", 0, PROTOCOL_TCP, AF_INET);
-                LOG_INFO("🧹 [TCP-TRACE] CLIENT_FIN_CLEAN key=%{public}s fd=%{public}d",
-                         natKey.c_str(), sockFd);
-            }).detach();
+            NATConnectionManager::getInstance().scheduleRemove(natKey, CleanupReason::TCP_CLIENT_FIN);
             
             return 0;
         }
@@ -1672,8 +1657,20 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
                 LOG_ERROR("❌ [排查点3] 服务端->真实服务器(TCP)失败: %{public}s:%{public}d -> %{public}s:%{public}d, fd=%{public}d, errno=%{public}d (%{public}s), payload=%{public}d字节",
                          packetInfo.sourceIP.c_str(), packetInfo.sourcePort,
                          actualTargetIP.c_str(), packetInfo.targetPort, sockFd, savedErr, strerror(savedErr), tcpPayloadSize);
-                shutdown(sockFd, SHUT_RDWR);
-                NATTable::RemoveMapping(natKey);
+                // 🚀 先发送RST给客户端，告知连接失败
+                uint8_t rstPkt[128];
+                int rstSize = PacketBuilder::BuildTcpResponsePacket(
+                    rstPkt, sizeof(rstPkt), nullptr, 0, packetInfo,
+                    0, tcp.seq + (tcpPayloadSize > 0 ? static_cast<uint32_t>(tcpPayloadSize) : 1), TCP_RST | TCP_ACK
+                );
+                if (rstSize > 0) {
+                    TaskQueueManager::getInstance().submitResponseTask(
+                        rstPkt, rstSize, originalPeer, sockFd, PROTOCOL_TCP
+                    );
+                }
+                // 🚀 使用统一的NAT清理接口（自动延迟2秒，确保RST能发出）
+                // Socket将在NAT映射删除后自动归还到连接池
+                NATConnectionManager::getInstance().scheduleRemove(natKey, CleanupReason::TCP_SEND_FAIL);
                 return -1;
             } else {
                 static int tcpSendCount = 0;

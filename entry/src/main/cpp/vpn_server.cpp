@@ -30,6 +30,7 @@
 #include "packet_forwarder.h"
 #include "packet_builder.h"  // 🚨 修复：添加PacketBuilder头文件，用于安全的IP/TCP头长度计算
 #include "nat_table.h"  // NATTable
+#include "nat_connection_manager.h"  // 🚀 新的NAT连接管理器
 #include "traffic_stats.h"
 
 // 🔄 线程池管理函数声明
@@ -1310,6 +1311,16 @@ napi_value StartServer(napi_env env, napi_callback_info info)
   TaskQueueManager::getInstance().clear();
   VPN_SERVER_LOGI("�?Task queues cleared");
   
+  // 🚀 启动NAT连接管理器
+  VPN_SERVER_LOGI("🚀 Starting NAT Connection Manager...");
+  if (!NATConnectionManager::getInstance().start()) {
+    VPN_SERVER_LOGE("�?Failed to start NAT Connection Manager!");
+    napi_value ret;
+    napi_create_int32(env, -1, &ret);
+    return ret;
+  }
+  VPN_SERVER_LOGI("✅ NAT Connection Manager started");
+  
   // 启动工作线程�?  VPN_SERVER_LOGI("🚀 Starting worker thread pool with 4 forward and 2 response workers...");
   // 🚀 优化：4个TCP worker提高并发性和负载均衡，2个UDP worker，2个Response worker
   // TCP worker数量建议：根据并发连接数调整，4个可以处理更多并发连接
@@ -1626,6 +1637,11 @@ napi_value StopServer(napi_env env, napi_callback_info info)
   VPN_SERVER_LOGI("ZHOUB [STOP] 步骤1: 停止工作线程池...");
   WorkerThreadPool::getInstance().stop();
   VPN_SERVER_LOGI("ZHOUB [STOP] ✅ 工作线程池已停止");
+  
+  // 🚀 停止NAT连接管理器
+  VPN_SERVER_LOGI("ZHOUB [STOP] 步骤1.5: 停止NAT连接管理器...");
+  NATConnectionManager::getInstance().stop();
+  VPN_SERVER_LOGI("ZHOUB [STOP] ✅ NAT连接管理器已停止");
   
   // 🚨 关键修复：先关闭主socket，让WorkerLoop立即退出
   VPN_SERVER_LOGI("ZHOUB [STOP] 步骤2: 关闭主socket...");
