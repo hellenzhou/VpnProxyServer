@@ -158,14 +158,22 @@ static bool ConnectWithTimeout(int sockFd, const sockaddr* targetAddr, socklen_t
     tv.tv_sec = timeoutMs / 1000;
     tv.tv_usec = (timeoutMs % 1000) * 1000;
 
+    auto selectStartTime = std::chrono::steady_clock::now();
+    LOG_INFO("🔍 [ConnectWithTimeout] 开始select等待: fd=%{public}d, timeout=%{public}dms", sockFd, timeoutMs);
     int sel = select(sockFd + 1, nullptr, &writefds, nullptr, &tv);
+    auto selectEndTime = std::chrono::steady_clock::now();
+    auto selectCostMs = std::chrono::duration_cast<std::chrono::milliseconds>(selectEndTime - selectStartTime).count();
+    LOG_INFO("🔍 [ConnectWithTimeout] select返回: sel=%{public}d, 耗时=%{public}lldms, fd=%{public}d", 
+             sel, (long long)selectCostMs, sockFd);
+    
     if (sel <= 0) {
         if (sel == 0) {
             errno = ETIMEDOUT;
-            LOG_ERROR("🔍 [ConnectWithTimeout] select超时: timeout=%{public}dms, fd=%{public}d", timeoutMs, sockFd);
+            LOG_ERROR("🔍 [ConnectWithTimeout] select超时: timeout=%{public}dms, 实际等待=%{public}lldms, fd=%{public}d", 
+                     timeoutMs, (long long)selectCostMs, sockFd);
         } else {
-            LOG_ERROR("🔍 [ConnectWithTimeout] select失败: sel=%{public}d, errno=%{public}d (%{public}s)", 
-                     sel, errno, strerror(errno));
+            LOG_ERROR("🔍 [ConnectWithTimeout] select失败: sel=%{public}d, errno=%{public}d (%{public}s), 耗时=%{public}lldms, fd=%{public}d", 
+                     sel, errno, strerror(errno), (long long)selectCostMs, sockFd);
         }
         fcntl(sockFd, F_SETFL, flags);
         return false;
@@ -175,20 +183,24 @@ static bool ConnectWithTimeout(int sockFd, const sockaddr* targetAddr, socklen_t
 
     int soError = 0;
     socklen_t len = sizeof(soError);
-    if (getsockopt(sockFd, SOL_SOCKET, SO_ERROR, &soError, &len) < 0 || soError != 0) {
-        if (soError != 0) {
-            errno = soError;
-            // 🚨 详细诊断：记录SO_ERROR的具体值
-            LOG_ERROR("🔍 [ConnectWithTimeout] getsockopt(SO_ERROR)返回: soError=%{public}d, errno=%{public}d (%{public}s)", 
-                     soError, errno, strerror(errno));
-        } else {
-            LOG_ERROR("🔍 [ConnectWithTimeout] getsockopt(SO_ERROR)调用失败: errno=%{public}d (%{public}s)", 
-                     errno, strerror(errno));
-        }
+    if (getsockopt(sockFd, SOL_SOCKET, SO_ERROR, &soError, &len) < 0) {
+        LOG_ERROR("🔍 [ConnectWithTimeout] getsockopt(SO_ERROR)调用失败: errno=%{public}d (%{public}s)", 
+                 errno, strerror(errno));
+        fcntl(sockFd, F_SETFL, flags);
+        return false;
+    }
+    
+    if (soError != 0) {
+        errno = soError;
+        // 🚨 详细诊断：记录SO_ERROR的具体值
+        LOG_ERROR("🔍 [ConnectWithTimeout] getsockopt(SO_ERROR)返回错误: soError=%{public}d, errno=%{public}d (%{public}s)", 
+                 soError, errno, strerror(errno));
         fcntl(sockFd, F_SETFL, flags);
         return false;
     }
 
+    // ✅ 连接成功：恢复socket阻塞模式并记录日志
+    LOG_INFO("✅ [ConnectWithTimeout] 连接成功: fd=%{public}d, 恢复阻塞模式", sockFd);
     fcntl(sockFd, F_SETFL, flags);
     return true;
 }
@@ -1134,7 +1146,18 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
     const uint8_t* payload = nullptr;
     int payloadSize = 0;
     if (!PacketBuilder::ExtractPayload(data, dataSize, packetInfo, &payload, &payloadSize)) {
+        if (packetInfo.protocol == PROTOCOL_TCP) {
+            LOG_ERROR("❌ [TCP转发线程] ExtractPayload失败: %{public}s:%{public}d -> %{public}s:%{public}d (数据大小=%{public}d)",
+                     packetInfo.sourceIP.c_str(), packetInfo.sourcePort,
+                     packetInfo.targetIP.c_str(), packetInfo.targetPort, dataSize);
+        }
         return -1;
+    }
+    
+    // 🔍 [流程跟踪] 记录payload提取结果
+    if (packetInfo.protocol == PROTOCOL_TCP) {
+        LOG_INFO("🔍 [TCP转发线程] Payload提取成功: payload大小=%{public}d字节 (总数据=%{public}d字节)",
+                 payloadSize, dataSize);
     }
     
     // TCP控制包（SYN/ACK/FIN/RST）payload可能为0，需要继续处理
@@ -1146,6 +1169,8 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
     std::string actualTargetIP = packetInfo.targetIP;
     if (packetInfo.targetPort == 53 && packetInfo.targetIP == "223.5.5.5") {
         actualTargetIP = "8.8.8.8";
+        LOG_INFO("🔍 [流程跟踪] DNS重定向: %{public}s -> %{public}s (端口=%{public}d)",
+                 packetInfo.targetIP.c_str(), actualTargetIP.c_str(), packetInfo.targetPort);
     }
     
     // 5. 查找或创建NAT映射
@@ -1347,16 +1372,28 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
         }
     } else {
         // UDP: 直接查找或创建映射
+        // 🔍 [流程跟踪] UDP任务开始处理
+        LOG_INFO("🔍 [UDP转发线程] ========== UDP任务开始处理 ==========");
+        LOG_INFO("🔍 [UDP转发线程] 源: %{public}s:%{public}d -> 目标: %{public}s:%{public}d, payload=%{public}d字节",
+                 packetInfo.sourceIP.c_str(), packetInfo.sourcePort,
+                 packetInfo.targetIP.c_str(), packetInfo.targetPort, payloadSize);
+        LOG_INFO("🔍 [UDP转发线程] NAT Key: %{public}s", natKey.c_str());
+        
         // 🔧 死锁修复：统一锁顺序 - 先获取socket（poolMutex_），再操作NAT表（NATTable::mutex_）
         // 避免与TCP worker形成死锁（TCP先获取poolMutex_，再获取NATTable::mutex_）
+        LOG_INFO("🔍 [UDP转发线程] 步骤1: 获取转发socket...");
         sockFd = GetSocket(packetInfo, originalPeer, tunnelFd);
         if (sockFd < 0) {
+            LOG_ERROR("❌ [UDP转发线程] GetSocket失败");
             return -1;
         }
+        LOG_INFO("🔍 [UDP转发线程] GetSocket成功: fd=%{public}d", sockFd);
         
         // 🔧 修复：先释放socket池锁，再检查NAT映射（避免死锁）
+        LOG_INFO("🔍 [UDP转发线程] 步骤2: 查找NAT映射...");
         NATConnection existingConn;
         if (NATTable::FindMapping(natKey, existingConn)) {
+            LOG_INFO("🔍 [UDP转发线程] NAT映射已存在: fd=%{public}d, 复用已有socket", existingConn.forwardSocket);
             // 映射已存在，归还新socket，复用已有socket
             char clientIP[INET_ADDRSTRLEN];
             inet_ntop(AF_INET, &originalPeer.sin_addr, clientIP, sizeof(clientIP));
@@ -1369,6 +1406,7 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
             isNewMapping = false;
         } else {
             // 🚨 并发修复：多个worker同时处理同一UDP flow 时，可能重复建socket
+            LOG_INFO("🔍 [UDP转发线程] NAT映射不存在，创建新映射: fd=%{public}d", sockFd);
             NATConnection racedConn;
             if (!NATTable::CreateMapping(natKey, originalPeer, packetInfo, sockFd)) {
                 if (NATTable::FindMapping(natKey, racedConn)) {
@@ -1390,13 +1428,16 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
                 }
             } else {
                 isNewMapping = true;
+                LOG_INFO("✅ [UDP转发线程] NAT映射创建成功: fd=%{public}d, key=%{public}s", sockFd, natKey.c_str());
             }
         }
+        LOG_INFO("🔍 [UDP转发线程] ========================================");
     }
     
     // 6. 发送数据到真实服务器
     if (packetInfo.protocol == PROTOCOL_UDP) {
         // 构建目标地址
+        LOG_INFO("🔍 [UDP转发线程] 步骤3: 构建目标地址...");
         sockaddr_storage targetAddr{};
         socklen_t addrLen = 0;
         
@@ -1405,28 +1446,44 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
             addr6->sin6_family = AF_INET6;
             addr6->sin6_port = htons(static_cast<uint16_t>(packetInfo.targetPort));
             if (inet_pton(AF_INET6, actualTargetIP.c_str(), &addr6->sin6_addr) <= 0) {
+                LOG_ERROR("❌ [UDP转发线程] IPv6地址解析失败: %{public}s", actualTargetIP.c_str());
                 // 🚀 使用统一的NAT清理接口
                 // Socket将在NAT映射删除后自动归还到连接池
                 NATConnectionManager::getInstance().scheduleRemove(natKey, CleanupReason::UDP_ADDRESS_FAIL);
                 return -1;
             }
             addrLen = sizeof(sockaddr_in6);
+            LOG_INFO("🔍 [UDP转发线程] IPv6地址解析成功: %{public}s:%{public}d", actualTargetIP.c_str(), packetInfo.targetPort);
         } else {
             auto* addr4 = reinterpret_cast<sockaddr_in*>(&targetAddr);
             addr4->sin_family = AF_INET;
             addr4->sin_port = htons(static_cast<uint16_t>(packetInfo.targetPort));
             if (inet_pton(AF_INET, actualTargetIP.c_str(), &addr4->sin_addr) <= 0) {
+                LOG_ERROR("❌ [UDP转发线程] IPv4地址解析失败: %{public}s", actualTargetIP.c_str());
                 // 🚀 使用统一的NAT清理接口
                 // Socket将在NAT映射删除后自动归还到连接池
                 NATConnectionManager::getInstance().scheduleRemove(natKey, CleanupReason::UDP_ADDRESS_FAIL);
                 return -1;
             }
             addrLen = sizeof(sockaddr_in);
+            LOG_INFO("🔍 [UDP转发线程] IPv4地址解析成功: %{public}s:%{public}d", actualTargetIP.c_str(), packetInfo.targetPort);
         }
 
         // 🔍 [排查点3] 服务端转发到真实服务器 (UDP)
+        LOG_INFO("🔍 [UDP转发线程] 步骤4: 发送数据到真实服务器 (fd=%{public}d, payload=%{public}d字节)...", sockFd, payloadSize);
+        auto sendStartTime = std::chrono::steady_clock::now();
         ssize_t sent = sendto(sockFd, payload, payloadSize, 0, 
                              reinterpret_cast<sockaddr*>(&targetAddr), addrLen);
+        auto sendEndTime = std::chrono::steady_clock::now();
+        auto sendCostMs = std::chrono::duration_cast<std::chrono::milliseconds>(sendEndTime - sendStartTime).count();
+        LOG_INFO("🔍 [UDP转发线程] sendto返回: sent=%{public}zd, 耗时=%{public}lldms, errno=%{public}d (fd=%{public}d)",
+                 sent, (long long)sendCostMs, (sent < 0 ? errno : 0), sockFd);
+        
+        if (sendCostMs > 100) {
+            WORKER_LOGE("⏱️ [UDP转发线程] sendto耗时过长: %{public}lldms (fd=%{public}d, payload=%{public}d字节)",
+                       (long long)sendCostMs, sockFd, payloadSize);
+        }
+        
         if (sent < 0) {
             LOG_ERROR("❌ [排查点3] 服务端->真实服务器(UDP)失败: %{public}s:%{public}d, errno=%{public}d (%{public}s), fd=%{public}d",
                      actualTargetIP.c_str(), packetInfo.targetPort, errno, strerror(errno), sockFd);
@@ -1499,6 +1556,7 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
             sockaddr_storage targetAddr{};
             socklen_t addrLen = 0;
             
+            LOG_INFO("🔍 [TCP转发线程] 步骤3: 构建目标地址并解析...");
             if (packetInfo.addressFamily == AF_INET6) {
                 auto* addr6 = reinterpret_cast<sockaddr_in6*>(&targetAddr);
                 addr6->sin6_family = AF_INET6;
@@ -1511,6 +1569,7 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
                     return -1;
                 }
                 addrLen = sizeof(sockaddr_in6);
+                LOG_INFO("🔍 [TCP转发线程] IPv6地址解析成功: %{public}s:%{public}d", actualTargetIP.c_str(), packetInfo.targetPort);
             } else {
                 auto* addr4 = reinterpret_cast<sockaddr_in*>(&targetAddr);
                 addr4->sin_family = AF_INET;
@@ -1523,17 +1582,29 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
                     return -1;
                 }
                 addrLen = sizeof(sockaddr_in);
+                LOG_INFO("🔍 [TCP转发线程] IPv4地址解析成功: %{public}s:%{public}d", actualTargetIP.c_str(), packetInfo.targetPort);
             }
             
             // 2) 异步连接（不阻塞worker线程）
+            LOG_INFO("🔍 [TCP转发线程] 步骤4: 启动异步连接线程 (目标=%{public}s:%{public}d, fd=%{public}d)...",
+                     actualTargetIP.c_str(), packetInfo.targetPort, sockFd);
             std::thread([natKey, sockFd, targetAddr, addrLen, actualTargetIP, packetInfo, originalPeer, clientIsn, serverIsn]() mutable {
                 // 等待socket保护完成（在后台线程中等待，不阻塞worker）
+                LOG_INFO("🔍 [TCP异步连接] 等待socket保护完成 (fd=%{public}d)...", sockFd);
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                LOG_INFO("🔍 [TCP异步连接] Socket保护等待完成，开始连接 (fd=%{public}d)...", sockFd);
                 
                 // 尝试连接（快速超时，避免长时间阻塞）
                 LOG_INFO("🧭 [TCP-TRACE] CONNECT_START key=%{public}s fd=%{public}d target=%{public}s:%{public}d",
                          natKey.c_str(), sockFd, actualTargetIP.c_str(), packetInfo.targetPort);
-                if (ConnectWithTimeout(sockFd, reinterpret_cast<sockaddr*>(&targetAddr), addrLen, 2000)) {
+                auto connectStartTime = std::chrono::steady_clock::now();
+                bool connectResult = ConnectWithTimeout(sockFd, reinterpret_cast<sockaddr*>(&targetAddr), addrLen, 2000);
+                auto connectEndTime = std::chrono::steady_clock::now();
+                auto connectCostMs = std::chrono::duration_cast<std::chrono::milliseconds>(connectEndTime - connectStartTime).count();
+                LOG_INFO("🔍 [TCP异步连接] ConnectWithTimeout返回: result=%{public}d, 耗时=%{public}lldms (fd=%{public}d)",
+                         connectResult ? 1 : 0, (long long)connectCostMs, sockFd);
+                
+                if (connectResult) {
                     LOG_INFO("✅ [TCP] 后台连接成功: %{public}s:%{public}d (fd=%{public}d)",
                              actualTargetIP.c_str(), packetInfo.targetPort, sockFd);
                     LOG_INFO("✅ [TCP] 后端已连通，准备回SYN-ACK: client=%{public}s:%{public}d -> target=%{public}s:%{public}d key=%{public}s local=%{public}s peer=%{public}s",
