@@ -264,20 +264,18 @@ void WorkerThreadPool::udpWorkerThread() {
             }
             
             auto taskOpt = taskQueue.popUdpTask(timeout);
+            size_t queueSizeAfter = taskQueue.getUdpQueueSize();
             
             if (!taskOpt.has_value()) {
                 // 🐛 诊断：记录pop失败的原因
-                if (queueSizeBefore > 0 && hb % 10 == 0) {
-                    WORKER_LOGE("⚠️ [UDP Worker #%zu] popUdpTask返回空，但队列有%zu个任务！", 
-                               threadIndex, queueSizeBefore);
+                if (queueSizeBefore > 0) {
+                    WORKER_LOGE("⚠️ [UDP Worker #%zu] popUdpTask返回空，但队列有%zu个任务！队列后=%zu", 
+                               threadIndex, queueSizeBefore, queueSizeAfter);
                 }
                 continue;
             }
             
             // 🐛 诊断：成功pop到任务
-            WORKER_LOGI("✅ [UDP Worker #%zu] 成功pop到UDP任务，队列: %zu -> %zu", 
-                       threadIndex, queueSizeBefore, taskQueue.getUdpQueueSize());
-            
             Task task = taskOpt.value();
             if (task.type != TaskType::FORWARD_REQUEST) {
                 WORKER_LOGE("Invalid task type in UDP worker");
@@ -285,6 +283,10 @@ void WorkerThreadPool::udpWorkerThread() {
             }
 
             ForwardTask& fwdTask = task.forwardTask;
+            WORKER_LOGI("✅ [UDP Worker #%zu] 成功pop到UDP任务，队列: %zu -> %zu, 源=%{public}s:%{public}d -> 目标=%{public}s:%{public}d", 
+                       threadIndex, queueSizeBefore, queueSizeAfter,
+                       fwdTask.packetInfo.sourceIP.c_str(), fwdTask.packetInfo.sourcePort,
+                       fwdTask.packetInfo.targetIP.c_str(), fwdTask.packetInfo.targetPort);
             
             // 🚨 防御性检查：确保是UDP任务（理论上不应该发生）
             if (fwdTask.packetInfo.protocol != PROTOCOL_UDP) {
@@ -295,6 +297,11 @@ void WorkerThreadPool::udpWorkerThread() {
             processedTasks++;
             
             // 转发数据包
+            WORKER_LOGI("🔍 [UDP Worker #%zu] 开始处理UDP任务: %s:%d -> %s:%d, 大小=%d", 
+                       threadIndex,
+                       fwdTask.packetInfo.sourceIP.c_str(), fwdTask.packetInfo.sourcePort,
+                       fwdTask.packetInfo.targetIP.c_str(), fwdTask.packetInfo.targetPort,
+                       fwdTask.dataSize);
             auto t0 = std::chrono::steady_clock::now();
             int sockFd = PacketForwarder::ForwardPacket(
                 fwdTask.data,
@@ -305,6 +312,8 @@ void WorkerThreadPool::udpWorkerThread() {
             );
             auto t1 = std::chrono::steady_clock::now();
             auto costMs = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
+            WORKER_LOGI("✅ [UDP Worker #%zu] ForwardPacket完成: sockFd=%d, 耗时=%lldms", 
+                       threadIndex, sockFd, (long long)costMs);
             
             if (costMs > 200) {
                 WORKER_LOGE("⏱️ [UDP Worker] ForwardPacket slow: %lldms %s:%d -> %s:%d size=%d",
