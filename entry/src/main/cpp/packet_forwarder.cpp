@@ -513,15 +513,32 @@ private:
             LOG_ERROR("创建socket失败: %s", strerror(errno));
         return -1;
     }
-        // ✅ UDP socket保持阻塞模式（默认就是阻塞）。
-        // 之前设置成 O_NONBLOCK 会导致 recvfrom 频繁 EAGAIN + 100ms 轮询，
-        // 在高并发 DNS/UDP 场景下会造成线程/日志/CPU 风暴，进而“卡住”Forward worker，
+        // ✅ Socket保持阻塞模式（默认就是阻塞）。
+        // 之前设置成 O_NONBLOCK 会导致 recvfrom/recv 频繁 EAGAIN + 100ms 轮询，
+        // 在高并发 DNS/UDP 场景下会造成线程/日志/CPU 风暴，进而"卡住"Forward worker，
         // 表现为 TCP 任务持续入队但几乎不被处理。
-        // 我们用 SO_RCVTIMEO 控制阻塞时长即可。
+        // 我们用 SO_RCVTIMEO 和 SO_SNDTIMEO 控制阻塞时长即可。
     
-        // 设置超时
-        struct timeval timeout = {5, 0};  // 5秒超时
-        setsockopt(sockFd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+        // 🚨 关键修复：设置发送和接收超时，防止send/sendto/recv/recvfrom无限阻塞worker线程
+        // TCP需要更长的超时时间（10秒），因为TCP是可靠协议，需要等待ACK
+        // UDP可以使用较短的超时时间（5秒），因为UDP是无状态协议
+        struct timeval timeout;
+        if (protocol == PROTOCOL_TCP) {
+            timeout.tv_sec = 10;  // TCP: 10秒超时（考虑网络延迟和ACK等待）
+            timeout.tv_usec = 0;
+        } else {
+            timeout.tv_sec = 5;   // UDP: 5秒超时
+            timeout.tv_usec = 0;
+        }
+        
+        if (setsockopt(sockFd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0) {
+            LOG_ERROR("设置接收超时失败: %s", strerror(errno));
+        }
+        // 🔧 关键修复：设置发送超时，防止send/sendto阻塞worker线程
+        // 这是防止worker线程卡住的关键：如果发送缓冲区满，send()会阻塞直到超时
+        if (setsockopt(sockFd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout)) < 0) {
+            LOG_ERROR("设置发送超时失败: %s", strerror(errno));
+        }
 
         return sockFd;
     }
@@ -607,7 +624,13 @@ static int GetSocket(const PacketInfo& packetInfo, const sockaddr_in& clientAddr
     if (packetInfo.protocol == PROTOCOL_UDP && packetInfo.targetPort == 53) {
         struct timeval timeout = {10, 0};  // DNS查询：10秒超时
         if (setsockopt(sockFd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0) {
-            LOG_ERROR("设置DNS超时失败: %s", strerror(errno));
+            LOG_ERROR("设置DNS接收超时失败: %s", strerror(errno));
+            close(sockFd);
+            return -1;
+        }
+        // 🔧 修复：DNS查询也需要设置发送超时，防止sendto阻塞
+        if (setsockopt(sockFd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout)) < 0) {
+            LOG_ERROR("设置DNS发送超时失败: %s", strerror(errno));
             close(sockFd);
             return -1;
         }
@@ -876,6 +899,15 @@ static void StartTCPThread(int sockFd, const sockaddr_in& originalPeer) {
         timeout.tv_sec = 30;
         timeout.tv_usec = 0;
         setsockopt(sockFd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+        
+        // 🚨 关键修复：TCP接收线程也需要设置发送超时
+        // 虽然这个线程主要用于接收，但在某些错误处理路径中可能会调用send()
+        // 设置发送超时防止意外阻塞
+        timeout.tv_sec = 10;  // TCP发送超时：10秒
+        timeout.tv_usec = 0;
+        if (setsockopt(sockFd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout)) < 0) {
+            LOG_ERROR("设置TCP接收线程发送超时失败: fd=%d, %s", sockFd, strerror(errno));
+        }
         
         uint8_t buffer[4096];
         int noResponseCount = 0;
@@ -1315,13 +1347,27 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
         }
     } else {
         // UDP: 直接查找或创建映射
+        // 🔧 死锁修复：统一锁顺序 - 先获取socket（poolMutex_），再操作NAT表（NATTable::mutex_）
+        // 避免与TCP worker形成死锁（TCP先获取poolMutex_，再获取NATTable::mutex_）
+        sockFd = GetSocket(packetInfo, originalPeer, tunnelFd);
+        if (sockFd < 0) {
+            return -1;
+        }
+        
+        // 🔧 修复：先释放socket池锁，再检查NAT映射（避免死锁）
+        NATConnection existingConn;
         if (NATTable::FindMapping(natKey, existingConn)) {
+            // 映射已存在，归还新socket，复用已有socket
+            char clientIP[INET_ADDRSTRLEN];
+            inet_ntop(AF_INET, &originalPeer.sin_addr, clientIP, sizeof(clientIP));
+            SocketConnectionPool::getInstance().returnSocket(
+                sockFd, clientIP, ntohs(originalPeer.sin_port),
+                packetInfo.targetIP, static_cast<uint16_t>(packetInfo.targetPort),
+                PROTOCOL_UDP, packetInfo.addressFamily
+            );
             sockFd = existingConn.forwardSocket;
+            isNewMapping = false;
         } else {
-            sockFd = GetSocket(packetInfo, originalPeer, tunnelFd);
-            if (sockFd < 0) {
-                return -1;
-            }
             // 🚨 并发修复：多个worker同时处理同一UDP flow 时，可能重复建socket
             NATConnection racedConn;
             if (!NATTable::CreateMapping(natKey, originalPeer, packetInfo, sockFd)) {
