@@ -7,6 +7,7 @@
 #include "udp_retransmit.h"
 #include "traffic_stats.h"
 #include "task_queue.h"
+#include "network_diagnostics.h"
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -143,8 +144,18 @@ static bool ConnectWithTimeout(int sockFd, const sockaddr* targetAddr, socklen_t
         return true;
     }
     if (errno != EINPROGRESS) {
+        // 立即失败的情况也需要统计
+        TrafficStats::tcpConnectFailTotal.fetch_add(1, std::memory_order_relaxed);
+        int savedErr = errno;
+        if (savedErr == ECONNREFUSED) {
+            TrafficStats::tcpConnectFailRefused.fetch_add(1, std::memory_order_relaxed);
+        } else if (savedErr == ENETUNREACH || savedErr == EHOSTUNREACH) {
+            TrafficStats::tcpConnectFailUnreachable.fetch_add(1, std::memory_order_relaxed);
+        } else {
+            TrafficStats::tcpConnectFailOther.fetch_add(1, std::memory_order_relaxed);
+        }
         LOG_ERROR("🔍 [ConnectWithTimeout] connect立即失败: fd=%{public}d, errno=%{public}d (%{public}s)", 
-                 sockFd, errno, strerror(errno));
+                 sockFd, savedErr, strerror(savedErr));
         fcntl(sockFd, F_SETFL, flags);
         return false;
     }
@@ -169,9 +180,13 @@ static bool ConnectWithTimeout(int sockFd, const sockaddr* targetAddr, socklen_t
     if (sel <= 0) {
         if (sel == 0) {
             errno = ETIMEDOUT;
+            TrafficStats::tcpConnectFailTotal.fetch_add(1, std::memory_order_relaxed);
+            TrafficStats::tcpConnectFailTimeout.fetch_add(1, std::memory_order_relaxed);
             LOG_ERROR("🔍 [ConnectWithTimeout] select超时: timeout=%{public}dms, 实际等待=%{public}lldms, fd=%{public}d", 
                      timeoutMs, (long long)selectCostMs, sockFd);
         } else {
+            TrafficStats::tcpConnectFailTotal.fetch_add(1, std::memory_order_relaxed);
+            TrafficStats::tcpConnectFailOther.fetch_add(1, std::memory_order_relaxed);
             LOG_ERROR("🔍 [ConnectWithTimeout] select失败: sel=%{public}d, errno=%{public}d (%{public}s), 耗时=%{public}lldms, fd=%{public}d", 
                      sel, errno, strerror(errno), (long long)selectCostMs, sockFd);
         }
@@ -192,7 +207,17 @@ static bool ConnectWithTimeout(int sockFd, const sockaddr* targetAddr, socklen_t
     
     if (soError != 0) {
         errno = soError;
-        // 🚨 详细诊断：记录SO_ERROR的具体值
+        TrafficStats::tcpConnectFailTotal.fetch_add(1, std::memory_order_relaxed);
+        // 根据错误类型分类统计
+        if (soError == ECONNREFUSED) {
+            TrafficStats::tcpConnectFailRefused.fetch_add(1, std::memory_order_relaxed);
+        } else if (soError == ENETUNREACH || soError == EHOSTUNREACH) {
+            TrafficStats::tcpConnectFailUnreachable.fetch_add(1, std::memory_order_relaxed);
+        } else if (soError == ETIMEDOUT) {
+            TrafficStats::tcpConnectFailTimeout.fetch_add(1, std::memory_order_relaxed);
+        } else {
+            TrafficStats::tcpConnectFailOther.fetch_add(1, std::memory_order_relaxed);
+        }
         LOG_ERROR("🔍 [ConnectWithTimeout] getsockopt(SO_ERROR)返回错误: soError=%{public}d, errno=%{public}d (%{public}s)", 
                  soError, errno, strerror(errno));
         fcntl(sockFd, F_SETFL, flags);
@@ -1545,7 +1570,7 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
             std::thread([natKey, sockFd, targetAddr, addrLen, actualTargetIP, packetInfo, originalPeer, clientIsn, serverIsn]() mutable {
                 // 等待socket保护完成（在后台线程中等待，不阻塞worker）
                 LOG_INFO("🔍 [TCP异步连接] 等待socket保护完成 (fd=%{public}d)...", sockFd);
-                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                std::this_thread::sleep_for(std::chrono::milliseconds(200));
                 LOG_INFO("🔍 [TCP异步连接] Socket保护等待完成，开始连接 (fd=%{public}d)...", sockFd);
                 
                 // 尝试连接（快速超时，避免长时间阻塞）
@@ -1613,12 +1638,36 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
                     StartTCPThread(sockFd, originalPeer);
                 } else {
                     int savedErr = errno;
+                    // 统计连接失败（ConnectWithTimeout内部已统计，这里只记录日志）
                     LOG_ERROR("❌ [TCP] 后台连接失败: %{public}s:%{public}d (fd=%{public}d) - errno=%{public}d (%{public}s)",
                              actualTargetIP.c_str(), packetInfo.targetPort, sockFd, savedErr, strerror(savedErr));
                     LOG_ERROR("❌ [TCP] 后端连接失败，准备回RST: client=%{public}s:%{public}d -> target=%{public}s:%{public}d key=%{public}s",
                              packetInfo.sourceIP.c_str(), packetInfo.sourcePort,
                              actualTargetIP.c_str(), packetInfo.targetPort, natKey.c_str());
                     LOG_ERROR("❌ [TCP] 连接失败影响: 客户端将收到RST，浏览器无法访问该网站");
+                    LOG_ERROR("❌ [TCP] 失败原因: errno=%{public}d (%{public}s) - %{public}s",
+                             savedErr, strerror(savedErr),
+                             (savedErr == ECONNREFUSED ? "连接被拒绝" :
+                              savedErr == ENETUNREACH || savedErr == EHOSTUNREACH ? "网络不可达" :
+                              savedErr == ETIMEDOUT ? "连接超时" : "其他错误"));
+                    
+                    // 🔍 检查网络连接：确认服务器能否访问目标网站
+                    static std::atomic<int> checkCount{0};
+                    int count = checkCount.fetch_add(1, std::memory_order_relaxed);
+                    // 每10次失败检查一次，避免过于频繁
+                    if (count % 10 == 0) {
+                        LOG_INFO("🔍 [网络检查] 开始检查服务器到目标网站的网络连接: %{public}s:%{public}d", 
+                                actualTargetIP.c_str(), packetInfo.targetPort);
+                        bool reachable = NetworkDiagnostics::TestTCPConnection(
+                            actualTargetIP, packetInfo.targetPort, 3);
+                        if (!reachable) {
+                            LOG_ERROR("❌ [网络检查] 服务器无法访问目标网站: %{public}s:%{public}d - 这可能是网络问题或防火墙阻止",
+                                     actualTargetIP.c_str(), packetInfo.targetPort);
+                        } else {
+                            LOG_INFO("✅ [网络检查] 服务器可以访问目标网站: %{public}s:%{public}d - 连接失败可能是临时问题",
+                                    actualTargetIP.c_str(), packetInfo.targetPort);
+                        }
+                    }
 
                     // 发送 RST|ACK 告知客户端连接失败（ack=clientIsn+1）
                     uint8_t rstPkt[128];

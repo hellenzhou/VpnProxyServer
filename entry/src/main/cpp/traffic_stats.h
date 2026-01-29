@@ -26,5 +26,12 @@ inline std::atomic<uint64_t> respEnqueueOther{0};
 
 inline std::atomic<uint64_t> quicDropped{0};
 
+// 连接失败统计
+inline std::atomic<uint64_t> tcpConnectFailTotal{0};        // TCP连接失败总数
+inline std::atomic<uint64_t> tcpConnectFailTimeout{0};     // 连接超时
+inline std::atomic<uint64_t> tcpConnectFailRefused{0};      // 连接被拒绝 (ECONNREFUSED)
+inline std::atomic<uint64_t> tcpConnectFailUnreachable{0};  // 网络不可达 (ENETUNREACH/EHOSTUNREACH)
+inline std::atomic<uint64_t> tcpConnectFailOther{0};         // 其他错误
+
 } // namespace TrafficStats
 
