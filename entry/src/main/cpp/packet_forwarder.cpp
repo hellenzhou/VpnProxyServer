@@ -1214,11 +1214,6 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
         bool isAck = HasTcpFlag(tcp.flags, TCP_ACK);
         bool isRst = HasTcpFlag(tcp.flags, TCP_RST);
         bool isFin = HasTcpFlag(tcp.flags, TCP_FIN);
-        if (isSyn && !isAck && !isRst) {
-            LOG_INFO("🔍 [TCP连接诊断] 收到SYN: %{public}s:%{public}d -> %{public}s:%{public}d (flags=0x%{public}02x)",
-                     packetInfo.sourceIP.c_str(), packetInfo.sourcePort,
-                     packetInfo.targetIP.c_str(), packetInfo.targetPort, tcp.flags);
-        }
 
         if (NATTable::FindMapping(natKey, existingConn)) {
             sockFd = existingConn.forwardSocket;
@@ -1229,28 +1224,15 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
             // 处理SYN重传：如果SYN-ACK丢失（UDP隧道丢包），需要重发SYN-ACK
             if (isSyn && !isAck && !isRst) {
                 if (existingConn.tcpState == NATConnection::TcpState::CONNECTING) {
-                    LOG_INFO("🔁 [TCP连接诊断] 收到SYN重传，但后端仍在连接中(暂不回SYN-ACK): %{public}s:%{public}d -> %{public}s:%{public}d (fd=%{public}d)",
-                             packetInfo.sourceIP.c_str(), packetInfo.sourcePort,
-                             packetInfo.targetIP.c_str(), packetInfo.targetPort, sockFd);
                     LogTcpTrace("SYN_RETRANS_WAIT", packetInfo, tcp, dataSize, natKey, sockFd);
                     return sockFd;
                 }
                 if (existingConn.tcpState == NATConnection::TcpState::SYN_RECEIVED) {
-                    LOG_INFO("🔁 [TCP连接诊断] 收到SYN重传，重发SYN-ACK: %{public}s:%{public}d -> %{public}s:%{public}d (fd=%{public}d)",
-                             packetInfo.sourceIP.c_str(), packetInfo.sourcePort,
-                             packetInfo.targetIP.c_str(), packetInfo.targetPort, sockFd);
                     LogTcpTrace("SYN_RETRANS_RESEND", packetInfo, tcp, dataSize, natKey, sockFd);
-
-                    // 确保客户端ISN一致
                     NATTable::WithConnection(natKey, [&](NATConnection& c) {
-                        if (c.clientIsn != 0 && c.clientIsn != tcp.seq) {
-                            LOG_ERROR("⚠️ [TCP连接诊断] SYN重传序号变化: old=%{public}u new=%{public}u (可能是连接复用/重建)",
-                                      c.clientIsn, tcp.seq);
-                        }
                         c.clientIsn = tcp.seq;
                         c.nextClientSeq = tcp.seq + 1;
                     });
-
                     uint8_t synAckPkt[128];
                     uint32_t serverIsn = existingConn.serverIsn;
                     int synAckSize = PacketBuilder::BuildTcpResponsePacket(
@@ -1259,14 +1241,9 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
                         serverIsn, tcp.seq + 1, TCP_SYN | TCP_ACK
                     );
                     if (synAckSize > 0) {
-                        bool submitted = TaskQueueManager::getInstance().submitResponseTask(
+                        TaskQueueManager::getInstance().submitResponseTask(
                             synAckPkt, synAckSize, originalPeer, sockFd, PROTOCOL_TCP
                         );
-                        LOG_INFO("✅ [TCP连接诊断] SYN-ACK已重发 (seq=%{public}u ack=%{public}u)", serverIsn, tcp.seq + 1);
-                        LOG_INFO("🧭 [TCP-TRACE] ENQ_SYNACK_RESEND key=%{public}s fd=%{public}d size=%{public}d ok=%{public}d",
-                                 natKey.c_str(), sockFd, synAckSize, submitted ? 1 : 0);
-                    } else {
-                        LOG_ERROR("❌ [TCP连接诊断] SYN-ACK重发失败：构建失败");
                     }
                     return sockFd;
                 }
@@ -1276,33 +1253,21 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
             if (!isSyn || (isSyn && isAck)) {
                 // 非SYN包或SYN-ACK包：发送RST告知客户端连接不存在
                 if (!isRst) {
-                    LOG_ERROR("🚨 [TCP连接诊断] ========== 收到非SYN包但连接不存在 ==========");
-                    LOG_ERROR("   包类型: flags=0x%{public}02x (SYN=%{public}d, ACK=%{public}d, RST=%{public}d, FIN=%{public}d)", 
-                             tcp.flags, isSyn, isAck, isRst, isFin);
-                    LOG_ERROR("   源: %{public}s:%{public}d", packetInfo.sourceIP.c_str(), packetInfo.sourcePort);
-                    LOG_ERROR("   目标: %{public}s:%{public}d", packetInfo.targetIP.c_str(), packetInfo.targetPort);
-                    LOG_ERROR("   NAT Key: %{public}s", natKey.c_str());
-                    LOG_ERROR("   原因分析:");
-                    LOG_ERROR("     1. 客户端发送了ACK/PSH包，但服务器端没有对应的连接映射");
-                    LOG_ERROR("     2. 可能原因: 之前的SYN包处理失败，NAT映射被移除");
-                    LOG_ERROR("     3. 可能原因: 连接建立超时，映射已过期");
-                    LOG_ERROR("     4. 可能原因: 客户端认为连接已建立，但服务器端连接失败");
-                    LOG_ERROR("   影响: 客户端无法完成TCP握手，浏览器无法访问网站");
-                    LOG_ERROR("   处理: 发送RST包告知客户端连接不存在");
-                    LOG_ERROR("🚨 [TCP连接诊断] ========================================");
+                    LOG_ERROR("🚨 [TCP] 收到非SYN包但连接不存在: %{public}s:%{public}d -> %{public}s:%{public}d (flags=0x%{public}02x)",
+                             packetInfo.sourceIP.c_str(), packetInfo.sourcePort,
+                             packetInfo.targetIP.c_str(), packetInfo.targetPort, tcp.flags);
                     uint8_t rstPkt[128];
                     uint32_t ackVal = tcp.seq;
                     int tcpPayloadSize = dataSize - tcp.ipHeaderLen - tcp.tcpHeaderLen;
-                    if (tcpPayloadSize < 0) {
-                        tcpPayloadSize = 0;
-                    } else if (tcpPayloadSize > 0) {
+                    if (tcpPayloadSize > 0) {
                         ackVal += static_cast<uint32_t>(tcpPayloadSize);
                     } else if (isFin) {
                         ackVal += 1;  // FIN消耗一个seq
                     }
+                    uint32_t rstSeq = (isAck && tcp.ack > 0) ? tcp.ack : 0;
                     int rstSize = PacketBuilder::BuildTcpResponsePacket(
                         rstPkt, sizeof(rstPkt), nullptr, 0, packetInfo,
-                        0, ackVal, TCP_RST | TCP_ACK
+                        rstSeq, ackVal, TCP_RST | TCP_ACK
                     );
                     if (rstSize > 0) {
                         TaskQueueManager::getInstance().submitResponseTask(
@@ -1314,24 +1279,20 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
             }
 
             // 创建新映射
-            LOG_INFO("🚀 [TCP转发线程] ========== 开始创建TCP新映射 ==========");
-            LOG_INFO("🔍 [TCP连接诊断] 创建新的TCP连接映射: %{public}s:%{public}d -> %{public}s:%{public}d", 
+            LOG_INFO("🔍 [TCP] 创建新连接: %{public}s:%{public}d -> %{public}s:%{public}d",
                      packetInfo.sourceIP.c_str(), packetInfo.sourcePort,
                      packetInfo.targetIP.c_str(), packetInfo.targetPort);
             LogTcpTrace("MAP_CREATE_START", packetInfo, tcp, dataSize, natKey, sockFd);
-            LOG_INFO("🚀 [TCP转发线程] 调用GetSocket创建转发socket...");
             sockFd = GetSocket(packetInfo, originalPeer, tunnelFd);
             if (sockFd < 0) {
-                LOG_ERROR("❌ [TCP连接诊断] 创建转发socket失败，无法建立连接");
-                LOG_ERROR("🚀 [TCP转发线程] ========================================");
+                LOG_ERROR("❌ [TCP] 创建转发socket失败: %{public}s:%{public}d -> %{public}s:%{public}d",
+                         packetInfo.sourceIP.c_str(), packetInfo.sourcePort,
+                         packetInfo.targetIP.c_str(), packetInfo.targetPort);
                 return -1;
             }
-            LOG_INFO("🚀 [TCP转发线程] GetSocket返回成功: fd=%d, 开始创建NAT映射...", sockFd);
             // 🚨 并发修复：可能已有其它worker抢先创建了同key映射（SYN重传/并发处理）
             NATConnection racedConn;
             if (NATTable::FindMapping(natKey, racedConn)) {
-                LOG_INFO("⚠️ [TCP连接诊断] NAT映射竞争：已存在fd=%{public}d，归还新fd=%{public}d 并复用已有映射 (key=%{public}s)",
-                         racedConn.forwardSocket, sockFd, natKey.c_str());
                 char clientIP[INET_ADDRSTRLEN];
                 inet_ntop(AF_INET, &originalPeer.sin_addr, clientIP, sizeof(clientIP));
                 SocketConnectionPool::getInstance().returnSocket(
@@ -1343,10 +1304,7 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
             }
 
             if (!NATTable::CreateMapping(natKey, originalPeer, packetInfo, sockFd)) {
-                // CreateMapping 拒绝覆盖：说明竞争窗口内有人创建了
                 if (NATTable::FindMapping(natKey, racedConn)) {
-                    LOG_INFO("⚠️ [TCP连接诊断] CreateMapping被拒绝(竞争)：复用已有fd=%{public}d，归还新fd=%{public}d",
-                             racedConn.forwardSocket, sockFd);
                     char clientIP[INET_ADDRSTRLEN];
                     inet_ntop(AF_INET, &originalPeer.sin_addr, clientIP, sizeof(clientIP));
                     SocketConnectionPool::getInstance().returnSocket(
@@ -1356,14 +1314,14 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
                     );
                     return racedConn.forwardSocket;
                 }
-                LOG_ERROR("🚨 [TCP连接诊断] CreateMapping失败且未找到现存映射: key=%{public}s (fd=%{public}d)", natKey.c_str(), sockFd);
+                LOG_ERROR("❌ [TCP] CreateMapping失败: key=%{public}s fd=%{public}d", natKey.c_str(), sockFd);
                 SocketConnectionPool::getInstance().returnSocket(sockFd, "", 0, "", 0, PROTOCOL_TCP, AF_INET);
                 return -1;
             }
 
             isNewMapping = true;
-            LOG_INFO("✅ [TCP连接诊断] NAT映射已创建: socket fd=%{public}d, 映射key=%{public}s", sockFd, natKey.c_str());
-            LOG_INFO("🧭 [TCP-TRACE] MAP_CREATE_OK key=%{public}s fd=%{public}d", natKey.c_str(), sockFd);
+            LOG_INFO("✅ [TCP] NAT映射已创建: fd=%{public}d key=%{public}s", sockFd, natKey.c_str());
+            LogTcpTrace("MAP_CREATE_OK", packetInfo, tcp, dataSize, natKey, sockFd);
             
         }
     } else {
@@ -1628,9 +1586,28 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
                     }
 
                     // 更新状态为 SYN_RECEIVED，等待客户端ACK完成握手
+                    // 🚨 关键修复：检查是否有待处理的ACK（客户端可能在CONNECTING状态已发送ACK）
+                    bool hasPendingAck = false;
+                    uint32_t pendingAckSeq = 0;
                     NATTable::WithConnection(natKey, [&](NATConnection& c) {
                         c.tcpState = NATConnection::TcpState::SYN_RECEIVED;
+                        // 如果nextClientSeq已经更新（说明收到过ACK），说明客户端已经发送了ACK
+                        if (c.nextClientSeq > c.clientIsn + 1) {
+                            hasPendingAck = true;
+                            pendingAckSeq = c.nextClientSeq - 1;
+                        }
                     });
+                    
+                    // 如果客户端已经发送了ACK，立即升级到ESTABLISHED
+                    if (hasPendingAck) {
+                        LOG_INFO("✅ [TCP] 连接完成，检测到客户端已发送ACK，立即升级到ESTABLISHED: key=%{public}s ack=%{public}u",
+                                 natKey.c_str(), pendingAckSeq);
+                        NATTable::WithConnection(natKey, [&](NATConnection& c) {
+                            if (c.tcpState == NATConnection::TcpState::SYN_RECEIVED) {
+                                c.tcpState = NATConnection::TcpState::ESTABLISHED;
+                            }
+                        });
+                    }
 
                     // 启动TCP响应线程
                     StartTCPThread(sockFd, originalPeer);
@@ -1641,6 +1618,7 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
                     LOG_ERROR("❌ [TCP] 后端连接失败，准备回RST: client=%{public}s:%{public}d -> target=%{public}s:%{public}d key=%{public}s",
                              packetInfo.sourceIP.c_str(), packetInfo.sourcePort,
                              actualTargetIP.c_str(), packetInfo.targetPort, natKey.c_str());
+                    LOG_ERROR("❌ [TCP] 连接失败影响: 客户端将收到RST，浏览器无法访问该网站");
 
                     // 发送 RST|ACK 告知客户端连接失败（ack=clientIsn+1）
                     uint8_t rstPkt[128];
@@ -1717,10 +1695,24 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
         int tcpPayloadSize = dataSize - tcp.ipHeaderLen - tcp.tcpHeaderLen;
         // ✅ 关键修复：
         // 浏览器/系统TCP栈经常在第三次握手直接发送 ACK+PSH(带首个HTTP数据段)。
-        // 之前代码只在“纯ACK且无payload”时才进入 ESTABLISHED，导致 ACK+数据被误判为“握手未完成”并丢弃，
-        // 表现就是“连接看似成功但网页永远打不开”。
+        // 之前代码只在"纯ACK且无payload"时才进入 ESTABLISHED，导致 ACK+数据被误判为"握手未完成"并丢弃，
+        // 表现就是"连接看似成功但网页永远打不开"。
         if (isAck && !isSyn) {
+            bool ackProcessed = false;
             NATTable::WithConnection(natKey, [&](NATConnection& c) {
+                // 🚨 关键修复：处理CONNECTING状态下收到ACK包的情况（竞态条件）
+                // 如果客户端在连接建立前就发送ACK，保存ACK信息，等待连接完成后再处理
+                if (c.tcpState == NATConnection::TcpState::CONNECTING) {
+                    LOG_INFO("⏳ [TCP] 收到ACK但后端仍在连接中，保存ACK信息等待连接完成: %{public}s:%{public}d -> %{public}s:%{public}d (fd=%{public}d ack=%{public}u)",
+                             packetInfo.sourceIP.c_str(), packetInfo.sourcePort,
+                             packetInfo.targetIP.c_str(), packetInfo.targetPort, sockFd, tcp.ack);
+                    // 保存ACK信息：更新nextClientSeq，这样连接完成后可以检测到
+                    if (tcp.ack == c.serverIsn + 1) {
+                        c.nextClientSeq = tcp.seq;  // 保存客户端的seq
+                    }
+                    LogTcpTrace("ACK_WAIT_CONNECT", packetInfo, tcp, dataSize, natKey, sockFd);
+                    return;
+                }
                 if (c.tcpState == NATConnection::TcpState::SYN_RECEIVED &&
                     tcp.ack == c.serverIsn + 1) {
                     c.tcpState = NATConnection::TcpState::ESTABLISHED;
@@ -1732,11 +1724,17 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
                     if (tcpPayloadSize <= 0) {
                         c.nextClientSeq = tcp.seq;
                     }
+                    ackProcessed = true;
                 }
             });
             // 纯ACK：握手完成即可返回；ACK+payload 继续走数据分支
-            if (tcpPayloadSize <= 0) {
+            // 如果ACK在CONNECTING状态收到，不处理，等待连接完成
+            if (ackProcessed && tcpPayloadSize <= 0) {
                 LogTcpTrace("ACK_HANDSHAKE", packetInfo, tcp, dataSize, natKey, sockFd);
+                return sockFd;
+            }
+            // 如果ACK在CONNECTING状态收到，且没有payload，直接返回（等待连接完成）
+            if (!ackProcessed && tcpPayloadSize <= 0) {
                 return sockFd;
             }
         }
@@ -1745,7 +1743,13 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
         if (tcpPayloadSize > 0) {
             // 若握手未完成，不应发往真实服务器（否则可能 ENOTCONN/EPIPE）
             bool canSend = false;
+            bool isConnecting = false;
             NATTable::WithConnection(natKey, [&](NATConnection& c) {
+                // 🚨 关键修复：如果状态是CONNECTING，等待连接完成
+                if (c.tcpState == NATConnection::TcpState::CONNECTING) {
+                    isConnecting = true;
+                    return;
+                }
                 // ✅ 允许 ACK+payload 的第三次握手：在这里也做一次兜底升级
                 if (c.tcpState == NATConnection::TcpState::SYN_RECEIVED &&
                     isAck && !isSyn && (tcp.ack == c.serverIsn + 1)) {
@@ -1753,8 +1757,15 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
                 }
                 canSend = (c.tcpState == NATConnection::TcpState::ESTABLISHED);
             });
+            if (isConnecting) {
+                LOG_INFO("⏳ [TCP] 收到数据但后端仍在连接中，等待连接完成: %{public}s:%{public}d -> %{public}s:%{public}d (fd=%{public}d payload=%{public}d)",
+                         packetInfo.sourceIP.c_str(), packetInfo.sourcePort,
+                         actualTargetIP.c_str(), packetInfo.targetPort, sockFd, tcpPayloadSize);
+                LogTcpTrace("DATA_WAIT_CONNECT", packetInfo, tcp, dataSize, natKey, sockFd);
+                return sockFd;
+            }
             if (!canSend) {
-                LOG_ERROR("⚠️ [TCP] 收到数据但握手未完成，丢弃该段并等待ACK建立: %{public}s:%{public}d -> %{public}s:%{public}d (fd=%{public}d flags=%{public}s payload=%{public}d)",
+                LOG_ERROR("⚠️ [TCP] 收到数据但握手未完成，丢弃该段: %{public}s:%{public}d -> %{public}s:%{public}d (fd=%{public}d flags=%{public}s payload=%{public}d)",
                           packetInfo.sourceIP.c_str(), packetInfo.sourcePort,
                           actualTargetIP.c_str(), packetInfo.targetPort, sockFd,
                           TcpFlagsToString(tcp.flags).c_str(), tcpPayloadSize);
