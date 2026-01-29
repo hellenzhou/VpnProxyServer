@@ -1165,13 +1165,9 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
         return 0;
     }
     
-    // 4. DNS重定向（只重定向223.5.5.5到8.8.8.8）
+    // 4. 使用原始目标IP（不再重定向DNS）
+    // 注意：如果223.5.5.5的UDP 53端口是通的，就不需要重定向到8.8.8.8
     std::string actualTargetIP = packetInfo.targetIP;
-    if (packetInfo.targetPort == 53 && packetInfo.targetIP == "223.5.5.5") {
-        actualTargetIP = "8.8.8.8";
-        LOG_INFO("🔍 [流程跟踪] DNS重定向: %{public}s -> %{public}s (端口=%{public}d)",
-                 packetInfo.targetIP.c_str(), actualTargetIP.c_str(), packetInfo.targetPort);
-    }
     
     // 5. 查找或创建NAT映射
     std::string natKey = NATTable::GenerateKey(packetInfo, originalPeer);
