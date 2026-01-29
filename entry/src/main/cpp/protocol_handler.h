@@ -35,9 +35,10 @@ struct PacketInfo {
     // ICMPv6 专用字段
     uint8_t icmpv6Type;        // ICMPv6 消息类型
     uint8_t icmpv6Code;        // ICMPv6 消息代码
+    uint8_t flags;             // TCP flags (or other protocol specific flags)
     
     PacketInfo() : targetPort(0), sourcePort(0), protocol(0), addressFamily(0), isValid(false), 
-                   icmpv6Type(0), icmpv6Code(0) {}
+                   icmpv6Type(0), icmpv6Code(0), flags(0) {}
 };
 
 // 协议处理器类

@@ -109,7 +109,5 @@ public:
     static void Clear();
     
 private:
-    static std::unordered_map<std::string, NATConnection> mappings_;
-    static std::unordered_map<int, std::string> socketToKey_;  // socket -> key映射
-    static std::mutex mutex_;
+    // 已全部移至 NATConnectionManager 管理
 };

@@ -29,12 +29,13 @@ bool TaskQueueManager::submitForwardTask(const uint8_t* data, int dataSize,
         return false;
     }
 
-    Task task(TaskType::FORWARD_REQUEST);
-    std::memcpy(task.forwardTask.data, data, dataSize);
-    task.forwardTask.dataSize = dataSize;
-    task.forwardTask.packetInfo = packetInfo;
-    task.forwardTask.clientAddr = clientAddr;
-    task.forwardTask.tunnelFd = tunnelFd;
+    // 🚀 优化：使用 shared_ptr 减少拷贝开销
+    auto task = std::make_shared<Task>(TaskType::FORWARD_REQUEST);
+    std::memcpy(task->forwardTask.data, data, dataSize);
+    task->forwardTask.dataSize = dataSize;
+    task->forwardTask.packetInfo = packetInfo;
+    task->forwardTask.clientAddr = clientAddr;
+    task->forwardTask.tunnelFd = tunnelFd;
 
     // Stats: enqueue forward task (best-effort)
     TrafficStats::fwdEnqueueTotal.fetch_add(1, std::memory_order_relaxed);
@@ -80,10 +81,9 @@ bool TaskQueueManager::submitForwardTask(const uint8_t* data, int dataSize,
             return false;
         }
         
-        // 🚀 关键优化：TCP任务使用阻塞push，避免任务丢失导致连接失败
-        // 如果队列满，会阻塞等待，确保TCP连接不会因为队列满而失败
-        // 这比丢弃任务更优雅，因为TCP是可靠协议，不能容忍丢包
-        pushResult = tcpQueues_[workerIndex]->push(task);
+        // 🚀 关键优化：TCP任务改用 tryPush，避免在队列满时阻塞主接收循环 (HoL Blocking)
+        // 阻塞 push 会导致主循环无法处理其他流量（如 DNS），造成整个服务器停摆
+        pushResult = tcpQueues_[workerIndex]->tryPush(task);
         queueSizeAfter = tcpQueues_[workerIndex]->size();
         queueEmptyAfter = tcpQueues_[workerIndex]->empty();
         
@@ -93,11 +93,13 @@ bool TaskQueueManager::submitForwardTask(const uint8_t* data, int dataSize,
                 TASK_LOGE("⚠️ [Queue] TCP队列接近满载: worker#%d, 队列大小=%zu/%d (80%%)", 
                          workerIndex, queueSizeAfter, 1000);
             }
-            // 详细日志只在调试时启用，避免日志爆炸
-            // TASK_LOGI("✅ [Queue] TCP任务入队成功: worker#%d, 队列大小=%zu", workerIndex, queueSizeAfter);
         } else {
-            // push返回false表示队列已关闭，这是正常关闭流程
-            TASK_LOGI("⚠️ TCP queue[%d] closed, task not enqueued", workerIndex);
+            // tryPush 返回 false 表示队列已满或已关闭
+            if (isTcp && (packetInfo.flags & 0x02)) { // SYN packet
+                TASK_LOGE("❌ [Queue] TCP SYN入队失败 (队列满): worker#%d, 丢弃连接请求", workerIndex);
+            } else {
+                TASK_LOGV("⚠️ [Queue] TCP任务入队失败 (队列满): worker#%d", workerIndex);
+            }
             return false;
         }
     } else if (packetInfo.protocol == PROTOCOL_UDP) {
@@ -108,7 +110,6 @@ bool TaskQueueManager::submitForwardTask(const uint8_t* data, int dataSize,
                  dataSize, queueSizeBefore, queueEmptyBefore ? 1 : 0);
         
         // UDP任务放入UDP专用队列
-        // 🚀 UDP可以使用tryPush，因为UDP本身可以容忍丢包
         pushResult = udpQueue_.tryPush(task);
         queueSizeAfter = udpQueue_.size();
         queueEmptyAfter = udpQueue_.empty();
@@ -155,13 +156,14 @@ bool TaskQueueManager::submitResponseTask(const uint8_t* data, int dataSize,
         return false;
     }
 
-    Task task(TaskType::SEND_RESPONSE);
-    std::memcpy(task.responseTask.data, data, dataSize);
-    task.responseTask.dataSize = dataSize;
-    task.responseTask.clientAddr = clientAddr;
-    task.responseTask.forwardSocket = forwardSocket;
-    task.responseTask.protocol = protocol;
-    task.responseTask.timestamp = std::chrono::steady_clock::now();
+    // 🚀 优化：使用 shared_ptr 减少拷贝开销
+    auto task = std::make_shared<Task>(TaskType::SEND_RESPONSE);
+    std::memcpy(task->responseTask.data, data, dataSize);
+    task->responseTask.dataSize = dataSize;
+    task->responseTask.clientAddr = clientAddr;
+    task->responseTask.forwardSocket = forwardSocket;
+    task->responseTask.protocol = protocol;
+    task->responseTask.timestamp = std::chrono::steady_clock::now();
 
     // Stats: enqueue response task (best-effort)
     TrafficStats::respEnqueueTotal.fetch_add(1, std::memory_order_relaxed);
@@ -181,21 +183,16 @@ bool TaskQueueManager::submitResponseTask(const uint8_t* data, int dataSize,
     return true;
 }
 
-Optional<Task> TaskQueueManager::popForwardTask(std::chrono::milliseconds timeout) {
-    // 🚨 IMPORTANT:
-    // The old implementation used many shared `static int` counters across multiple worker threads.
-    // That is a data race (UB) and can lead to hangs / weird behavior exactly like "enqueue grows, pop stops".
-    // Keep this path minimal and thread-safe. Use TrafficStats for global counters.
-
+Optional<std::shared_ptr<Task>> TaskQueueManager::popForwardTask(std::chrono::milliseconds timeout) {
     auto result = forwardQueue_.popWithTimeout(timeout);
     if (!result.has_value()) {
         return result;
     }
 
     TrafficStats::fwdPopTotal.fetch_add(1, std::memory_order_relaxed);
-    const Task& task = result.value();
-    if (task.type == TaskType::FORWARD_REQUEST) {
-        uint8_t protocol = task.forwardTask.packetInfo.protocol;
+    const std::shared_ptr<Task>& task = result.value();
+    if (task->type == TaskType::FORWARD_REQUEST) {
+        uint8_t protocol = task->forwardTask.packetInfo.protocol;
         if (protocol == PROTOCOL_TCP) {
             TrafficStats::fwdPopTcp.fetch_add(1, std::memory_order_relaxed);
         } else if (protocol == PROTOCOL_UDP) {
@@ -210,15 +207,15 @@ Optional<Task> TaskQueueManager::popForwardTask(std::chrono::milliseconds timeou
     return result;
 }
 
-Optional<Task> TaskQueueManager::popResponseTask(std::chrono::milliseconds timeout) {
+Optional<std::shared_ptr<Task>> TaskQueueManager::popResponseTask(std::chrono::milliseconds timeout) {
     return responseQueue_.popWithTimeout(timeout);
 }
 
 // 🚀 优雅方案：TCP专用队列pop（根据worker索引）
-Optional<Task> TaskQueueManager::popTcpTask(int workerIndex, std::chrono::milliseconds timeout) {
+Optional<std::shared_ptr<Task>> TaskQueueManager::popTcpTask(int workerIndex, std::chrono::milliseconds timeout) {
     if (workerIndex < 0 || workerIndex >= static_cast<int>(tcpQueues_.size()) || !tcpQueues_[workerIndex]) {
         TASK_LOGE("⚠️ Invalid TCP worker index: %d (队列数=%zu)", workerIndex, tcpQueues_.size());
-        return Optional<Task>();
+        return Optional<std::shared_ptr<Task>>();
     }
     
     auto result = tcpQueues_[workerIndex]->popWithTimeout(timeout);
@@ -231,35 +228,6 @@ Optional<Task> TaskQueueManager::popTcpTask(int workerIndex, std::chrono::millis
     return result;
 }
 
-// 🚀 优雅方案：根据连接哈希计算TCP worker索引
-// 确保同一连接的任务由同一线程处理，避免时序错乱
-// 关键：TCP三次握手（SYN -> SYN-ACK -> ACK）必须由同一线程按顺序处理
-int TaskQueueManager::getTcpWorkerIndex(const PacketInfo& packetInfo, const sockaddr_in& clientAddr) const {
-    // 🚨 防御性检查：确保队列数组已初始化
-    if (tcpQueues_.empty()) {
-        return 0;
-    }
-    
-    // 使用连接的五元组计算哈希值：源IP:源端口 -> 目标IP:目标端口
-    // 这确保了同一连接的所有包（包括SYN、SYN-ACK、ACK）都路由到同一个worker
-    // 由于队列是FIFO的，worker线程按顺序处理，保证了TCP三次握手不会被打乱
-    std::hash<std::string> hasher;
-    std::ostringstream oss;
-    oss << packetInfo.sourceIP << ":" << packetInfo.sourcePort << "->"
-        << packetInfo.targetIP << ":" << packetInfo.targetPort;
-    std::string connectionKey = oss.str();
-    
-    size_t hash = hasher(connectionKey);
-    int workerIndex = static_cast<int>(hash % tcpQueues_.size());
-    
-    // 🚨 防御性检查：确保索引有效
-    if (workerIndex < 0 || workerIndex >= static_cast<int>(tcpQueues_.size())) {
-        return 0;
-    }
-    
-    return workerIndex;
-}
-
 // 初始化TCP队列数组（实现）
 void TaskQueueManager::initializeTcpQueues(int numWorkers) {
     if (numWorkers <= 0 || numWorkers > 16) {
@@ -270,49 +238,44 @@ void TaskQueueManager::initializeTcpQueues(int numWorkers) {
     tcpQueues_.clear();
     // 🚀 修复：使用emplace_back创建unique_ptr，因为ThreadSafeQueue包含mutex，不可拷贝
     for (int i = 0; i < numWorkers; ++i) {
-        tcpQueues_.emplace_back(std::make_unique<ThreadSafeQueue<Task>>(1000));
+        tcpQueues_.emplace_back(std::make_unique<ThreadSafeQueue<std::shared_ptr<Task>>>(1000));
     }
     TASK_LOGI("✅ TCP队列数组初始化完成: %d个worker，每个队列容量1000", numWorkers);
 }
 
 // 🚀 优雅方案：UDP专用队列pop
-Optional<Task> TaskQueueManager::popUdpTask(std::chrono::milliseconds timeout) {
+Optional<std::shared_ptr<Task>> TaskQueueManager::popUdpTask(std::chrono::milliseconds timeout) {
     // 🚨 关键诊断：记录进入popUdpTask
     TASK_LOGI("🔍 [Queue] popUdpTask进入: timeout=%lldms, 队列当前大小=%zu", 
              (long long)timeout.count(), udpQueue_.size());
     
     // 🚨 关键诊断：记录pop前的队列状态
     size_t queueSizeBefore = udpQueue_.size();
-    bool queueEmptyBefore = udpQueue_.empty();
     
     auto result = udpQueue_.popWithTimeout(timeout);
     
     // 🚨 关键诊断：记录pop后的队列状态
     size_t queueSizeAfter = udpQueue_.size();
-    bool queueEmptyAfter = udpQueue_.empty();
     
     if (!result.has_value()) {
         // 🚨 关键诊断：pop失败时的详细信息
         if (queueSizeBefore > 0) {
             TASK_LOGE("⚠️ [Queue] popUdpTask返回空，但队列有%zu个任务！队列后=%zu, timeout=%lldms",
                      queueSizeBefore, queueSizeAfter, (long long)timeout.count());
-        } else {
-            // 正常超时日志（降低级别，避免日志过多）
-            // TASK_LOGI("🔍 [Queue] popUdpTask正常超时");
         }
         return result;
     }
 
     // 🚨 关键诊断：pop成功时的详细信息
-    const Task& task = result.value();
-    if (task.type == TaskType::FORWARD_REQUEST) {
-        const ForwardTask& fwdTask = task.forwardTask;
+    const std::shared_ptr<Task>& task = result.value();
+    if (task->type == TaskType::FORWARD_REQUEST) {
+        const ForwardTask& fwdTask = task->forwardTask;
         TASK_LOGI("✅ [Queue] popUdpTask成功: 源=%s:%d -> 目标=%s:%d, 队列大小: %zu -> %zu",
                  fwdTask.packetInfo.sourceIP.c_str(), fwdTask.packetInfo.sourcePort,
                  fwdTask.packetInfo.targetIP.c_str(), fwdTask.packetInfo.targetPort,
                  queueSizeBefore, queueSizeAfter);
     } else {
-        TASK_LOGE("⚠️ [Queue] popUdpTask收到非转发请求任务: type=%d", static_cast<int>(task.type));
+        TASK_LOGE("⚠️ [Queue] popUdpTask收到非转发请求任务: type=%d", static_cast<int>(task->type));
     }
 
     TrafficStats::fwdPopTotal.fetch_add(1, std::memory_order_relaxed);

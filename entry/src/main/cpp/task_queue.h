@@ -4,6 +4,7 @@
 #include <string>
 #include <memory>
 #include <vector>
+#include <functional>
 #include <netinet/in.h>
 #include "protocol_handler.h"
 #include "thread_safe_queue.h"
@@ -94,19 +95,40 @@ public:
                            uint8_t protocol);
     
     // 获取转发任务（通用，兼容旧代码）
-    Optional<Task> popForwardTask(std::chrono::milliseconds timeout);
+    Optional<std::shared_ptr<Task>> popForwardTask(std::chrono::milliseconds timeout);
     
     // 🚀 优雅方案：按协议分离的队列
     // 注意：TCP任务使用连接哈希路由，确保同一连接的任务由同一线程处理
-    Optional<Task> popTcpTask(int workerIndex, std::chrono::milliseconds timeout);
-    Optional<Task> popUdpTask(std::chrono::milliseconds timeout);
+    Optional<std::shared_ptr<Task>> popTcpTask(int workerIndex, std::chrono::milliseconds timeout);
+    Optional<std::shared_ptr<Task>> popUdpTask(std::chrono::milliseconds timeout);
     
     // 🚀 优雅方案：根据连接哈希计算应该使用哪个TCP worker
     // 返回worker索引，确保同一连接的任务由同一线程处理
-    int getTcpWorkerIndex(const PacketInfo& packetInfo, const sockaddr_in& clientAddr) const;
+    inline int getTcpWorkerIndex(const PacketInfo& packetInfo, const sockaddr_in& clientAddr) const {
+        // 🚨 防御性检查：确保队列数组已初始化
+        if (tcpQueues_.empty()) {
+            return 0;
+        }
+        
+        // 使用连接的五元组计算哈希值：源IP:源端口 -> 目标IP:目标端口
+        // 这确保了同一连接的所有包（包括SYN、SYN-ACK、ACK）都路由到同一个worker
+        std::hash<std::string> hasher;
+        std::string connectionKey = packetInfo.sourceIP + ":" + std::to_string(packetInfo.sourcePort) + "->"
+                                  + packetInfo.targetIP + ":" + std::to_string(packetInfo.targetPort);
+        
+        size_t hash = hasher(connectionKey);
+        int workerIndex = static_cast<int>(hash % tcpQueues_.size());
+        
+        // 🚨 防御性检查：确保索引有效
+        if (workerIndex < 0 || workerIndex >= static_cast<int>(tcpQueues_.size())) {
+            return 0;
+        }
+        
+        return workerIndex;
+    }
     
     // 获取响应任务
-    Optional<Task> popResponseTask(std::chrono::milliseconds timeout);
+    Optional<std::shared_ptr<Task>> popResponseTask(std::chrono::milliseconds timeout);
     
     // 获取队列统计
     size_t getForwardQueueSize() const { return forwardQueue_.size(); }
@@ -142,19 +164,21 @@ public:
     // 初始化TCP队列数组（由WorkerThreadPool调用，必须在worker启动前调用）
     // 🚀 修复：改为public，允许WorkerThreadPool调用
     void initializeTcpQueues(int numWorkers);
+    
+    // 🚀 优化：使用对象池避免频繁分配/释放Task内存
+    // 简单实现：预分配一个Task池（暂缓，先实现shared_ptr）
 
 private:
     TaskQueueManager() 
-        : forwardQueue_(2000),    // 转发队列（兼容旧代码，ICMP等）
-          tcpQueues_(),           // TCP队列数组（动态初始化）
-          udpQueue_(500),        // UDP队列：500个任务（UDP可容忍丢包）
-          responseQueue_(2000),   // 响应队列：2000个任务（响应通常较快）
-          numTcpWorkers_(2)        // 默认2个TCP worker
+        : forwardQueue_(5000),    // 🚀 扩大容量：从2000提升到5000
+          tcpQueues_(),           
+          udpQueue_(2000),       // 🚀 扩大容量：从500提升到2000
+          responseQueue_(5000),  // 🚀 扩大容量：从2000提升到5000
+          numTcpWorkers_(2)        
     {
-        // 初始化TCP队列数组（默认2个，会在start时重新初始化）
-        // 🚀 修复：使用emplace_back创建unique_ptr，因为ThreadSafeQueue包含mutex，不可拷贝
+        // ...
         for (int i = 0; i < 2; ++i) {
-            tcpQueues_.emplace_back(std::make_unique<ThreadSafeQueue<Task>>(1000));
+            tcpQueues_.emplace_back(std::make_unique<ThreadSafeQueue<std::shared_ptr<Task>>>(2000)); // 🚀 扩大单个TCP队列
         }
     }
     
@@ -167,11 +191,11 @@ private:
     TaskQueueManager(const TaskQueueManager&) = delete;
     TaskQueueManager& operator=(const TaskQueueManager&) = delete;
     
-    ThreadSafeQueue<Task> forwardQueue_;    // 转发请求队列（兼容旧代码）
+    ThreadSafeQueue<std::shared_ptr<Task>> forwardQueue_;    // 转发请求队列（兼容旧代码）
     // 🚀 修复：使用unique_ptr，因为ThreadSafeQueue包含mutex，不可拷贝
-    std::vector<std::unique_ptr<ThreadSafeQueue<Task>>> tcpQueues_;  // TCP专用队列数组（每个worker一个）
-    ThreadSafeQueue<Task> udpQueue_;        // UDP专用队列（优雅方案）
-    ThreadSafeQueue<Task> responseQueue_;   // 响应发送队列
+    std::vector<std::unique_ptr<ThreadSafeQueue<std::shared_ptr<Task>>>> tcpQueues_;  // TCP专用队列数组（每个worker一个）
+    ThreadSafeQueue<std::shared_ptr<Task>> udpQueue_;        // UDP专用队列（优雅方案）
+    ThreadSafeQueue<std::shared_ptr<Task>> responseQueue_;   // 响应发送队列
     
     int numTcpWorkers_;  // TCP worker数量（用于哈希路由）
 };

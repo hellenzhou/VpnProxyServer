@@ -1206,8 +1206,8 @@ void WorkerLoop()
         VPN_SERVER_LOGI("🚀 [TCP入队] 源: %{public}s:%{public}d -> 目标: %{public}s:%{public}d", 
                        packetInfo.sourceIP.c_str(), packetInfo.sourcePort,
                        packetInfo.targetIP.c_str(), packetInfo.targetPort);
-        VPN_SERVER_LOGI("🚀 [TCP入队] 数据大小: %{public}d字节, 当前队列大小: %{public}zu", 
-                       n, TaskQueueManager::getInstance().getForwardQueueSize());
+        VPN_SERVER_LOGI("🚀 [TCP入队] 数据大小: %{public}d字节, TCP队列总大小: %{public}zu", 
+                       n, TaskQueueManager::getInstance().getTcpQueueSize());
         VPN_SERVER_LOGI("🚀 [TCP入队] Worker运行状态: %{public}d", 
                        WorkerThreadPool::getInstance().isRunning() ? 1 : 0);
       } else if (packetInfo.protocol == PROTOCOL_UDP) {
@@ -1233,19 +1233,20 @@ void WorkerLoop()
         }
       } else {
         if (packetInfo.protocol == PROTOCOL_TCP) {
-          VPN_SERVER_LOGI("✅ [TCP入队] TCP任务入队成功: 队列大小=%{public}zu", 
-                         TaskQueueManager::getInstance().getForwardQueueSize());
+          VPN_SERVER_LOGI("✅ [TCP入队] TCP任务入队成功: TCP队列总大小=%{public}zu", 
+                         TaskQueueManager::getInstance().getTcpQueueSize());
           VPN_SERVER_LOGI("🚀 [TCP入队] ========================================");
         } else if (packetInfo.protocol == PROTOCOL_UDP) {
           VPN_SERVER_LOGI("✅ [UDP入队] UDP任务入队成功: UDP队列大小=%{public}zu", 
                          TaskQueueManager::getInstance().getUdpQueueSize());
           VPN_SERVER_LOGI("🚀 [UDP入队] ========================================");
         }
-        VPN_SERVER_LOGI("ZHOUB [FWD→] %{public}s -> %{public}s:%{public}d (queued) | workerRunning=%{public}d fwdQ=%{public}zu respQ=%{public}zu",
+        VPN_SERVER_LOGI("ZHOUB [FWD→] %{public}s -> %{public}s:%{public}d (queued) | workerRunning=%{public}d tcpQ=%{public}zu udpQ=%{public}zu respQ=%{public}zu",
                         ProtocolHandler::GetProtocolName(packetInfo.protocol).c_str(),
                         packetInfo.targetIP.c_str(), packetInfo.targetPort,
                         WorkerThreadPool::getInstance().isRunning() ? 1 : 0,
-                        TaskQueueManager::getInstance().getForwardQueueSize(),
+                        TaskQueueManager::getInstance().getTcpQueueSize(),
+                        TaskQueueManager::getInstance().getUdpQueueSize(),
                         TaskQueueManager::getInstance().getResponseQueueSize());
       }
     }
@@ -1337,7 +1338,9 @@ napi_value StartServer(napi_env env, napi_callback_info info)
   // 启动工作线程�?  VPN_SERVER_LOGI("🚀 Starting worker thread pool with 4 forward and 2 response workers...");
   // 🚀 优化：4个TCP worker提高并发性和负载均衡，2个UDP worker，2个Response worker
   // TCP worker数量建议：根据并发连接数调整，4个可以处理更多并发连接
-  if (!WorkerThreadPool::getInstance().start(4, 2, 2)) {
+  // 🚀 优化：增加TCP工作线程数 (4 -> 16)，应对浏览器大量并发连接
+  // 增加响应线程数 (2 -> 4)
+  if (!WorkerThreadPool::getInstance().start(16, 2, 4)) {
     VPN_SERVER_LOGE("�?Failed to start worker thread pool - THIS IS CRITICAL!");
     VPN_SERVER_LOGE("�?Worker thread pool state: isRunning=%d", WorkerThreadPool::getInstance().isRunning() ? 1 : 0);
   } else {

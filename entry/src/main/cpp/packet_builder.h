@@ -56,6 +56,10 @@ public:
     // 交换源/目标IP和端口（用于构建响应包）
     static PacketInfo SwapSourceDest(const PacketInfo& original);
     
+    // 🚀 新增：锁定TCP MSS，防止包超过MTU
+    // maxMss 建议设为 MTU - 40 (IP头+TCP头)
+    static void LockTcpMss(uint8_t* tcpPacket, int tcpLength, uint16_t maxMss);
+    
     // 获取IP头长度
     static int GetIPHeaderLength(const uint8_t* ipPacket);
     

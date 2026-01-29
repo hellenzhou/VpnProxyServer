@@ -158,13 +158,13 @@ void WorkerThreadPool::tcpWorkerThread(int workerIndex) {
                 continue;  // 超时或队列关闭
             }
             
-            Task task = taskOpt.value();
-            if (task.type != TaskType::FORWARD_REQUEST) {
+            std::shared_ptr<Task> task = taskOpt.value();
+            if (task->type != TaskType::FORWARD_REQUEST) {
                 WORKER_LOGE("Invalid task type in TCP worker");
                 continue;
             }
 
-            ForwardTask& fwdTask = task.forwardTask;
+            ForwardTask& fwdTask = task->forwardTask;
             
             // 🚨 防御性检查：确保是TCP任务（理论上不应该发生）
             if (fwdTask.packetInfo.protocol != PROTOCOL_TCP) {
@@ -284,13 +284,13 @@ void WorkerThreadPool::udpWorkerThread(int workerIndex) {
             }
             
             // 🐛 诊断：成功pop到任务
-            Task task = taskOpt.value();
-            if (task.type != TaskType::FORWARD_REQUEST) {
+            std::shared_ptr<Task> task = taskOpt.value();
+            if (task->type != TaskType::FORWARD_REQUEST) {
                 WORKER_LOGE("Invalid task type in UDP worker");
                 continue;
             }
 
-            ForwardTask& fwdTask = task.forwardTask;
+            ForwardTask& fwdTask = task->forwardTask;
             WORKER_LOGI("✅ [UDP Worker #%zu] 成功pop到UDP任务，准备处理: %zu -> %zu, 源=%{public}s:%{public}d -> 目标=%{public}s:%{public}d", 
                        threadIndex, queueSizeBefore, queueSizeAfter,
                        fwdTask.packetInfo.sourceIP.c_str(), fwdTask.packetInfo.sourcePort,
@@ -391,13 +391,13 @@ void WorkerThreadPool::responseWorkerThread() {
                 continue;
             }
             
-            Task task = taskOpt.value();
-            if (task.type != TaskType::SEND_RESPONSE) {
+            std::shared_ptr<Task> task = taskOpt.value();
+            if (task->type != TaskType::SEND_RESPONSE) {
                 WORKER_LOGE("Invalid task type in response queue");
                 continue;
             }
 
-            ResponseTask& respTask = task.responseTask;
+            ResponseTask& respTask = task->responseTask;
             processedTasks++;
             responseTasksProcessed_.fetch_add(1);
 

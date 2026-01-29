@@ -68,6 +68,8 @@ PacketInfo ProtocolHandler::ParseIPPacket(const uint8_t* data, int dataSize) {
             uint16_t rawDstPort = *(uint16_t*)&data[payloadOffset + 2];
             info.sourcePort = ntohs(rawSrcPort);
             info.targetPort = ntohs(rawDstPort);
+            // 🚨 新增：提取 TCP flags
+            info.flags = data[payloadOffset + 13];
         } else if (info.protocol == PROTOCOL_UDP) {
             if (dataSize < payloadOffset + 8) {
                 PROTOCOL_LOGI("UDP packet too small");
@@ -185,6 +187,8 @@ PacketInfo ProtocolHandler::ParseIPPacket(const uint8_t* data, int dataSize) {
             }
             info.sourcePort = (data[payloadOffset + 0] << 8) | data[payloadOffset + 1];
             info.targetPort = (data[payloadOffset + 2] << 8) | data[payloadOffset + 3];
+            // 🚨 新增：提取 IPv6 TCP flags
+            info.flags = data[payloadOffset + 13];
         } else if (info.protocol == PROTOCOL_UDP) {
             if (dataSize < payloadOffset + 8) {
                 PROTOCOL_LOGI("IPv6 UDP packet too small: %{public}d bytes (need at least %{public}d)", 
