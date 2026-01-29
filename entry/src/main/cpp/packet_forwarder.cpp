@@ -108,7 +108,9 @@ public:
             pollfd p{}; p.fd = sockFd; p.events = POLLIN;
             fds_.push_back(p);
             fdsSet_.insert(sockFd);
+#if 0
             LOG_INFO("➕ [TcpSocketPump] 注册TCP socket: fd=%d, 总数=%zu", sockFd, fds_.size());
+#endif
         }
         ensureStarted();
         cv_.notify_one();
@@ -121,7 +123,9 @@ public:
             if (it->fd == sockFd) { fds_.erase(it); break; }
         }
         fdsSet_.erase(sockFd);
+#if 0
         LOG_INFO("➖ [TcpSocketPump] 注销TCP socket: fd=%d, 剩余=%zu", sockFd, fds_.size());
+#endif
     }
 private:
     TcpSocketPump() = default;
@@ -225,7 +229,9 @@ public:
             if (fdsSet_.find(sockFd) != fdsSet_.end()) return;
             pollfd p{}; p.fd = sockFd; p.events = POLLIN;
             fds_.push_back(p); fdsSet_.insert(sockFd);
+#if 0
             LOG_INFO("➕ [UdpSocketPump] 注册socket: fd=%d, 当前总数=%zu", sockFd, fds_.size());
+#endif
         }
         ensureStarted();
         cv_.notify_one();
@@ -238,7 +244,9 @@ public:
             if (it->fd == sockFd) { fds_.erase(it); break; }
         }
         fdsSet_.erase(sockFd);
+#if 0
         LOG_INFO("➖ [UdpSocketPump] 注销socket: fd=%d, 剩余总数=%zu", sockFd, fds_.size());
+#endif
     }
 private:
     UdpSocketPump() = default;
