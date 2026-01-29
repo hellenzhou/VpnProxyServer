@@ -11,15 +11,12 @@
 #include <sys/ioctl.h>
 #include <net/if.h>
 #include <thread>
-#include <unistd.h>
 #include <map>
 #include <vector>
 #include <mutex>
 #include <ctime>
 #include <netdb.h>
 #include <fcntl.h>
-#include <sys/select.h>
-#include <hilog/log.h>
 #include <chrono>
 #include "vpn_server_globals.h"
 #include "worker_thread_pool.h"

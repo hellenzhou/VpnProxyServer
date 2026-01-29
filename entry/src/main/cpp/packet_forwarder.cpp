@@ -254,8 +254,9 @@ static ParsedTcp ParseTcpFromIp(const uint8_t* data, int dataSize)
         int off = ipHL;
 
         t.ipHeaderLen = ipHL;
-        t.srcPort = (static_cast<uint16_t>(data[off + 0]) << 8) | data[off + 1];
-        t.dstPort = (static_cast<uint16_t>(data[off + 2]) << 8) | data[off + 3];
+        // 🔧 BUG修复：使用正确的网络字节序转换
+        t.srcPort = ntohs(*(uint16_t*)&data[off]);
+        t.dstPort = ntohs(*(uint16_t*)&data[off + 2]);
         t.seq = (static_cast<uint32_t>(data[off + 4]) << 24) |
                 (static_cast<uint32_t>(data[off + 5]) << 16) |
                 (static_cast<uint32_t>(data[off + 6]) << 8)  |
@@ -1358,56 +1359,42 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
                  packetInfo.targetIP.c_str(), packetInfo.targetPort, payloadSize);
         LOG_INFO("🔍 [UDP转发线程] NAT Key: %{public}s", natKey.c_str());
         
-        // 🔧 死锁修复：统一锁顺序 - 先获取socket（poolMutex_），再操作NAT表（NATTable::mutex_）
-        // 避免与TCP worker形成死锁（TCP先获取poolMutex_，再获取NATTable::mutex_）
-        LOG_INFO("🔍 [UDP转发线程] 步骤1: 获取转发socket...");
-        sockFd = GetSocket(packetInfo, originalPeer, tunnelFd);
-        if (sockFd < 0) {
-            LOG_ERROR("❌ [UDP转发线程] GetSocket失败");
-            return -1;
-        }
-        LOG_INFO("🔍 [UDP转发线程] GetSocket成功: fd=%{public}d", sockFd);
-        
-        // 🔧 修复：先释放socket池锁，再检查NAT映射（避免死锁）
-        LOG_INFO("🔍 [UDP转发线程] 步骤2: 查找NAT映射...");
-        NATConnection existingConn;
+        // 🚀 优化：先查找映射，避免每次都创建和保护socket（非常耗时且可能导致挂起）
+        LOG_INFO("🔍 [UDP转发线程] 步骤1: 查找已有NAT映射...");
         if (NATTable::FindMapping(natKey, existingConn)) {
-            LOG_INFO("🔍 [UDP转发线程] NAT映射已存在: fd=%{public}d, 复用已有socket", existingConn.forwardSocket);
-            // 映射已存在，归还新socket，复用已有socket
-            char clientIP[INET_ADDRSTRLEN];
-            inet_ntop(AF_INET, &originalPeer.sin_addr, clientIP, sizeof(clientIP));
-            SocketConnectionPool::getInstance().returnSocket(
-                sockFd, clientIP, ntohs(originalPeer.sin_port),
-                packetInfo.targetIP, static_cast<uint16_t>(packetInfo.targetPort),
-                PROTOCOL_UDP, packetInfo.addressFamily
-            );
             sockFd = existingConn.forwardSocket;
             isNewMapping = false;
+            LOG_INFO("✅ [UDP转发线程] 发现已有映射: fd=%{public}d", sockFd);
         } else {
-            // 🚨 并发修复：多个worker同时处理同一UDP flow 时，可能重复建socket
-            LOG_INFO("🔍 [UDP转发线程] NAT映射不存在，创建新映射: fd=%{public}d", sockFd);
+            // 🔧 死锁修复：统一锁顺序 - 先获取socket（poolMutex_），再操作NAT表（NATTable::mutex_）
+            LOG_INFO("🔍 [UDP转发线程] 步骤1: 未找到映射，创建新socket...");
+            sockFd = GetSocket(packetInfo, originalPeer, tunnelFd);
+            if (sockFd < 0) {
+                LOG_ERROR("❌ [UDP转发线程] GetSocket失败");
+                return -1;
+            }
+            LOG_INFO("🔍 [UDP转发线程] GetSocket成功: fd=%{public}d", sockFd);
+            
+            // 🚨 并发修复：再次检查，防止竞态
             NATConnection racedConn;
-            if (!NATTable::CreateMapping(natKey, originalPeer, packetInfo, sockFd)) {
-                if (NATTable::FindMapping(natKey, racedConn)) {
-                    LOG_INFO("⚠️ [UDP] CreateMapping被拒绝(竞争)：复用已有fd=%{public}d，归还新fd=%{public}d (key=%{public}s)",
-                             racedConn.forwardSocket, sockFd, natKey.c_str());
-                    char clientIP[INET_ADDRSTRLEN];
-                    inet_ntop(AF_INET, &originalPeer.sin_addr, clientIP, sizeof(clientIP));
-                    SocketConnectionPool::getInstance().returnSocket(
-                        sockFd, clientIP, ntohs(originalPeer.sin_port),
-                        packetInfo.targetIP, static_cast<uint16_t>(packetInfo.targetPort),
-                        PROTOCOL_UDP, packetInfo.addressFamily
-                    );
-                    sockFd = racedConn.forwardSocket;
-                    isNewMapping = false;
-                } else {
-                    LOG_ERROR("🚨 [UDP] CreateMapping失败且未找到现存映射: key=%{public}s (fd=%{public}d)", natKey.c_str(), sockFd);
-                    SocketConnectionPool::getInstance().returnSocket(sockFd, "", 0, "", 0, PROTOCOL_UDP, AF_INET);
-                    return -1;
-                }
+            if (NATTable::FindMapping(natKey, racedConn)) {
+                LOG_INFO("⚠️ [UDP] CreateMapping 竞态：复用抢先创建的fd=%{public}d", racedConn.forwardSocket);
+                char clientIP[INET_ADDRSTRLEN];
+                inet_ntop(AF_INET, &originalPeer.sin_addr, clientIP, sizeof(clientIP));
+                SocketConnectionPool::getInstance().returnSocket(
+                    sockFd, clientIP, ntohs(originalPeer.sin_port),
+                    packetInfo.targetIP, static_cast<uint16_t>(packetInfo.targetPort),
+                    PROTOCOL_UDP, packetInfo.addressFamily
+                );
+                sockFd = racedConn.forwardSocket;
+                isNewMapping = false;
+            } else if (!NATTable::CreateMapping(natKey, originalPeer, packetInfo, sockFd)) {
+                LOG_ERROR("🚨 [UDP] CreateMapping失败: key=%{public}s (fd=%{public}d)", natKey.c_str(), sockFd);
+                SocketConnectionPool::getInstance().returnSocket(sockFd, "", 0, "", 0, PROTOCOL_UDP, AF_INET);
+                return -1;
             } else {
                 isNewMapping = true;
-                LOG_INFO("✅ [UDP转发线程] NAT映射创建成功: fd=%{public}d, key=%{public}s", sockFd, natKey.c_str());
+                LOG_INFO("✅ [UDP转发线程] NAT映射创建成功: fd=%{public}d", sockFd);
             }
         }
         LOG_INFO("🔍 [UDP转发线程] ========================================");
@@ -1645,11 +1632,34 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
                              packetInfo.sourceIP.c_str(), packetInfo.sourcePort,
                              actualTargetIP.c_str(), packetInfo.targetPort, natKey.c_str());
                     LOG_ERROR("❌ [TCP] 连接失败影响: 客户端将收到RST，浏览器无法访问该网站");
-                    LOG_ERROR("❌ [TCP] 失败原因: errno=%{public}d (%{public}s) - %{public}s",
-                             savedErr, strerror(savedErr),
-                             (savedErr == ECONNREFUSED ? "连接被拒绝" :
-                              savedErr == ENETUNREACH || savedErr == EHOSTUNREACH ? "网络不可达" :
-                              savedErr == ETIMEDOUT ? "连接超时" : "其他错误"));
+                    
+                    // 🔍 深度分析失败原因
+                    std::string failureReason;
+                    if (savedErr == ECONNREFUSED) {
+                        failureReason = "连接被拒绝 - 目标服务器端口未开放或服务未运行";
+                    } else if (savedErr == ENETUNREACH || savedErr == EHOSTUNREACH) {
+                        failureReason = "网络不可达 - 路由问题或目标IP不存在";
+                    } else if (savedErr == ETIMEDOUT) {
+                        failureReason = "连接超时 - 可能是防火墙阻止、网络延迟过高或socket被VPN路由表捕获";
+                    } else if (savedErr == EACCES) {
+                        failureReason = "权限被拒绝 - 可能是防火墙或安全策略阻止";
+                    } else if (savedErr == EADDRINUSE) {
+                        failureReason = "地址已被使用 - socket绑定冲突";
+                    } else {
+                        failureReason = "其他错误 - 需要进一步诊断";
+                    }
+                    LOG_ERROR("❌ [TCP] 失败原因分析: errno=%{public}d (%{public}s) - %{public}s",
+                             savedErr, strerror(savedErr), failureReason.c_str());
+                    
+                    // 🔍 检查socket保护状态（诊断socket是否被VPN路由表捕获）
+                    LOG_INFO("🔍 [TCP诊断] 检查socket保护状态: fd=%{public}d", sockFd);
+                    char boundInterface[IFNAMSIZ] = {0};
+                    socklen_t len = sizeof(boundInterface);
+                    if (getsockopt(sockFd, SOL_SOCKET, SO_BINDTODEVICE, boundInterface, &len) == 0 && len > 0) {
+                        LOG_INFO("✅ [TCP诊断] Socket已绑定到接口: %{public}s (fd=%{public}d)", boundInterface, sockFd);
+                    } else {
+                        LOG_ERROR("⚠️ [TCP诊断] Socket未绑定到接口 (fd=%{public}d) - 可能被VPN路由表捕获导致连接失败", sockFd);
+                    }
                     
                     // 🔍 检查网络连接：确认服务器能否访问目标网站
                     static std::atomic<int> checkCount{0};
@@ -1663,9 +1673,11 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
                         if (!reachable) {
                             LOG_ERROR("❌ [网络检查] 服务器无法访问目标网站: %{public}s:%{public}d - 这可能是网络问题或防火墙阻止",
                                      actualTargetIP.c_str(), packetInfo.targetPort);
+                            LOG_ERROR("❌ [网络检查] 建议: 1)检查服务器网络配置 2)检查防火墙规则 3)确认目标服务器可访问");
                         } else {
-                            LOG_INFO("✅ [网络检查] 服务器可以访问目标网站: %{public}s:%{public}d - 连接失败可能是临时问题",
+                            LOG_INFO("✅ [网络检查] 服务器可以访问目标网站: %{public}s:%{public}d - 连接失败可能是临时问题或socket保护问题",
                                     actualTargetIP.c_str(), packetInfo.targetPort);
+                            LOG_INFO("🔍 [网络检查] 建议: 如果网络可达但连接失败，可能是socket保护未生效，socket被VPN路由表捕获");
                         }
                     }
 

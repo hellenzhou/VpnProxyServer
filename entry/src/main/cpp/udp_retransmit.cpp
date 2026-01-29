@@ -235,7 +235,8 @@ void UdpRetransmitManager::recordSentPacket(uint16_t packetId,
                  inet_ntoa(info.clientAddr.sin_addr), ntohs(info.clientAddr.sin_port));
 
     // 定期清理超时的pending packets，避免内存泄漏
-    cleanupExpiredPackets();
+    // 🚨 修复：不要在持有锁的情况下调用获取锁的函数（避免死锁）
+    // cleanupExpiredPackets(); 
 }
 
 void UdpRetransmitManager::confirmReceived(uint16_t packetId, double rtt) {

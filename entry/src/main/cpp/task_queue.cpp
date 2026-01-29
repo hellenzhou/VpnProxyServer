@@ -277,6 +277,10 @@ void TaskQueueManager::initializeTcpQueues(int numWorkers) {
 
 // 🚀 优雅方案：UDP专用队列pop
 Optional<Task> TaskQueueManager::popUdpTask(std::chrono::milliseconds timeout) {
+    // 🚨 关键诊断：记录进入popUdpTask
+    TASK_LOGI("🔍 [Queue] popUdpTask进入: timeout=%lldms, 队列当前大小=%zu", 
+             (long long)timeout.count(), udpQueue_.size());
+    
     // 🚨 关键诊断：记录pop前的队列状态
     size_t queueSizeBefore = udpQueue_.size();
     bool queueEmptyBefore = udpQueue_.empty();
@@ -292,6 +296,9 @@ Optional<Task> TaskQueueManager::popUdpTask(std::chrono::milliseconds timeout) {
         if (queueSizeBefore > 0) {
             TASK_LOGE("⚠️ [Queue] popUdpTask返回空，但队列有%zu个任务！队列后=%zu, timeout=%lldms",
                      queueSizeBefore, queueSizeAfter, (long long)timeout.count());
+        } else {
+            // 正常超时日志（降低级别，避免日志过多）
+            // TASK_LOGI("🔍 [Queue] popUdpTask正常超时");
         }
         return result;
     }
@@ -304,6 +311,8 @@ Optional<Task> TaskQueueManager::popUdpTask(std::chrono::milliseconds timeout) {
                  fwdTask.packetInfo.sourceIP.c_str(), fwdTask.packetInfo.sourcePort,
                  fwdTask.packetInfo.targetIP.c_str(), fwdTask.packetInfo.targetPort,
                  queueSizeBefore, queueSizeAfter);
+    } else {
+        TASK_LOGE("⚠️ [Queue] popUdpTask收到非转发请求任务: type=%d", static_cast<int>(task.type));
     }
 
     TrafficStats::fwdPopTotal.fetch_add(1, std::memory_order_relaxed);

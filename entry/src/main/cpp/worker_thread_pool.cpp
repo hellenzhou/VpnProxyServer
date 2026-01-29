@@ -23,6 +23,9 @@ bool WorkerThreadPool::start(int numTcpWorkers, int numUdpWorkers, int numRespon
         return false;
     }
     
+    WORKER_LOGI("🚀 Starting WorkerThreadPool: tcp=%d, udp=%d, resp=%d", 
+                numTcpWorkers, numUdpWorkers, numResponseWorkers);
+    
     // 🚀 关键修复：在启动worker线程前初始化TCP队列数组
     // 避免竞态条件：如果worker线程启动后才初始化队列，可能导致任务路由到不存在的队列
     TaskQueueManager::getInstance().initializeTcpQueues(numTcpWorkers);
@@ -30,12 +33,11 @@ bool WorkerThreadPool::start(int numTcpWorkers, int numUdpWorkers, int numRespon
     running_.store(true);
     
     // 🚀 启动TCP专用工作线程
-    // 🐛 修复：直接传递worker索引，避免通过thread ID查找（不可靠）
     for (int i = 0; i < numTcpWorkers; ++i) {
         try {
             tcpWorkers_.emplace_back([this, i]() {
-                WORKER_LOGI("🚀 [TCP Worker] TCP专用线程 #%d 启动", i);
-                tcpWorkerThread(i);  // 🐛 修复：直接传递索引
+                WORKER_LOGI("🚀 [TCP Worker #%d] 线程启动", i);
+                tcpWorkerThread(i);
             });
         } catch (const std::exception& e) {
             WORKER_LOGE("Failed to create TCP worker #%d: %s", i, e.what());
@@ -44,13 +46,14 @@ bool WorkerThreadPool::start(int numTcpWorkers, int numUdpWorkers, int numRespon
     }
     
     // 🚀 启动UDP专用工作线程
-    // 🐛 修复：直接传递worker索引，避免通过thread ID查找（不可靠）
     for (int i = 0; i < numUdpWorkers; ++i) {
         try {
+            WORKER_LOGI("🚀 [UDP Worker] 准备创建线程 #%d", i);
             udpWorkers_.emplace_back([this, i]() {
-                WORKER_LOGI("🚀 [UDP Worker] UDP专用线程 #%d 启动", i);
-                udpWorkerThread(i);  // 🐛 修复：直接传递索引
+                WORKER_LOGI("🚀 [UDP Worker #%d] 线程内部启动", i);
+                udpWorkerThread(i);
             });
+            WORKER_LOGI("🚀 [UDP Worker] 线程 #%d 创建成功", i);
         } catch (const std::exception& e) {
             WORKER_LOGE("Failed to create UDP worker #%d: %s", i, e.what());
             return false;
@@ -61,6 +64,7 @@ bool WorkerThreadPool::start(int numTcpWorkers, int numUdpWorkers, int numRespon
     for (int i = 0; i < numResponseWorkers; ++i) {
         try {
             responseWorkers_.emplace_back([this]() {
+                WORKER_LOGI("🚀 [Response Worker] 线程启动");
                 responseWorkerThread();
             });
         } catch (const std::exception& e) {
@@ -69,7 +73,7 @@ bool WorkerThreadPool::start(int numTcpWorkers, int numUdpWorkers, int numRespon
         }
     }
     
-    WORKER_LOGI("✅ Worker thread pool started: %d TCP workers, %d UDP workers, %d response workers", 
+    WORKER_LOGI("✅ Worker thread pool started successfully: %d TCP, %d UDP, %d response workers", 
                 numTcpWorkers, numUdpWorkers, numResponseWorkers);
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
     
@@ -244,6 +248,11 @@ void WorkerThreadPool::udpWorkerThread(int workerIndex) {
     
     WORKER_LOGI("🚀 [UDP Worker] UDP专用线程 #%zu 启动: thread_id=%s", threadIndex, threadIdStr.c_str());
     
+    // 🐛 诊断：增加启动计数，确认线程是否真的开始运行
+    static std::atomic<int> startCounter{0};
+    int startIdx = ++startCounter;
+    WORKER_LOGI("🚀 [UDP Worker #%zu] 线程循环开始执行 (启动序号=%d)", threadIndex, startIdx);
+    
     // 🐛 诊断：添加心跳日志
     static std::atomic<int> heartbeatCounter{0};
 
@@ -252,14 +261,17 @@ void WorkerThreadPool::udpWorkerThread(int workerIndex) {
             size_t queueSizeBefore = taskQueue.getUdpQueueSize();
             auto timeout = queueSizeBefore > 0 ? std::chrono::milliseconds(10) : std::chrono::milliseconds(100);
             
-            // 🐛 诊断：每100次循环输出一次心跳
+            // 🐛 诊断：更频繁的心跳日志（每10次循环）
             int hb = ++heartbeatCounter;
-            if (hb % 100 == 0) {
+            if (hb % 10 == 0 || queueSizeBefore > 0) {
                 WORKER_LOGI("🔍 [UDP Worker #%zu] 心跳 #%d: 队列大小=%zu, running=%d", 
                            threadIndex, hb, queueSizeBefore, running_.load() ? 1 : 0);
             }
             
+            WORKER_LOGI("🔍 [UDP Worker #%zu] 准备调用 popUdpTask...", threadIndex);
             auto taskOpt = taskQueue.popUdpTask(timeout);
+            WORKER_LOGI("🔍 [UDP Worker #%zu] popUdpTask返回, has_value=%d", threadIndex, taskOpt.has_value() ? 1 : 0);
+            
             size_t queueSizeAfter = taskQueue.getUdpQueueSize();
             
             if (!taskOpt.has_value()) {
@@ -279,7 +291,7 @@ void WorkerThreadPool::udpWorkerThread(int workerIndex) {
             }
 
             ForwardTask& fwdTask = task.forwardTask;
-            WORKER_LOGI("✅ [UDP Worker #%zu] 成功pop到UDP任务，队列: %zu -> %zu, 源=%{public}s:%{public}d -> 目标=%{public}s:%{public}d", 
+            WORKER_LOGI("✅ [UDP Worker #%zu] 成功pop到UDP任务，准备处理: %zu -> %zu, 源=%{public}s:%{public}d -> 目标=%{public}s:%{public}d", 
                        threadIndex, queueSizeBefore, queueSizeAfter,
                        fwdTask.packetInfo.sourceIP.c_str(), fwdTask.packetInfo.sourcePort,
                        fwdTask.packetInfo.targetIP.c_str(), fwdTask.packetInfo.targetPort);
@@ -293,7 +305,7 @@ void WorkerThreadPool::udpWorkerThread(int workerIndex) {
             processedTasks++;
             
             // 转发数据包
-            WORKER_LOGI("🔍 [UDP Worker #%zu] 开始处理UDP任务: %s:%d -> %s:%d, 大小=%d", 
+            WORKER_LOGI("🔍 [UDP Worker #%zu] 调用 ForwardPacket: %s:%d -> %s:%d, 大小=%d", 
                        threadIndex,
                        fwdTask.packetInfo.sourceIP.c_str(), fwdTask.packetInfo.sourcePort,
                        fwdTask.packetInfo.targetIP.c_str(), fwdTask.packetInfo.targetPort,
