@@ -55,10 +55,10 @@ public:
         
         // 等待队列有空间
         notFull_.wait(lock, [this] {
-            return queue_.size() < maxSize_ || shutdown_;
+            return queue_.size() < maxSize_ || shutdown_.load();
         });
         
-        if (shutdown_) {
+        if (shutdown_.load()) {
             return false;
         }
         
@@ -71,7 +71,7 @@ public:
     bool tryPush(const T& item) {
         std::unique_lock<std::mutex> lock(mutex_);
         
-        if (queue_.size() >= maxSize_ || shutdown_) {
+        if (queue_.size() >= maxSize_ || shutdown_.load()) {
             return false;
         }
         
@@ -86,10 +86,10 @@ public:
         
         // 等待队列非空
         notEmpty_.wait(lock, [this] {
-            return !queue_.empty() || shutdown_;
+            return !queue_.empty() || shutdown_.load();
         });
         
-        if (shutdown_ && queue_.empty()) {
+        if (shutdown_.load() && queue_.empty()) {
             return Optional<T>();  // 空值
         }
         
@@ -114,13 +114,13 @@ public:
         }
         
         // 如果已关闭且队列为空，直接返回
-        if (shutdown_) {
+        if (shutdown_.load()) {
             return Optional<T>();
         }
         
         // 队列为空，等待数据到达
         bool waitResult = notEmpty_.wait_for(lock, timeout, [this] {
-            return !queue_.empty() || shutdown_;
+            return !queue_.empty() || shutdown_.load();
         });
         
         // 检查等待结果
@@ -136,7 +136,7 @@ public:
         }
         
         // waitResult 为 true，说明队列非空或已关闭
-        if (shutdown_ && queue_.empty()) {
+        if (shutdown_.load() && queue_.empty()) {
             return Optional<T>();  // 已关闭且队列为空
         }
         
@@ -180,7 +180,7 @@ public:
     void shutdown() {
         {
             std::lock_guard<std::mutex> lock(mutex_);
-            shutdown_ = true;
+            shutdown_.store(true);
         }
         notEmpty_.notify_all();
         notFull_.notify_all();

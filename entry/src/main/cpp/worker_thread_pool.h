@@ -66,7 +66,7 @@ private:
     // 工作线程函数
     void forwardWorkerThread();  // 通用worker（兼容旧代码）
     void tcpWorkerThread(int workerIndex);      // 专门处理TCP任务（传入worker索引）
-    void udpWorkerThread();       // 专门处理UDP任务
+    void udpWorkerThread(int workerIndex);      // 专门处理UDP任务（传入worker索引）
     void responseWorkerThread();
     
     std::vector<std::thread> forwardWorkers_;  // 保留用于兼容

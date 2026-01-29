@@ -812,10 +812,10 @@ static void StartUDPThread(int sockFd, const sockaddr_in& originalPeer) {
                 // 🔍 流程跟踪：记录收到UDP响应
                 NATConnection conn;
                 if (NATTable::FindMappingBySocket(sockFd, conn)) {
-                    LOG_INFO("🔍 [流程跟踪] 收到UDP响应: %d字节 (socket fd=%d, 目标=%s:%d)", 
+                    LOG_INFO("🔍 [流程跟踪] 收到UDP响应: %{public}zd字节 (socket fd=%{public}d, 目标=%{public}s:%{public}d)", 
                              received, sockFd, conn.serverIP.c_str(), conn.serverPort);
                 } else {
-                    LOG_INFO("🔍 [流程跟踪] 收到UDP响应: %d字节 (socket fd=%d, NAT映射不存在)", 
+                    LOG_INFO("🔍 [流程跟踪] 收到UDP响应: %{public}zd字节 (socket fd=%{public}d, NAT映射不存在)", 
                              received, sockFd);
                 }
             }
@@ -1476,8 +1476,8 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize,
                  sent, (long long)sendCostMs, (sent < 0 ? errno : 0), sockFd);
         
         if (sendCostMs > 100) {
-            WORKER_LOGE("⏱️ [UDP转发线程] sendto耗时过长: %{public}lldms (fd=%{public}d, payload=%{public}d字节)",
-                       (long long)sendCostMs, sockFd, payloadSize);
+            LOG_ERROR("⏱️ [UDP转发线程] sendto耗时过长: %{public}lldms (fd=%{public}d, payload=%{public}d字节)",
+                     (long long)sendCostMs, sockFd, payloadSize);
         }
         
         if (sent < 0) {

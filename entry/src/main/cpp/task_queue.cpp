@@ -101,6 +101,12 @@ bool TaskQueueManager::submitForwardTask(const uint8_t* data, int dataSize,
             return false;
         }
     } else if (packetInfo.protocol == PROTOCOL_UDP) {
+        // 🚨 关键诊断：UDP任务入队前记录详细信息
+        TASK_LOGI("🚀 [Queue] UDP任务准备入队: 源=%s:%d -> 目标=%s:%d, 大小=%d, 入队前队列大小=%zu, 空=%d",
+                 packetInfo.sourceIP.c_str(), packetInfo.sourcePort,
+                 packetInfo.targetIP.c_str(), packetInfo.targetPort,
+                 dataSize, queueSizeBefore, queueEmptyBefore ? 1 : 0);
+        
         // UDP任务放入UDP专用队列
         // 🚀 UDP可以使用tryPush，因为UDP本身可以容忍丢包
         pushResult = udpQueue_.tryPush(task);
@@ -112,6 +118,12 @@ bool TaskQueueManager::submitForwardTask(const uint8_t* data, int dataSize,
             TASK_LOGE("⚠️ UDP queue full, dropping packet: 队列大小=%zu (UDP可容忍丢包)", udpQueue_.size());
             return false;
         }
+        
+        // 🚨 关键诊断：UDP任务入队成功
+        TASK_LOGI("✅ [Queue] UDP任务入队成功: 源=%s:%d -> 目标=%s:%d, 队列大小: %zu -> %zu, 空: %d -> %d",
+                 packetInfo.sourceIP.c_str(), packetInfo.sourcePort,
+                 packetInfo.targetIP.c_str(), packetInfo.targetPort,
+                 queueSizeBefore, queueSizeAfter, queueEmptyBefore ? 1 : 0, queueEmptyAfter ? 1 : 0);
         
         // 队列监控：如果队列超过80%容量，记录警告
         if (queueSizeAfter > 400) {  // 500 * 0.8
@@ -265,9 +277,33 @@ void TaskQueueManager::initializeTcpQueues(int numWorkers) {
 
 // 🚀 优雅方案：UDP专用队列pop
 Optional<Task> TaskQueueManager::popUdpTask(std::chrono::milliseconds timeout) {
+    // 🚨 关键诊断：记录pop前的队列状态
+    size_t queueSizeBefore = udpQueue_.size();
+    bool queueEmptyBefore = udpQueue_.empty();
+    
     auto result = udpQueue_.popWithTimeout(timeout);
+    
+    // 🚨 关键诊断：记录pop后的队列状态
+    size_t queueSizeAfter = udpQueue_.size();
+    bool queueEmptyAfter = udpQueue_.empty();
+    
     if (!result.has_value()) {
+        // 🚨 关键诊断：pop失败时的详细信息
+        if (queueSizeBefore > 0) {
+            TASK_LOGE("⚠️ [Queue] popUdpTask返回空，但队列有%zu个任务！队列后=%zu, timeout=%lldms",
+                     queueSizeBefore, queueSizeAfter, (long long)timeout.count());
+        }
         return result;
+    }
+
+    // 🚨 关键诊断：pop成功时的详细信息
+    const Task& task = result.value();
+    if (task.type == TaskType::FORWARD_REQUEST) {
+        const ForwardTask& fwdTask = task.forwardTask;
+        TASK_LOGI("✅ [Queue] popUdpTask成功: 源=%s:%d -> 目标=%s:%d, 队列大小: %zu -> %zu",
+                 fwdTask.packetInfo.sourceIP.c_str(), fwdTask.packetInfo.sourcePort,
+                 fwdTask.packetInfo.targetIP.c_str(), fwdTask.packetInfo.targetPort,
+                 queueSizeBefore, queueSizeAfter);
     }
 
     TrafficStats::fwdPopTotal.fetch_add(1, std::memory_order_relaxed);

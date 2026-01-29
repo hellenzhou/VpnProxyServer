@@ -44,11 +44,12 @@ bool WorkerThreadPool::start(int numTcpWorkers, int numUdpWorkers, int numRespon
     }
     
     // 🚀 启动UDP专用工作线程
+    // 🐛 修复：直接传递worker索引，避免通过thread ID查找（不可靠）
     for (int i = 0; i < numUdpWorkers; ++i) {
         try {
             udpWorkers_.emplace_back([this, i]() {
                 WORKER_LOGI("🚀 [UDP Worker] UDP专用线程 #%d 启动", i);
-                udpWorkerThread();
+                udpWorkerThread(i);  // 🐛 修复：直接传递索引
             });
         } catch (const std::exception& e) {
             WORKER_LOGE("Failed to create UDP worker #%d: %s", i, e.what());
@@ -227,7 +228,8 @@ void WorkerThreadPool::tcpWorkerThread(int workerIndex) {
 }
 
 // UDP专用worker线程 - 只处理UDP任务
-void WorkerThreadPool::udpWorkerThread() {
+// 🐛 修复：直接接收worker索引参数，避免通过thread ID查找（不可靠且低效）
+void WorkerThreadPool::udpWorkerThread(int workerIndex) {
     auto& taskQueue = TaskQueueManager::getInstance();
     int processedTasks = 0;
     
@@ -237,14 +239,8 @@ void WorkerThreadPool::udpWorkerThread() {
     ss << threadId;
     std::string threadIdStr = ss.str();
     
-    // 获取线程索引
-    size_t threadIndex = 0;
-    for (size_t i = 0; i < udpWorkers_.size(); ++i) {
-        if (udpWorkers_[i].get_id() == threadId) {
-            threadIndex = i;
-            break;
-        }
-    }
+    // 🐛 修复：直接使用传入的workerIndex，不再通过thread ID查找
+    size_t threadIndex = static_cast<size_t>(workerIndex);
     
     WORKER_LOGI("🚀 [UDP Worker] UDP专用线程 #%zu 启动: thread_id=%s", threadIndex, threadIdStr.c_str());
     
