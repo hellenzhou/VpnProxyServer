@@ -497,15 +497,15 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize, const Pack
         } else {
             // 🚨 关键诊断：如果没有映射，必须是SYN包
             if (!HasTcpFlag(tcp.flags, TCP_SYN) || HasTcpFlag(tcp.flags, TCP_ACK)) {
-                // 这是最常见的“forward failed”原因：连接已关闭或映射已过期，但客户端仍在发送数据或ACK
-                // 为了减少日志，这里改用 INFO，因为这在长连接断开后是正常的
-                LOG_INFO("ℹ️ [TCP] 丢弃无映射包: 标志=%s, 源=%s:%d -> 目标=%s:%d (映射可能已过期)", 
-                         TcpFlagsToString(tcp.flags).c_str(),
-                         pi.sourceIP.c_str(), pi.sourcePort, pi.targetIP.c_str(), pi.targetPort);
-                return -1;
-            }
-            
-            sockFd = SocketConnectionPool::getInstance().getSocket(pi.sourceIP, pi.sourcePort, pi.targetIP, pi.targetPort, pi.protocol, pi.addressFamily);
+            // 这是最常见的“forward failed”原因：连接已关闭或映射已过期，但客户端仍在发送数据或ACK
+            // 为了减少日志，这里改用 INFO，因为这在长连接断开后是正常的
+            LOG_INFO("ℹ️ [TCP] 丢弃无映射包: 标志=%s, 源=%s:%d -> 目标=%s:%d (映射可能已过期)", 
+                     TcpFlagsToString(tcp.flags).c_str(),
+                     pi.sourceIP.c_str(), pi.sourcePort, pi.targetIP.c_str(), pi.targetPort);
+            return 0; // 🚀 优化：返回0表示已处理（丢弃），避免 Worker 线程打印 ERROR 日志
+        }
+        
+        sockFd = SocketConnectionPool::getInstance().getSocket(pi.sourceIP, pi.sourcePort, pi.targetIP, pi.targetPort, pi.protocol, pi.addressFamily);
             if (sockFd < 0) {
                 LOG_ERROR("❌ [TCP] 获取Socket失败: %s:%d", pi.targetIP.c_str(), pi.targetPort);
                 return -1;
