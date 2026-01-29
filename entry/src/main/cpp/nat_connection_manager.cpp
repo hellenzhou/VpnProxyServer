@@ -9,14 +9,8 @@
 #include <arpa/inet.h>
 #include <algorithm>
 
-// 前向声明SocketConnectionPool（避免循环依赖）
-class SocketConnectionPool {
-public:
-    static SocketConnectionPool& getInstance();
-    void returnSocket(int sockFd, const std::string& clientIP, uint16_t clientPort,
-                     const std::string& serverIP, uint16_t serverPort, uint8_t protocol,
-                     int addressFamily);
-};
+// 使用 packet_forwarder.h 中的 SocketConnectionPool 声明
+#include "packet_forwarder.h"
 
 // 日志宏
 #define NAT_MGR_LOGI(fmt, ...) \

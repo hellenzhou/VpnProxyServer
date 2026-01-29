@@ -25,6 +25,11 @@ public:
                                    const uint8_t* payload, int payloadSize,
                                    const PacketInfo& originalRequest);
 
+    // 构建UDP响应包
+    static int BuildUdpResponsePacket(uint8_t* buffer, int bufferSize,
+                                      const uint8_t* payload, int payloadSize,
+                                      const PacketInfo& originalRequest);
+
     // Build a TCP packet (including pure ACK/SYN-ACK/FIN etc.) as a full IPv4 packet.
     // - payload can be null if payloadSize==0
     // - seq/ack are absolute TCP sequence numbers

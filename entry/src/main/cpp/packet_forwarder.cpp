@@ -299,65 +299,38 @@ private:
 
 static bool ProtectSocket(int sockFd, const std::string& description);
 
-class SocketConnectionPool {
-private:
-    struct SocketInfo {
-        int sockFd;
-        std::chrono::steady_clock::time_point lastUsed;
-        bool inUse;
-        SocketInfo(int fd) : sockFd(fd), lastUsed(std::chrono::steady_clock::now()), inUse(false) {}
-    };
-    struct TargetKey {
-        std::string clientIP, serverIP; uint16_t clientPort, serverPort; uint8_t protocol; int addressFamily;
-        bool operator<(const TargetKey& other) const {
-            if (clientIP != other.clientIP) return clientIP < other.clientIP;
-            if (clientPort != other.clientPort) return clientPort < other.clientPort;
-            if (serverIP != other.serverIP) return serverIP < other.serverIP;
-            if (serverPort != other.serverPort) return serverPort < other.serverPort;
-            if (protocol != other.protocol) return protocol < other.protocol;
-            return addressFamily < other.addressFamily;
-        }
-    };
+// SocketConnectionPool 的完整实现（在 .cpp 文件中）
+namespace {
+struct SocketInfo {
+    int sockFd;
+    std::chrono::steady_clock::time_point lastUsed;
+    bool inUse;
+    SocketInfo(int fd) : sockFd(fd), lastUsed(std::chrono::steady_clock::now()), inUse(false) {}
+};
+
+struct TargetKey {
+    std::string clientIP;
+    uint16_t clientPort;
+    std::string serverIP;
+    uint16_t serverPort;
+    uint8_t protocol;
+    int addressFamily;
+    bool operator<(const TargetKey& other) const {
+        if (clientIP != other.clientIP) return clientIP < other.clientIP;
+        if (clientPort != other.clientPort) return clientPort < other.clientPort;
+        if (serverIP != other.serverIP) return serverIP < other.serverIP;
+        if (serverPort != other.serverPort) return serverPort < other.serverPort;
+        if (protocol != other.protocol) return protocol < other.protocol;
+        return addressFamily < other.addressFamily;
+    }
+};
+
+struct SocketConnectionPoolData {
     std::map<TargetKey, std::queue<SocketInfo>> socketPools_;
     std::mutex poolMutex_;
     const size_t MAX_SOCKETS_PER_TARGET = 5;
     const int SOCKET_TIMEOUT_SECONDS = 300;
-    SocketConnectionPool() = default;
-public:
-    static SocketConnectionPool& getInstance() { static SocketConnectionPool instance; return instance; }
-    int getSocket(const std::string& clientIP, uint16_t clientPort, const std::string& serverIP, uint16_t serverPort, uint8_t protocol, int addressFamily) {
-        std::lock_guard<std::mutex> lock(poolMutex_);
-        if (protocol == PROTOCOL_TCP) return createNewSocket(protocol, addressFamily);
-        TargetKey key{clientIP, clientPort, serverIP, serverPort, protocol, addressFamily};
-        auto& pool = socketPools_[key];
-        while (!pool.empty()) {
-            SocketInfo info = pool.front(); pool.pop();
-            int err = 0; socklen_t len = sizeof(err);
-            if (getsockopt(info.sockFd, SOL_SOCKET, SO_ERROR, &err, &len) == 0 && err == 0) {
-                if (std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - info.lastUsed).count() < SOCKET_TIMEOUT_SECONDS) {
-                    return info.sockFd;
-                }
-            }
-            close(info.sockFd);
-        }
-        return createNewSocket(protocol, addressFamily);
-    }
-    void returnSocket(int sockFd, const std::string& clientIP, uint16_t clientPort, const std::string& serverIP, uint16_t serverPort, uint8_t protocol, int addressFamily) {
-        if (protocol == PROTOCOL_TCP) { TcpSocketPump::getInstance().unregisterSocket(sockFd); close(sockFd); return; }
-        UdpSocketPump::getInstance().unregisterSocket(sockFd);
-        std::lock_guard<std::mutex> lock(poolMutex_);
-        TargetKey key{clientIP, clientPort, serverIP, serverPort, protocol, addressFamily};
-        auto& pool = socketPools_[key];
-        if (pool.size() < MAX_SOCKETS_PER_TARGET) {
-            pool.push(SocketInfo(sockFd));
-        } else close(sockFd);
-    }
-    void cleanup() {
-        std::lock_guard<std::mutex> lock(poolMutex_);
-        for (auto& p : socketPools_) { while(!p.second.empty()) { close(p.second.front().sockFd); p.second.pop(); } }
-        socketPools_.clear();
-    }
-private:
+    
     int createNewSocket(uint8_t protocol, int addressFamily) {
         int af = (addressFamily == AF_INET6) ? AF_INET6 : AF_INET;
         int sockFd = socket(af, (protocol == PROTOCOL_UDP ? SOCK_DGRAM : SOCK_STREAM), 0);
@@ -368,6 +341,60 @@ private:
         return sockFd;
     }
 };
+
+static SocketConnectionPoolData& getPoolData() {
+    static SocketConnectionPoolData instance;
+    return instance;
+}
+} // anonymous namespace
+
+// SocketConnectionPool 方法实现
+SocketConnectionPool& SocketConnectionPool::getInstance() {
+    static SocketConnectionPool instance;
+    return instance;
+}
+
+int SocketConnectionPool::getSocket(const std::string& clientIP, uint16_t clientPort,
+                                     const std::string& serverIP, uint16_t serverPort,
+                                     uint8_t protocol, int addressFamily) {
+    auto& data = getPoolData();
+    std::lock_guard<std::mutex> lock(data.poolMutex_);
+    if (protocol == PROTOCOL_TCP) return data.createNewSocket(protocol, addressFamily);
+    TargetKey key{clientIP, clientPort, serverIP, serverPort, protocol, addressFamily};
+    auto& pool = data.socketPools_[key];
+    while (!pool.empty()) {
+        SocketInfo info = pool.front(); pool.pop();
+        int err = 0; socklen_t len = sizeof(err);
+        if (getsockopt(info.sockFd, SOL_SOCKET, SO_ERROR, &err, &len) == 0 && err == 0) {
+            if (std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - info.lastUsed).count() < data.SOCKET_TIMEOUT_SECONDS) {
+                return info.sockFd;
+            }
+        }
+        close(info.sockFd);
+    }
+    return data.createNewSocket(protocol, addressFamily);
+}
+
+void SocketConnectionPool::returnSocket(int sockFd, const std::string& clientIP, uint16_t clientPort,
+                                        const std::string& serverIP, uint16_t serverPort,
+                                        uint8_t protocol, int addressFamily) {
+    if (protocol == PROTOCOL_TCP) { TcpSocketPump::getInstance().unregisterSocket(sockFd); close(sockFd); return; }
+    UdpSocketPump::getInstance().unregisterSocket(sockFd);
+    auto& data = getPoolData();
+    std::lock_guard<std::mutex> lock(data.poolMutex_);
+    TargetKey key{clientIP, clientPort, serverIP, serverPort, protocol, addressFamily};
+    auto& pool = data.socketPools_[key];
+    if (pool.size() < data.MAX_SOCKETS_PER_TARGET) {
+        pool.push(SocketInfo(sockFd));
+    } else close(sockFd);
+}
+
+void SocketConnectionPool::cleanup() {
+    auto& data = getPoolData();
+    std::lock_guard<std::mutex> lock(data.poolMutex_);
+    for (auto& p : data.socketPools_) { while(!p.second.empty()) { close(p.second.front().sockFd); p.second.pop(); } }
+    data.socketPools_.clear();
+}
 
 static bool ProtectSocket(int sockFd, const std::string& description) {
     const char* ifs[] = {"eth0", "wlan0", "rmnet0", "rmnet_data0", "rmnet_data1", nullptr};
@@ -429,7 +456,7 @@ static int ForwardICMPPacket(const uint8_t* data, int dataSize, const PacketInfo
         auto* a4 = reinterpret_cast<sockaddr_in*>(&target); a4->sin_family = AF_INET;
         inet_pton(AF_INET, pi.targetIP.c_str(), &a4->sin_addr); tlen = sizeof(sockaddr_in);
     } else {
-        auto* a6 = reinterpret_cast<sockaddr_in6*>(&target); a6->sin_family = AF_INET6;
+        auto* a6 = reinterpret_cast<sockaddr_in6*>(&target); a6->sin6_family = AF_INET6;
         inet_pton(AF_INET6, pi.targetIP.c_str(), &a6->sin6_addr); tlen = sizeof(sockaddr_in6);
     }
     int ipHL = (af == AF_INET) ? (data[0] & 0x0F) * 4 : 40;
@@ -460,21 +487,47 @@ int PacketForwarder::ForwardPacket(const uint8_t* data, int dataSize, const Pack
 
     if (pi.protocol == PROTOCOL_TCP) {
         ParsedTcp tcp = ParseTcpFromIp(data, dataSize);
-        if (!tcp.ok) return -1;
+        if (!tcp.ok) {
+            LOG_ERROR("❌ [TCP] 解析失败: 源=%s:%d, 大小=%d", pi.sourceIP.c_str(), pi.sourcePort, dataSize);
+            return -1;
+        }
+        
         if (NATTable::FindMapping(natKey, conn)) {
             sockFd = conn.forwardSocket;
         } else {
-            if (!HasTcpFlag(tcp.flags, TCP_SYN) || HasTcpFlag(tcp.flags, TCP_ACK)) return -1;
+            // 🚨 关键诊断：如果没有映射，必须是SYN包
+            if (!HasTcpFlag(tcp.flags, TCP_SYN) || HasTcpFlag(tcp.flags, TCP_ACK)) {
+                // 这是最常见的“forward failed”原因：连接已关闭或映射已过期，但客户端仍在发送数据或ACK
+                // 为了减少日志，这里改用 INFO，因为这在长连接断开后是正常的
+                LOG_INFO("ℹ️ [TCP] 丢弃无映射包: 标志=%s, 源=%s:%d -> 目标=%s:%d (映射可能已过期)", 
+                         TcpFlagsToString(tcp.flags).c_str(),
+                         pi.sourceIP.c_str(), pi.sourcePort, pi.targetIP.c_str(), pi.targetPort);
+                return -1;
+            }
+            
             sockFd = SocketConnectionPool::getInstance().getSocket(pi.sourceIP, pi.sourcePort, pi.targetIP, pi.targetPort, pi.protocol, pi.addressFamily);
-            if (sockFd < 0) return -1;
+            if (sockFd < 0) {
+                LOG_ERROR("❌ [TCP] 获取Socket失败: %s:%d", pi.targetIP.c_str(), pi.targetPort);
+                return -1;
+            }
+            
             ProtectSocket(sockFd, "TCP");
-            if (!NATTable::CreateMapping(natKey, peer, pi, sockFd)) { close(sockFd); return -1; }
+            if (!NATTable::CreateMapping(natKey, peer, pi, sockFd)) {
+                LOG_ERROR("❌ [TCP] 创建NAT映射失败: %s", natKey.c_str());
+                close(sockFd);
+                return -1;
+            }
+            
             isNew = true;
             uint32_t serverIsn = (uint32_t)rand();
             NATTable::WithConnection(natKey, [&](NATConnection& c) {
                 c.tcpState = NATConnection::TcpState::CONNECTING; c.clientIsn = tcp.seq; c.serverIsn = serverIsn;
                 c.nextClientSeq = tcp.seq + 1; c.nextServerSeq = serverIsn + 1;
             });
+            
+            LOG_INFO("🚀 [TCP] 发起新连接: %s:%d -> %s:%d (fd=%d)", 
+                     pi.sourceIP.c_str(), pi.sourcePort, pi.targetIP.c_str(), pi.targetPort, sockFd);
+            
             std::thread([natKey, sockFd, pi, peer, serverIsn, tcp]() {
                 sockaddr_storage target{}; socklen_t tlen = 0;
                 if (pi.addressFamily == AF_INET6) {

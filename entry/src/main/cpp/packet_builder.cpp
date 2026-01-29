@@ -266,3 +266,15 @@ int PacketBuilder::GetIPHeaderLength(const uint8_t* ipPacket) {
     if (version == 6) return 40;
     return 0;
 }
+
+int PacketBuilder::GetTCPHeaderLength(const uint8_t* tcpHeader) {
+    if (!tcpHeader) return 0;
+    // TCP header length is stored in the upper 4 bits of byte 12
+    // It's measured in 32-bit words, so multiply by 4 to get bytes
+    uint8_t dataOffset = (tcpHeader[12] >> 4) & 0x0F;
+    int headerLen = static_cast<int>(dataOffset) * 4;
+    // TCP header must be at least 20 bytes and at most 60 bytes
+    if (headerLen < 20) return 20;
+    if (headerLen > 60) return 60;
+    return headerLen;
+}

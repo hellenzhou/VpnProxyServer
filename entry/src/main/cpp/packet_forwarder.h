@@ -6,6 +6,19 @@
 #include <netinet/in.h>
 #include "protocol_handler.h"
 
+// Socket连接池类（前向声明）
+class SocketConnectionPool {
+public:
+    static SocketConnectionPool& getInstance();
+    int getSocket(const std::string& clientIP, uint16_t clientPort,
+                  const std::string& serverIP, uint16_t serverPort, uint8_t protocol,
+                  int addressFamily);
+    void returnSocket(int sockFd, const std::string& clientIP, uint16_t clientPort,
+                     const std::string& serverIP, uint16_t serverPort, uint8_t protocol,
+                     int addressFamily);
+    void cleanup();
+};
+
 // 数据包转发器类
 class PacketForwarder {
 public:
